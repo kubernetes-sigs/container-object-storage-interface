@@ -1,0 +1,11 @@
+driverName: sample-driver.objectstorage.k8s.io
+deletionPolicy: "Delete" # "Retain"
+bucketClassParams:
+  foo: bar
+  baz: cux
+bucketAccessClassParams:
+  foo: bar
+  baz: cux
+authenticationType: "Key" # "IAM"
+bucketClaimProtocols: ["S3", "Azure"]
+bucketAccessProtocol: "S3"

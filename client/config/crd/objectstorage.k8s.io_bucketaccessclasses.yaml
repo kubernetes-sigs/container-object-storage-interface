@@ -1,0 +1,62 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: bucketaccessclasses.objectstorage.k8s.io
+spec:
+  group: objectstorage.k8s.io
+  names:
+    kind: BucketAccessClass
+    listKind: BucketAccessClassList
+    plural: bucketaccessclasses
+    singular: bucketaccessclass
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          authenticationType:
+            description: |-
+              AuthenticationType denotes the style of authentication
+              It can be one of
+              Key - access, secret tokens based authentication
+              IAM - implicit authentication of pods to the OSP based on service account mappings
+            type: string
+          driverName:
+            description: |-
+              DriverName is the name of driver associated with
+              this BucketAccess
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          parameters:
+            additionalProperties:
+              type: string
+            description: |-
+              Parameters is an opaque map for passing in configuration to a driver
+              for granting access to a bucket
+            type: object
+        required:
+        - authenticationType
+        - driverName
+        type: object
+    served: true
+    storage: true

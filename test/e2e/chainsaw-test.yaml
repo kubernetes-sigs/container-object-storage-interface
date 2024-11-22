@@ -1,0 +1,265 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/test-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: generic-test
+spec:
+  template: true
+  bindings:
+  - name: driverName
+    value: ($values.driverName)
+  - name: deletionPolicy
+    value: ($values.deletionPolicy)
+  - name: bucketClassParams
+    value: ($values.bucketClassParams)
+  - name: bucketAccessClassParams
+    value: ($values.bucketAccessClassParams)
+  - name: authenticationType
+    value: ($values.authenticationType)
+  - name: bucketClaimProtocols
+    value: ($values.bucketClaimProtocols)
+  - name: bucketAccessProtocol
+    value: ($values.bucketAccessProtocol)
+  steps:
+  - name: Check if COSI Controller exist
+    try:
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: container-object-storage-controller
+            namespace: container-object-storage-system
+          status:
+            availableReplicas: 1
+  - name: Create test BucketClass and BucketAccessClass
+    try:
+    - apply:
+        resource:
+          apiVersion: objectstorage.k8s.io/v1alpha1
+          kind: BucketClass
+          metadata:
+            name: ($namespace)
+          driverName: ($driverName)
+          deletionPolicy: ($deletionPolicy)
+          parameters: ($bucketClassParams)
+    - apply:
+        resource:
+          apiVersion: objectstorage.k8s.io/v1alpha1
+          kind: BucketAccessClass
+          metadata:
+            name: ($namespace)
+          driverName: ($driverName)
+          authenticationType: ($authenticationType)
+          parameters: ($bucketAccessClassParams)
+  - name: Create BucketClaim
+    try:
+    - apply:
+        resource:
+          apiVersion: objectstorage.k8s.io/v1alpha1
+          kind: BucketClaim
+          metadata:
+            name: ($namespace)
+          spec:
+            bucketClassName: ($namespace)
+            protocols: ($bucketClaimProtocols)
+  - name: Check if BucketClaim is ready
+    try:
+    - assert:
+        resource:
+          apiVersion: objectstorage.k8s.io/v1alpha1
+          kind: BucketClaim
+          metadata:
+            name: ($namespace)
+          status:
+            bucketReady: true
+  - name: Create BucketAccess
+    try:
+    - apply:
+        resource:
+          apiVersion: objectstorage.k8s.io/v1alpha1
+          kind: BucketAccess
+          metadata:
+            name: ($namespace)
+          spec:
+            bucketClaimName: ($namespace)
+            protocol: ($bucketAccessProtocol)
+            bucketAccessClassName: ($namespace)
+            credentialsSecretName: ($namespace)
+            serviceAccountName: ($namespace)
+  - name: Check if BucketAccess is granted
+    try:
+    - assert:
+        resource:
+          apiVersion: objectstorage.k8s.io/v1alpha1
+          kind: BucketAccess
+          metadata:
+            name: ($namespace)
+          status:
+            accessGranted: true
+  - name: Check if Secret exists
+    try:
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: ($namespace)
+  - name: Run ObjectStorage validation tool
+    # TODO: This should be either a standalone test tool developed by us, to run test suite:
+    # - validate Secret format;
+    # - validate connectivity to the Object Storage server;
+    # Right now it is using busybox to check if the secret has correct format.
+    try:
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: validation
+          data:
+            schema.json: |
+              {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {
+                  "spec": {
+                    "type": "object",
+                    "properties": {
+                      "bucketName": {
+                        "type": "string"
+                      },
+                      "authenticationType": {
+                        "type": "string",
+                        "enum": [
+                          "IAM",
+                          "Key"
+                        ]
+                      },
+                      "protocols": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "S3",
+                            "Azure",
+                            "GCP"
+                          ]
+                        },
+                        "minItems": 1
+                      },
+                      "secretS3": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "object"
+                          }
+                        ],
+                        "properties": {
+                          "endpoint": {
+                            "type": "string"
+                          },
+                          "region": {
+                            "type": "string"
+                          },
+                          "accessKeyID": {
+                            "type": "string"
+                          },
+                          "accessSecretKey": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "endpoint",
+                          "region",
+                          "accessKeyID",
+                          "accessSecretKey"
+                        ]
+                      },
+                      "secretAzure": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "object"
+                          }
+                        ],
+                        "properties": {
+                          "accessToken": {
+                            "type": "string"
+                          },
+                          "expiryTimeStamp": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "accessToken",
+                          "expiryTimeStamp"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "bucketName",
+                      "authenticationType",
+                      "protocols",
+                      "secretAzure",
+                      "secretS3"
+                    ]
+                  }
+                },
+                "required": [
+                  "spec"
+                ]
+              }
+            validator.sh: |
+              #!/usr/bin/env sh
+              set -e
+              pip install check-jsonschema
+              check-jsonschema --schemafile /validation/schema.json /conf/BucketInfo.json
+    - create:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ($namespace)
+          spec:
+            ttlSecondsAfterFinished: 100
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                - name: secret-test
+                  image: docker.io/library/python:3.12
+                  command: [ "sh", "/validation/validator.sh" ]
+                  env:
+                  - name: PIP_ROOT_USER_ACTION
+                    value: ignore
+                  volumeMounts:
+                  - mountPath: /validation
+                    name: validation
+                  - mountPath: /conf
+                    name: secret-vol
+                volumes:
+                - name: validation
+                  configMap:
+                    name: validation
+                - name: secret-vol
+                  secret:
+                    secretName: ($namespace)
+                    items:
+                    - key: BucketInfo
+                      path: BucketInfo.json
+  - name: Check if ObjectStorage validation tool completed succesfully
+    try:
+    - assert:
+        resource:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ($namespace)
+          status:
+            succeeded: 1

@@ -1,0 +1,27 @@
+# K8s infra build example: https://github.com/kubernetes/test-infra/blob/master/config/jobs/image-pushing/README.md
+# GCloud build docs: https://cloud.google.com/cloud-build/docs/build-config
+# Builds go to https://console.cloud.google.com/gcr/images/k8s-staging-sig-storage/GLOBAL
+# Build logs in https://testgrid.k8s.io/sig-storage-image-build
+timeout: 3600s
+options:
+  substitution_option: 'ALLOW_LOOSE'
+  machineType: 'E2_HIGHCPU_8'
+substitutions:
+  # K8s provides custom substitutions _GIT_TAG and _PULL_BASE_REF:
+  #   https://github.com/kubernetes/test-infra/blob/master/config/jobs/image-pushing/README.md#custom-substitutions
+  _GIT_TAG: '12345'  # e.g., vYYYYMMDD-hash, vYYYYMMDD-tag, or vYYYYMMDD-tag-n-ghash
+  _PULL_BASE_REF: 'master'  # e.g., master or release-0.2 for a PR merge, or v0.2 for a tag
+  # COSI substitutions:
+  _PLATFORMS: linux/amd64,linux/arm64 # add more platforms here if desired
+steps:
+  # TODO: currently gcr.io/k8s-testimages/gcb-docker-gcloud has not moved to Artifact Registry
+  # gcr.io will be shut down 18 Mar 2025, and we need replacement before then. Latest info below:
+  # https://github.com/kubernetes/test-infra/blob/master/images/gcb-docker-gcloud/cloudbuild.yaml
+  - id: do-multi-arch-build-all-images
+    name: gcr.io/k8s-testimages/gcb-docker-gcloud:v20240718-5ef92b5c36
+    args:
+      - hack/cloudbuild.sh
+    env:
+      - GIT_TAG=$_GIT_TAG
+      - PULL_BASE_REF=$_PULL_BASE_REF
+      - PLATFORM=$_PLATFORMS
