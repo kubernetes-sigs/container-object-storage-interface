@@ -10,7 +10,7 @@ echo "PLATFORM: ${PLATFORM}"
 # debug the rest of the script in case of image/CI build issues
 set -o xtrace
 
-REPO="gcr.io/k8s-staging-sig-storage"
+REPO="registry.k8s.io/k8s-staging-sig-storage"
 
 CONTROLLER_IMAGE="${REPO}/objectstorage-controller"
 SIDECAR_IMAGE="${REPO}/objectstorage-sidecar"
