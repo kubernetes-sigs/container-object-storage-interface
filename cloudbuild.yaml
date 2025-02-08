@@ -16,7 +16,7 @@ substitutions:
 steps:
   # TODO: currently gcr.io/k8s-testimages/gcb-docker-gcloud has not moved to Artifact Registry
   # gcr.io will be shut down 18 Mar 2025, and we need replacement before then. Latest info below:
-  # https://github.com/kubernetes/test-infra/blob/master/images/gcb-docker-gcloud/cloudbuild.yaml
+  # https://github.com/kubernetes/k8s.io/issues/1523#issuecomment-920311451
   - id: do-multi-arch-build-all-images
     name: gcr.io/k8s-testimages/gcb-docker-gcloud:v20240718-5ef92b5c36
     args:
