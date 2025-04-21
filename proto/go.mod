@@ -3,7 +3,7 @@ module sigs.k8s.io/container-object-storage-interface/proto
 go 1.22.4
 
 require (
-	github.com/dave/jennifer v1.4.1
+	github.com/dave/jennifer v1.7.1
 	github.com/golang/protobuf v1.5.4
 	google.golang.org/grpc v1.35.0
 	google.golang.org/protobuf v1.34.2
