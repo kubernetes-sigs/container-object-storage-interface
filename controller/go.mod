@@ -12,9 +12,9 @@ replace (
 require (
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.19.0
-	k8s.io/api v0.32.3
-	k8s.io/apimachinery v0.32.3
-	k8s.io/client-go v0.32.3
+	k8s.io/api v0.32.4
+	k8s.io/apimachinery v0.32.4
+	k8s.io/client-go v0.32.4
 	k8s.io/klog/v2 v2.130.1
 	sigs.k8s.io/container-object-storage-interface/client v0.0.0-00010101000000-000000000000
 	sigs.k8s.io/container-object-storage-interface/internal v0.0.0-00010101000000-000000000000
