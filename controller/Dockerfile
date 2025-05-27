@@ -30,6 +30,9 @@ RUN CGO_ENABLED=0 go build -o /buildroot/artifacts/controller cmd/*.go
 #
 # FINAL IMAGE
 #
+
+# gcr.io is deprecated, but gcr.io/distroless/static is hosted by artifact hub with the gcr.io path.
+# See: https://github.com/GoogleContainerTools/distroless/issues/1320
 FROM gcr.io/distroless/static:nonroot
 
 LABEL maintainers="Kubernetes Authors"
