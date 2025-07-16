@@ -183,7 +183,7 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 			return b.recordError(inputBucketClaim, v1.EventTypeWarning, v1alpha1.FailedCreateBucket, err)
 		}
 
-		bucketName = bucketClassName + string(bucketClaim.ObjectMeta.UID)
+		bucketName = fmt.Sprintf("bucket-%s", bucketClaim.ObjectMeta.UID)
 
 		// create bucket
 		bucket := &v1alpha1.Bucket{}
