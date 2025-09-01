@@ -11,7 +11,7 @@ replace (
 require (
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.9.1
-	github.com/spf13/pflag v1.0.7
+	github.com/spf13/pflag v1.0.8
 	github.com/spf13/viper v1.19.0
 	google.golang.org/grpc v1.74.2
 	k8s.io/api v0.32.3
