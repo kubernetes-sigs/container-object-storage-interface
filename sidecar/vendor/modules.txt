@@ -786,6 +786,7 @@ k8s.io/utils/trace
 ## explicit; go 1.22.4
 sigs.k8s.io/container-object-storage-interface/client/apis
 sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage
+sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/consts
 sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha1
 sigs.k8s.io/container-object-storage-interface/client/clientset/versioned
 sigs.k8s.io/container-object-storage-interface/client/clientset/versioned/fake
