@@ -33,11 +33,11 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis"
+	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/consts"
 	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha1"
 	buckets "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned"
 	bucketapi "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned/typed/objectstorage/v1alpha1"
 	cosi "sigs.k8s.io/container-object-storage-interface/proto"
-	"sigs.k8s.io/container-object-storage-interface/sidecar/pkg/consts"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 

@@ -32,11 +32,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	fakekubeclientset "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/consts"
 	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha1"
 	fakebucketclientset "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned/fake"
 	cosi "sigs.k8s.io/container-object-storage-interface/proto"
 	fakespec "sigs.k8s.io/container-object-storage-interface/proto/fake"
-	"sigs.k8s.io/container-object-storage-interface/sidecar/pkg/consts"
 )
 
 func TestInitializeKubeClient(t *testing.T) {
