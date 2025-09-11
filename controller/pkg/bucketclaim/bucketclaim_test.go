@@ -323,3 +323,32 @@ func TestRecordEvents(t *testing.T) {
 func newEvent(eventType, reason, message string) string {
 	return fmt.Sprintf("%s %s %s", eventType, reason, message)
 }
+
+// Claim already marked for deletion must not create a bucket
+func TestAddDeletedBucketClaim(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := fakebucketclientset.NewSimpleClientset()
+	kubeClient := fakekubeclientset.NewSimpleClientset()
+	eventRecorder := record.NewFakeRecorder(3)
+
+	listener := NewBucketClaimListener()
+	listener.InitializeKubeClient(kubeClient)
+	listener.InitializeBucketClient(client)
+	listener.InitializeEventRecorder(eventRecorder)
+
+	_, _ = util.CreateBucketClass(ctx, client, &goldClass)
+
+	claimToDelete := bucketClaim1.DeepCopy()
+	now := metav1.Now()
+	claimToDelete.ObjectMeta.DeletionTimestamp = &now
+
+	if err := listener.Add(ctx, claimToDelete); err != nil {
+		t.Fatalf("Add returned error for deleted claim: %v", err)
+	}
+
+	if bl := util.GetBuckets(ctx, client, 0); len(bl.Items) != 0 {
+		t.Fatalf("expected 0 buckets, got %d", len(bl.Items))
+	}
+}

@@ -1,0 +1,39 @@
+version: 2
+enable-beta-ecosystems: true
+updates:
+
+  - package-ecosystem: "gomod"
+    directories:
+      - "**/*"
+    schedule:
+      interval: "weekly"
+    groups:
+      golang-dependencies:
+        patterns:
+          - "github.com/golang*"
+          - "golang.org/x*"
+      k8s-dependencies:
+        patterns:
+          - "k8s.io*"
+          - "sigs.k8s.io*"
+        exclude-patterns:
+          # controller-runtime has history of breaking API changes more often than other k8s projects
+          - "sigs.k8s.io/controller-runtime"
+    labels:
+      - ok-to-test
+
+  - package-ecosystem: "docker"
+    directories:
+      - "**/*"
+    schedule:
+      interval: "weekly"
+    labels:
+      - ok-to-test
+
+  - package-ecosystem: "github-actions"
+    directories:
+      - "**/*"
+    schedule:
+      interval: "weekly"
+    labels:
+      - ok-to-test

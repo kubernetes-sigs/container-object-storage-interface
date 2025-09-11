@@ -219,7 +219,7 @@ spec:
               #!/usr/bin/env sh
               set -e
               pip install check-jsonschema
-              check-jsonschema --schemafile /validation/schema.json /conf/BucketInfo.json
+              check-jsonschema --schemafile /validation/schema.json /conf/BucketInfo
     - create:
         resource:
           apiVersion: batch/v1
@@ -252,8 +252,8 @@ spec:
                     secretName: ($namespace)
                     items:
                     - key: BucketInfo
-                      path: BucketInfo.json
-  - name: Check if ObjectStorage validation tool completed succesfully
+                      path: BucketInfo
+  - name: Check if ObjectStorage validation tool completed successfully
     try:
     - assert:
         resource:

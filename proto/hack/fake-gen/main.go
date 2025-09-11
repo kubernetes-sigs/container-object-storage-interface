@@ -14,8 +14,8 @@ import (
 	"strings"
 
 	. "github.com/dave/jennifer/jen"
-	plugin "github.com/golang/protobuf/protoc-gen-go/plugin"
 	"google.golang.org/protobuf/proto"
+	plugin "google.golang.org/protobuf/types/pluginpb"
 )
 
 type GoFake struct {

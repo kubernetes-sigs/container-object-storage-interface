@@ -44,26 +44,6 @@ if [[ "${PULL_BASE_REF}" == release-* ]]; then
   ADDITIONAL_SIDECAR_TAGS+=("${SIDECAR_IMAGE}:${PULL_BASE_REF}")
 fi
 
-# PULL_BASE_REF is 'controller/TAG' for a tagged controller release
-if [[ "${PULL_BASE_REF}" == controller/* ]]; then
-  echo " ! ! ! this is a tagged controller release ! ! !"
-  TAG="${PULL_BASE_REF#controller/*}"
-  # when tagging a release image, do not apply any other tags other than the release tag
-  # the registry.k8s.io scripting does not handle images with multiple tags
-  ADDITIONAL_CONTROLLER_TAGS=()
-  CONTROLLER_TAG="${CONTROLLER_IMAGE}:${TAG}"
-fi
-
-# PULL_BASE_REF is 'sidecar/TAG' for a tagged sidecar release
-if [[ "${PULL_BASE_REF}" == sidecar/* ]]; then
-  echo " ! ! ! this is a tagged sidecar release ! ! !"
-  TAG="${PULL_BASE_REF#sidecar/*}"
-  # when tagging a release image, do not apply any other tags other than the release tag
-  # the registry.k8s.io scripting does not handle images with multiple tags
-  ADDITIONAL_SIDECAR_TAGS=()
-  SIDECAR_TAG="${SIDECAR_IMAGE}:${TAG}"
-fi
-
 # PULL_BASE_REF is 'v0.y.z*' for tagged alpha releases where controller and sidecar are released simultaneously
 # hand wave over complex matching logic by just looking for 'v0.' prefix
 if [[ "${PULL_BASE_REF}" == 'v0.'* ]]; then

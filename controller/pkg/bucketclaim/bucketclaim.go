@@ -32,6 +32,10 @@ func NewBucketClaimListener() *BucketClaimListener {
 
 // Add creates a bucket in response to a bucketClaim
 func (b *BucketClaimListener) Add(ctx context.Context, bucketClaim *v1alpha1.BucketClaim) error {
+	if !bucketClaim.GetDeletionTimestamp().IsZero() {
+		return b.handleDeletion(ctx, bucketClaim)
+	}
+
 	klog.V(3).InfoS("Add BucketClaim",
 		"name", bucketClaim.ObjectMeta.Name,
 		"ns", bucketClaim.ObjectMeta.Namespace,
@@ -76,23 +80,37 @@ func (b *BucketClaimListener) Update(ctx context.Context, old, new *v1alpha1.Buc
 	bucketClaim := new.DeepCopy()
 
 	if !new.GetDeletionTimestamp().IsZero() {
-		if controllerutil.ContainsFinalizer(bucketClaim, util.BucketClaimFinalizer) {
-			bucketName := bucketClaim.Status.BucketName
-			err := b.buckets().Delete(ctx, bucketName, metav1.DeleteOptions{})
-			if err != nil {
-				klog.V(3).ErrorS(err, "Error deleting bucket",
-					"bucket", bucketName,
-					"bucketClaim", bucketClaim.ObjectMeta.Name)
-				return b.recordError(bucketClaim, v1.EventTypeWarning, v1alpha1.FailedDeleteBucket, err)
-			}
+		return b.handleDeletion(ctx, bucketClaim)
+	}
 
-			klog.V(5).Infof("Successfully deleted bucket: %s from bucketClaim: %s", bucketName, bucketClaim.ObjectMeta.Name)
-		}
+	if err := b.Add(ctx, bucketClaim); err != nil {
+		return err
 	}
 
 	klog.V(3).InfoS("Update BucketClaim success",
 		"name", bucketClaim.ObjectMeta.Name,
 		"ns", bucketClaim.ObjectMeta.Namespace)
+	return nil
+}
+
+// handleDeletion processes the deletion of a bucketClaim.
+func (b *BucketClaimListener) handleDeletion(ctx context.Context, bucketClaim *v1alpha1.BucketClaim) error {
+	if !controllerutil.ContainsFinalizer(bucketClaim, util.BucketClaimFinalizer) {
+		return nil
+	}
+
+	bucketName := bucketClaim.Status.BucketName
+	if bucketName != "" {
+		if err := b.buckets().Delete(ctx, bucketName, metav1.DeleteOptions{}); err != nil && !kubeerrors.IsNotFound(err) {
+			klog.V(3).ErrorS(err, "Error deleting bucket",
+				"bucket", bucketName,
+				"bucketClaim", bucketClaim.ObjectMeta.Name)
+			return b.recordError(bucketClaim, v1.EventTypeWarning, v1alpha1.FailedDeleteBucket, err)
+		}
+		klog.V(5).Infof("Successfully requested deletion of bucket: %s for bucketClaim: %s",
+			bucketName, bucketClaim.ObjectMeta.Name)
+	}
+
 	return nil
 }
 

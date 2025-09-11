@@ -29,11 +29,11 @@ import (
 	kube "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/consts"
 	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha1"
 	buckets "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned"
 	bucketapi "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned/typed/objectstorage/v1alpha1"
 	cosi "sigs.k8s.io/container-object-storage-interface/proto"
-	"sigs.k8s.io/container-object-storage-interface/sidecar/pkg/consts"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -67,6 +67,10 @@ func (b *BucketListener) Add(ctx context.Context, inputBucket *v1alpha1.Bucket) 
 	bucket := inputBucket.DeepCopy()
 
 	var err error
+
+	if !bucket.GetDeletionTimestamp().IsZero() {
+		return b.handleDeletion(ctx, bucket)
+	}
 
 	klog.V(3).InfoS("Add Bucket",
 		"name", bucket.ObjectMeta.Name)
@@ -212,50 +216,11 @@ func (b *BucketListener) Update(ctx context.Context, old, new *v1alpha1.Bucket) 
 	var err error
 
 	if !bucket.GetDeletionTimestamp().IsZero() {
-		if controllerutil.ContainsFinalizer(bucket, consts.BABucketFinalizer) {
-			bucketClaimNs := bucket.Spec.BucketClaim.Namespace
-			bucketClaimName := bucket.Spec.BucketClaim.Name
-			bucketAccessList, err := b.bucketAccesses(bucketClaimNs).List(ctx, metav1.ListOptions{})
-			if err != nil {
-				klog.V(3).ErrorS(err, "Error fetching BucketAccessList",
-					"bucket", bucket.ObjectMeta.Name)
-				return err
-			}
+		return b.handleDeletion(ctx, bucket)
+	}
 
-			for _, bucketAccess := range bucketAccessList.Items {
-				if strings.EqualFold(bucketAccess.Spec.BucketClaimName, bucketClaimName) {
-					err = b.bucketAccesses(bucketClaimNs).Delete(ctx, bucketAccess.Name, metav1.DeleteOptions{})
-					if err != nil {
-						klog.V(3).ErrorS(err, "Error deleting BucketAccess",
-							"name", bucketAccess.Name,
-							"bucket", bucket.ObjectMeta.Name)
-						return err
-					}
-				}
-			}
-
-			klog.V(5).Infof("Successfully deleted dependent bucketAccess of bucket:%s", bucket.ObjectMeta.Name)
-
-			controllerutil.RemoveFinalizer(bucket, consts.BABucketFinalizer)
-			klog.V(5).Infof("Successfully removed finalizer: %s of bucket: %s", consts.BABucketFinalizer, bucket.ObjectMeta.Name)
-		}
-
-		if controllerutil.ContainsFinalizer(bucket, consts.BucketFinalizer) {
-			err = b.deleteBucketOp(ctx, bucket)
-			if err != nil {
-				return b.recordError(bucket, v1.EventTypeWarning, v1alpha1.FailedDeleteBucket, err)
-			}
-
-			controllerutil.RemoveFinalizer(bucket, consts.BucketFinalizer)
-			klog.V(5).Infof("Successfully removed finalizer: %s of bucket: %s", consts.BucketFinalizer, bucket.ObjectMeta.Name)
-		}
-
-		_, err = b.buckets().Update(ctx, bucket, metav1.UpdateOptions{})
-		if err != nil {
-			klog.V(3).ErrorS(err, "Error updating bucket after removing finalizers",
-				"bucket", bucket.ObjectMeta.Name)
-			return err
-		}
+	if err = b.Add(ctx, bucket); err != nil {
+		return err
 	}
 
 	klog.V(3).InfoS("Update Bucket success",
@@ -264,7 +229,51 @@ func (b *BucketListener) Update(ctx context.Context, old, new *v1alpha1.Bucket) 
 	return nil
 }
 
-// Delete attemps to delete a bucket. This function must be idempotent
+func (b *BucketListener) handleDeletion(ctx context.Context, bucket *v1alpha1.Bucket) error {
+	var err error
+
+	if controllerutil.ContainsFinalizer(bucket, consts.BABucketFinalizer) {
+		bucketClaimNs := bucket.Spec.BucketClaim.Namespace
+		bucketClaimName := bucket.Spec.BucketClaim.Name
+
+		bucketAccessList, err := b.bucketAccesses(bucketClaimNs).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			klog.V(3).ErrorS(err, "Error fetching BucketAccessList",
+				"bucket", bucket.ObjectMeta.Name)
+			return err
+		}
+
+		for _, ba := range bucketAccessList.Items {
+			if strings.EqualFold(ba.Spec.BucketClaimName, bucketClaimName) {
+				if err = b.bucketAccesses(bucketClaimNs).Delete(ctx, ba.Name, metav1.DeleteOptions{}); err != nil {
+					klog.V(3).ErrorS(err, "Error deleting BucketAccess",
+						"name", ba.Name,
+						"bucket", bucket.ObjectMeta.Name)
+					return err
+				}
+			}
+		}
+
+		controllerutil.RemoveFinalizer(bucket, consts.BABucketFinalizer)
+	}
+
+	if controllerutil.ContainsFinalizer(bucket, consts.BucketFinalizer) {
+		if err = b.deleteBucketOp(ctx, bucket); err != nil {
+			return b.recordError(bucket, v1.EventTypeWarning, v1alpha1.FailedDeleteBucket, err)
+		}
+		controllerutil.RemoveFinalizer(bucket, consts.BucketFinalizer)
+	}
+
+	if _, err = b.buckets().Update(ctx, bucket, metav1.UpdateOptions{}); err != nil {
+		klog.V(3).ErrorS(err, "Error updating bucket after removing finalizers",
+			"bucket", bucket.ObjectMeta.Name)
+		return err
+	}
+
+	return nil
+}
+
+// Delete attempts to delete a bucket. This function must be idempotent
 // Delete function is called when the bucket was not able to add finalizers while creation.
 // Hence we will take care of removing the BucketClaim finalizer before deleting the Bucket object.
 // Return values

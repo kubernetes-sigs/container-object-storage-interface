@@ -33,11 +33,11 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis"
+	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/consts"
 	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha1"
 	buckets "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned"
 	bucketapi "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned/typed/objectstorage/v1alpha1"
 	cosi "sigs.k8s.io/container-object-storage-interface/proto"
-	"sigs.k8s.io/container-object-storage-interface/sidecar/pkg/consts"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -67,6 +67,12 @@ func NewBucketAccessListener(driverName string, client cosi.ProvisionerClient) *
 //   - non-nil err - Internal error                                [requeue'd with exponential backoff]
 func (bal *BucketAccessListener) Add(ctx context.Context, inputBucketAccess *v1alpha1.BucketAccess) error {
 	bucketAccess := inputBucketAccess.DeepCopy()
+
+	if !bucketAccess.GetDeletionTimestamp().IsZero() {
+		klog.V(3).InfoS("BucketAccess has deletion timestamp, handling deletion",
+			"name", bucketAccess.ObjectMeta.Name)
+		return bal.deleteBucketAccessOp(ctx, bucketAccess)
+	}
 
 	if bucketAccess.Status.AccessGranted && bucketAccess.Status.AccountID != "" {
 		klog.V(3).InfoS("BucketAccess already exists", bucketAccess.ObjectMeta.Name)
@@ -310,9 +316,12 @@ func (bal *BucketAccessListener) Update(ctx context.Context, old, new *v1alpha1.
 
 	bucketAccess := new.DeepCopy()
 	if !bucketAccess.GetDeletionTimestamp().IsZero() {
-		err := bal.deleteBucketAccessOp(ctx, bucketAccess)
-		if err != nil {
+		if err := bal.deleteBucketAccessOp(ctx, bucketAccess); err != nil {
 			return bal.recordError(bucketAccess, v1.EventTypeWarning, v1alpha1.FailedRevokeAccess, err)
+		}
+	} else {
+		if err := bal.Add(ctx, bucketAccess); err != nil {
+			return bal.recordError(bucketAccess, v1.EventTypeWarning, v1alpha1.FailedGrantAccess, err)
 		}
 	}
 
@@ -321,7 +330,7 @@ func (bal *BucketAccessListener) Update(ctx context.Context, old, new *v1alpha1.
 	return nil
 }
 
-// Delete attemps to delete a bucketAccess. This function must be idempotent
+// Delete attempts to delete a bucketAccess. This function must be idempotent
 // Return values
 //   - nil - BucketAccess successfully deleted
 //   - non-nil err - Internal error                                [requeue'd with exponential backoff]

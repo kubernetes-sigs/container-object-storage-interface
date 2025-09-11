@@ -3,7 +3,7 @@
 #
 # BUILDER
 #
-FROM docker.io/library/golang:1.22 AS builder
+FROM docker.io/library/golang:1.24 AS builder
 
 WORKDIR /buildroot
 
@@ -12,11 +12,12 @@ WORKDIR /buildroot
 COPY client/ client/
 COPY proto/ proto/
 COPY internal/ internal/
+COPY vendor/ vendor/
 
-COPY controller/go.mod controller/go.mod
-COPY controller/go.sum controller/go.sum
+COPY go.mod go.mod
+COPY go.sum go.sum
 
-RUN cd controller && go mod download
+RUN go mod download
 
 COPY controller/cmd/ controller/cmd/
 COPY controller/pkg/ controller/pkg/

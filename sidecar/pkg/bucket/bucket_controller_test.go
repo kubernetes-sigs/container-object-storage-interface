@@ -31,11 +31,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	fakekubeclientset "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/consts"
 	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha1"
 	fakebucketclientset "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned/fake"
 	cosi "sigs.k8s.io/container-object-storage-interface/proto"
 	fakespec "sigs.k8s.io/container-object-storage-interface/proto/fake"
-	"sigs.k8s.io/container-object-storage-interface/sidecar/pkg/consts"
 )
 
 func TestInitializeKubeClient(t *testing.T) {
@@ -309,4 +309,44 @@ func TestRecordEvents(t *testing.T) {
 
 func newEvent(eventType, reason, message string) string {
 	return fmt.Sprintf("%s %s %s", eventType, reason, message)
+}
+
+// TestAddDeletedBucket tests that the Add method does not call the driver
+func TestAddDeletedBucket(t *testing.T) {
+	driver := "driver1"
+
+	mpc := struct{ fakespec.FakeProvisionerClient }{}
+	mpc.FakeDriverDeleteBucket = func(
+		_ context.Context,
+		_ *cosi.DriverDeleteBucketRequest,
+		_ ...grpc.CallOption,
+	) (*cosi.DriverDeleteBucketResponse, error) {
+		t.Fatalf("driver should NOT be called from Add when object has DeletionTimestamp")
+		return nil, nil
+	}
+
+	now := metav1.Now()
+	b := v1alpha1.Bucket{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "testbucket",
+			DeletionTimestamp: &now,
+			ResourceVersion:   "1",
+		},
+		Spec: v1alpha1.BucketSpec{
+			DriverName:      driver,
+			BucketClassName: "ignored",
+		},
+	}
+
+	client := fakebucketclientset.NewSimpleClientset(&b)
+
+	bl := BucketListener{
+		driverName:        driver,
+		provisionerClient: &mpc,
+	}
+	bl.InitializeBucketClient(client)
+
+	if err := bl.Add(context.TODO(), &b); err != nil {
+		t.Fatalf("Add returned error for deleted bucket: %v", err)
+	}
 }

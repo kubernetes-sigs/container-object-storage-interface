@@ -1,0 +1,14 @@
+[book]
+title = "Container Object Storage Interface"
+description = "This site documents how to develop and deploy a Container Object Storage Interface (COSI) driver on Kubernetes."
+authors = ["The Kubernetes Authors"]
+
+[output.html]
+git-repository-url = "https://github.com/kubernetes-sigs/container-object-storage-interface/tree/main/docs"
+edit-url-template = "https://github.com/kubernetes-sigs/container-object-storage-interface/tree/main/docs/{path}"
+additional-css = ["theme/custom.css"]
+theme = "theme"
+
+[preprocessor.generate-version]
+renderers = ["html"]
+command = """sh -c 'scripts/generate-version.sh'"""

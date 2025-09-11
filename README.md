@@ -29,7 +29,7 @@ Create a new issue raising a RFC for the changes following this format:
 **Description:**
 > 1. Protocol:
 > 2. Fields Added:
-> 3. Why is this change neccessary?
+> 3. Why is this change necessary?
 >    ...(describe why here)...
 > 4. Which other COSI projects are affected by this change?
 > 5. Upgrade plan

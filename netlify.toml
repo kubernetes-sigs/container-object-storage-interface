@@ -1,0 +1,33 @@
+# Netlify build instructions
+[build]
+    command = "make build-docs"
+    publish = "docs/book"
+
+[build.environment]
+    GO_VERSION = "1.24.3"
+
+# Standard Netlify redirects
+[[redirects]]
+    from = "https://main--kubernetes-sigs-container-object-storage-interface.netlify.com/*"
+    to = "https://main.container-object-storage-interface.sigs.k8s.io/:splat"
+    status = 301
+    force = true
+
+# HTTP-to-HTTPS rules
+[[redirects]]
+    from = "http://main.container-object-storage-interface.sigs.k8s.io/*"
+    to = "https://main.container-object-storage-interface.sigs.k8s.io/:splat"
+    status = 301
+    force = true
+
+[[redirects]]
+    from = "http://main--kubernetes-sigs-container-object-storage-interface.netlify.com/*"
+    to = "http://main.container-object-storage-interface.sigs.k8s.io/:splat"
+    status = 301
+    force = true
+
+[[headers]]
+    for = "/tasks/experimental-features/runtime-sdk/runtime-sdk-openapi.yaml"
+    [headers.values]
+        Access-Control-Allow-Origin = "*"
+        Access-Control-Allow-Methods = "*"
