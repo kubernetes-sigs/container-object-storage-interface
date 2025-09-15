@@ -1,0 +1,3 @@
+# ignore dot directories to speed up docker builds where context must be copied
+./.*
+./proto/.*/
