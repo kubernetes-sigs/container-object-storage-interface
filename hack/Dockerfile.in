@@ -9,7 +9,6 @@ WORKDIR /buildroot
 # as much and so that source changes don't invalidate our downloaded layer.
 COPY client/ client/
 COPY proto/ proto/
-COPY internal/ internal/
 COPY vendor/ vendor/
 
 COPY go.mod go.mod
@@ -18,7 +17,7 @@ COPY go.sum go.sum
 RUN go mod download
 
 COPY {{COMPONENT}}/cmd/ {{COMPONENT}}/cmd/
-COPY {{COMPONENT}}/pkg/ {{COMPONENT}}/pkg/
+COPY {{COMPONENT}}/internal/ {{COMPONENT}}/internal/
 
 WORKDIR /buildroot/{{COMPONENT}}
 

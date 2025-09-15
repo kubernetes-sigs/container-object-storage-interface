@@ -96,11 +96,10 @@ func (c CommonAuthInfo) GetCommonAuthInfo() CommonAuthInfo {
 	return c
 }
 
-// ProtocolInfo provides static information regarding transport credentials.
+// ProtocolInfo provides information regarding the gRPC wire protocol version,
+// security protocol, security protocol version in use, server name, etc.
 type ProtocolInfo struct {
 	// ProtocolVersion is the gRPC wire protocol version.
-	//
-	// Deprecated: this is unused by gRPC.
 	ProtocolVersion string
 	// SecurityProtocol is the security protocol in use.
 	SecurityProtocol string
@@ -110,16 +109,7 @@ type ProtocolInfo struct {
 	//
 	// Deprecated: please use Peer.AuthInfo.
 	SecurityVersion string
-	// ServerName is the user-configured server name.  If set, this overrides
-	// the default :authority header used for all RPCs on the channel using the
-	// containing credentials, unless grpc.WithAuthority is set on the channel,
-	// in which case that setting will take precedence.
-	//
-	// This must be a valid `:authority` header according to
-	// [RFC3986](https://datatracker.ietf.org/doc/html/rfc3986#section-3.2).
-	//
-	// Deprecated: Users should use grpc.WithAuthority to override the authority
-	// on a channel instead of configuring the credentials.
+	// ServerName is the user-configured server name.
 	ServerName string
 }
 
@@ -183,17 +173,12 @@ type TransportCredentials interface {
 	// Clone makes a copy of this TransportCredentials.
 	Clone() TransportCredentials
 	// OverrideServerName specifies the value used for the following:
-	//
 	// - verifying the hostname on the returned certificates
 	// - as SNI in the client's handshake to support virtual hosting
 	// - as the value for `:authority` header at stream creation time
 	//
-	// The provided string should be a valid `:authority` header according to
-	// [RFC3986](https://datatracker.ietf.org/doc/html/rfc3986#section-3.2).
-	//
-	// Deprecated: this method is unused by gRPC.  Users should use
-	// grpc.WithAuthority to override the authority on a channel instead of
-	// configuring the credentials.
+	// Deprecated: use grpc.WithAuthority instead. Will be supported
+	// throughout 1.x.
 	OverrideServerName(string) error
 }
 

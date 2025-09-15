@@ -11,7 +11,6 @@ WORKDIR /buildroot
 # as much and so that source changes don't invalidate our downloaded layer.
 COPY client/ client/
 COPY proto/ proto/
-COPY internal/ internal/
 COPY vendor/ vendor/
 
 COPY go.mod go.mod
@@ -20,7 +19,7 @@ COPY go.sum go.sum
 RUN go mod download
 
 COPY sidecar/cmd/ sidecar/cmd/
-COPY sidecar/pkg/ sidecar/pkg/
+COPY sidecar/internal/ sidecar/internal/
 
 WORKDIR /buildroot/sidecar
 
