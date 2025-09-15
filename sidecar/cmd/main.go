@@ -42,5 +42,6 @@ func main() {
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		klog.ErrorS(err, "Exiting on error")
+		os.Exit(1)
 	}
 }
