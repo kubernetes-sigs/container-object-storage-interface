@@ -47,7 +47,8 @@ type BucketClaimReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	logger := logf.FromContext(ctx)
+	logger.V(1).Info("beginning reconcile") // TODO: add more info after testing
 
 	// TODO(user): your logic here
 

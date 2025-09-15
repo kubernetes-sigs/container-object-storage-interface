@@ -20,8 +20,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// ObjectStoreProtocol identifies an object storage protocol.
+// +enum
+// +kubebuilder:validation:Enum:=S3;Azure;GCS
+type ObjectStoreProtocol string
+
+const (
+	// ObjectStoreProtocolS3 identifies the AWS S3 object storage protocol.
+	ObjectStoreProtocolS3 ObjectStoreProtocol = "S3"
+
+	// ObjectStoreProtocolAzure identifies the Azure Blob object storage protocol.
+	ObjectStoreProtocolAzure ObjectStoreProtocol = "Azure"
+
+	// ObjectStoreProtocolGcs identifies the Google Cloud Storage (GCS) object storage protocol.
+	ObjectStoreProtocolGcs ObjectStoreProtocol = "GCS"
+)
 
 // BucketAccessSpec defines the desired state of BucketAccess
 type BucketAccessSpec struct {
@@ -60,6 +73,7 @@ type BucketAccessStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support"
 
 // BucketAccess is the Schema for the bucketaccesses API
 type BucketAccess struct {

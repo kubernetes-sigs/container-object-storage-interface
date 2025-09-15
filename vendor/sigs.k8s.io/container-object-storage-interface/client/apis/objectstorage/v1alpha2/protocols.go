@@ -16,15 +16,20 @@ limitations under the License.
 
 package v1alpha2
 
+/*
+This file contains all definitions for the various object store protocols.
+*/
+
+// ObjectProtocol represents an object protocol type.
+type ObjectProtocol string
+
 const (
-	// ProtectionFinalizer is applied to a COSI resource object to protect it from deletion while
-	// COSI processes deletion of the object's intermediate and backend resources.
-	ProtectionFinalizer = `objectstorage.k8s.io/protection`
+	// ObjectProtocolS3 represents the S3 object protocol type.
+	ObjectProtocolS3 = "S3"
 
-	// RpcEndpointDefault is the default RPC endpoint unix socket location.
-	RpcEndpointDefault = "unix:///var/lib/cosi/cosi.sock"
+	// ObjectProtocolS3 represents the Azure Blob object protocol type.
+	ObjectProtocolAzure = "Azure"
 
-	// RpcEndpointEnvVarName is the name of the environment variable that is expected to hold the
-	// RPC endpoint unix socket location. If unspecified, RpcEndpointDefault should be used.
-	RpcEndpointEnvVarName = "COSI_ENDPOINT"
+	// ObjectProtocolS3 represents the Google Cloud Storage object protocol type.
+	ObjectProtocolGcs = "GCS"
 )

@@ -17,6 +17,10 @@ limitations under the License.
 package v1alpha2
 
 const (
+	// ProtectionFinalizer is applied to a COSI resource object to protect it from deletion while
+	// COSI processes deletion of the object's intermediate and backend resources.
+	ProtectionFinalizer = `objectstorage.k8s.io/protection`
+
 	// RpcEndpointDefault is the default RPC endpoint unix socket location.
 	RpcEndpointDefault = "unix:///var/lib/cosi/cosi.sock"
 
