@@ -21,15 +21,14 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	Identity_DriverGetInfo_FullMethodName = "/cosi.v1alpha1.Identity/DriverGetInfo"
+	Identity_DriverGetInfo_FullMethodName = "/sigs.k8s.io.cosi.v1alpha2.Identity/DriverGetInfo"
 )
 
 // IdentityClient is the client API for Identity service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type IdentityClient interface {
-	// This call is meant to retrieve the unique provisioner Identity.
-	// This identity will have to be set in BucketClaim.DriverName field in order to invoke this specific provisioner.
+	// Retrieve the unique provisioner identity.
 	DriverGetInfo(ctx context.Context, in *DriverGetInfoRequest, opts ...grpc.CallOption) (*DriverGetInfoResponse, error)
 }
 
@@ -54,8 +53,7 @@ func (c *identityClient) DriverGetInfo(ctx context.Context, in *DriverGetInfoReq
 // All implementations must embed UnimplementedIdentityServer
 // for forward compatibility
 type IdentityServer interface {
-	// This call is meant to retrieve the unique provisioner Identity.
-	// This identity will have to be set in BucketClaim.DriverName field in order to invoke this specific provisioner.
+	// Retrieve the unique provisioner identity.
 	DriverGetInfo(context.Context, *DriverGetInfoRequest) (*DriverGetInfoResponse, error)
 	mustEmbedUnimplementedIdentityServer()
 }
@@ -102,7 +100,7 @@ func _Identity_DriverGetInfo_Handler(srv interface{}, ctx context.Context, dec f
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Identity_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "cosi.v1alpha1.Identity",
+	ServiceName: "sigs.k8s.io.cosi.v1alpha2.Identity",
 	HandlerType: (*IdentityServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -115,28 +113,44 @@ var Identity_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	Provisioner_DriverCreateBucket_FullMethodName       = "/cosi.v1alpha1.Provisioner/DriverCreateBucket"
-	Provisioner_DriverDeleteBucket_FullMethodName       = "/cosi.v1alpha1.Provisioner/DriverDeleteBucket"
-	Provisioner_DriverGrantBucketAccess_FullMethodName  = "/cosi.v1alpha1.Provisioner/DriverGrantBucketAccess"
-	Provisioner_DriverRevokeBucketAccess_FullMethodName = "/cosi.v1alpha1.Provisioner/DriverRevokeBucketAccess"
+	Provisioner_DriverCreateBucket_FullMethodName       = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverCreateBucket"
+	Provisioner_DriverGetExistingBucket_FullMethodName  = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGetExistingBucket"
+	Provisioner_DriverDeleteBucket_FullMethodName       = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverDeleteBucket"
+	Provisioner_DriverGrantBucketAccess_FullMethodName  = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGrantBucketAccess"
+	Provisioner_DriverRevokeBucketAccess_FullMethodName = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverRevokeBucketAccess"
 )
 
 // ProvisionerClient is the client API for Provisioner service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ProvisionerClient interface {
-	// This call is made to create the bucket in the backend.
-	// This call is idempotent
-	//  1. If a bucket that matches both name and parameters already exists, then OK (success) must be returned.
-	//  2. If a bucket by same name, but different parameters is provided, then the appropriate error code ALREADY_EXISTS must be returned.
+	// Create the bucket in the backend.
+	//
+	// Important return codes:
+	// - MUST return OK if a backend bucket with matching identity and parameters already exists.
+	// - MUST return ALREADY_EXISTS if a backend bucket with matching identity exists but with incompatible parameters.
 	DriverCreateBucket(ctx context.Context, in *DriverCreateBucketRequest, opts ...grpc.CallOption) (*DriverCreateBucketResponse, error)
-	// This call is made to delete the bucket in the backend.
-	// If the bucket has already been deleted, then no error should be returned.
+	// Get details about a statically-provisioned bucket that should already exist in the OSP backend.
+	//
+	// Important return codes:
+	// - MUST return OK if a backend bucket with matching identity and parameters already exists.
+	// - MUST return NOT_FOUND if a bucket with matching identity does not exist.
+	DriverGetExistingBucket(ctx context.Context, in *DriverGetExistingBucketRequest, opts ...grpc.CallOption) (*DriverGetExistingBucketResponse, error)
+	// Delete the bucket in the backend.
+	//
+	// Important return codes:
+	// - MUST return OK if the bucket has already been deleted.
 	DriverDeleteBucket(ctx context.Context, in *DriverDeleteBucketRequest, opts ...grpc.CallOption) (*DriverDeleteBucketResponse, error)
-	// This call grants access to an account. The account_name in the request shall be used as a unique identifier to create credentials.
-	// The account_id returned in the response will be used as the unique identifier for deleting this access when calling DriverRevokeBucketAccess.
+	// Grant access to a bucket.
+	//
+	// Important return codes:
+	// - MUST return OK if a principal with matching identity and parameters already exists.
+	// - MUST return ALREADY_EXISTS if a principal with matching identity exists but with incompatible parameters.
 	DriverGrantBucketAccess(ctx context.Context, in *DriverGrantBucketAccessRequest, opts ...grpc.CallOption) (*DriverGrantBucketAccessResponse, error)
-	// This call revokes all access to a particular bucket from a principal.
+	// Revokes access to given bucket(s) from a principal.
+	//
+	// Important return codes:
+	// - MUST return OK if access has already been removed from a principal.
 	DriverRevokeBucketAccess(ctx context.Context, in *DriverRevokeBucketAccessRequest, opts ...grpc.CallOption) (*DriverRevokeBucketAccessResponse, error)
 }
 
@@ -151,6 +165,15 @@ func NewProvisionerClient(cc grpc.ClientConnInterface) ProvisionerClient {
 func (c *provisionerClient) DriverCreateBucket(ctx context.Context, in *DriverCreateBucketRequest, opts ...grpc.CallOption) (*DriverCreateBucketResponse, error) {
 	out := new(DriverCreateBucketResponse)
 	err := c.cc.Invoke(ctx, Provisioner_DriverCreateBucket_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *provisionerClient) DriverGetExistingBucket(ctx context.Context, in *DriverGetExistingBucketRequest, opts ...grpc.CallOption) (*DriverGetExistingBucketResponse, error) {
+	out := new(DriverGetExistingBucketResponse)
+	err := c.cc.Invoke(ctx, Provisioner_DriverGetExistingBucket_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -188,18 +211,33 @@ func (c *provisionerClient) DriverRevokeBucketAccess(ctx context.Context, in *Dr
 // All implementations must embed UnimplementedProvisionerServer
 // for forward compatibility
 type ProvisionerServer interface {
-	// This call is made to create the bucket in the backend.
-	// This call is idempotent
-	//  1. If a bucket that matches both name and parameters already exists, then OK (success) must be returned.
-	//  2. If a bucket by same name, but different parameters is provided, then the appropriate error code ALREADY_EXISTS must be returned.
+	// Create the bucket in the backend.
+	//
+	// Important return codes:
+	// - MUST return OK if a backend bucket with matching identity and parameters already exists.
+	// - MUST return ALREADY_EXISTS if a backend bucket with matching identity exists but with incompatible parameters.
 	DriverCreateBucket(context.Context, *DriverCreateBucketRequest) (*DriverCreateBucketResponse, error)
-	// This call is made to delete the bucket in the backend.
-	// If the bucket has already been deleted, then no error should be returned.
+	// Get details about a statically-provisioned bucket that should already exist in the OSP backend.
+	//
+	// Important return codes:
+	// - MUST return OK if a backend bucket with matching identity and parameters already exists.
+	// - MUST return NOT_FOUND if a bucket with matching identity does not exist.
+	DriverGetExistingBucket(context.Context, *DriverGetExistingBucketRequest) (*DriverGetExistingBucketResponse, error)
+	// Delete the bucket in the backend.
+	//
+	// Important return codes:
+	// - MUST return OK if the bucket has already been deleted.
 	DriverDeleteBucket(context.Context, *DriverDeleteBucketRequest) (*DriverDeleteBucketResponse, error)
-	// This call grants access to an account. The account_name in the request shall be used as a unique identifier to create credentials.
-	// The account_id returned in the response will be used as the unique identifier for deleting this access when calling DriverRevokeBucketAccess.
+	// Grant access to a bucket.
+	//
+	// Important return codes:
+	// - MUST return OK if a principal with matching identity and parameters already exists.
+	// - MUST return ALREADY_EXISTS if a principal with matching identity exists but with incompatible parameters.
 	DriverGrantBucketAccess(context.Context, *DriverGrantBucketAccessRequest) (*DriverGrantBucketAccessResponse, error)
-	// This call revokes all access to a particular bucket from a principal.
+	// Revokes access to given bucket(s) from a principal.
+	//
+	// Important return codes:
+	// - MUST return OK if access has already been removed from a principal.
 	DriverRevokeBucketAccess(context.Context, *DriverRevokeBucketAccessRequest) (*DriverRevokeBucketAccessResponse, error)
 	mustEmbedUnimplementedProvisionerServer()
 }
@@ -210,6 +248,9 @@ type UnimplementedProvisionerServer struct {
 
 func (UnimplementedProvisionerServer) DriverCreateBucket(context.Context, *DriverCreateBucketRequest) (*DriverCreateBucketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DriverCreateBucket not implemented")
+}
+func (UnimplementedProvisionerServer) DriverGetExistingBucket(context.Context, *DriverGetExistingBucketRequest) (*DriverGetExistingBucketResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DriverGetExistingBucket not implemented")
 }
 func (UnimplementedProvisionerServer) DriverDeleteBucket(context.Context, *DriverDeleteBucketRequest) (*DriverDeleteBucketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DriverDeleteBucket not implemented")
@@ -247,6 +288,24 @@ func _Provisioner_DriverCreateBucket_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ProvisionerServer).DriverCreateBucket(ctx, req.(*DriverCreateBucketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Provisioner_DriverGetExistingBucket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DriverGetExistingBucketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProvisionerServer).DriverGetExistingBucket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Provisioner_DriverGetExistingBucket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProvisionerServer).DriverGetExistingBucket(ctx, req.(*DriverGetExistingBucketRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -309,12 +368,16 @@ func _Provisioner_DriverRevokeBucketAccess_Handler(srv interface{}, ctx context.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Provisioner_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "cosi.v1alpha1.Provisioner",
+	ServiceName: "sigs.k8s.io.cosi.v1alpha2.Provisioner",
 	HandlerType: (*ProvisionerServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "DriverCreateBucket",
 			Handler:    _Provisioner_DriverCreateBucket_Handler,
+		},
+		{
+			MethodName: "DriverGetExistingBucket",
+			Handler:    _Provisioner_DriverGetExistingBucket_Handler,
 		},
 		{
 			MethodName: "DriverDeleteBucket",

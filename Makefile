@@ -48,8 +48,9 @@ SIDECAR_TAG ?= cosi-provisioner-sidecar:latest
 ##@ Development
 
 .PHONY: generate
-generate: crd-ref-docs controller/Dockerfile sidecar/Dockerfile ## Generate files
-	$(MAKE) -C client crds
+generate: controller-gen crd-ref-docs controller/Dockerfile sidecar/Dockerfile ## Generate files
+	cd ./client && $(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./apis/objectstorage/..."
+	# $(MAKE) -C client crds
 	$(MAKE) -C proto generate
 	$(CRD_REF_DOCS) \
 		--config=./docs/.crd-ref-docs.yaml \
@@ -60,9 +61,9 @@ generate: crd-ref-docs controller/Dockerfile sidecar/Dockerfile ## Generate file
 	hack/gen-dockerfile.sh $* > "$@"
 
 .PHONY: codegen
-codegen: codegen.client codegen.proto ## Generate code
-codegen.%: FORCE
-	$(MAKE) -C $* codegen
+codegen: controller-gen ## Generate code
+	cd ./client && $(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/objectstorage/..."
+	$(MAKE) -C proto codegen
 
 .PHONY: fmt
 fmt: fmt.client fmt.controller fmt.sidecar ## Format code
@@ -164,30 +165,37 @@ $(TOOLBIN):
 	mkdir -p $(TOOLBIN)
 
 # Tool Binaries
-CHAINSAW      ?= $(TOOLBIN)/chainsaw
-CRD_REF_DOCS  ?= $(TOOLBIN)/crd-ref-docs
-CTLPTL        ?= $(TOOLBIN)/ctlptl
-GOLANGCI_LINT ?= $(TOOLBIN)/golangci-lint
-KIND          ?= $(TOOLBIN)/kind
-KUSTOMIZE     ?= $(TOOLBIN)/kustomize
-MDBOOK        ?= $(TOOLBIN)/mdbook
-SPELL_LINT    ?= $(TOOLBIN)/spell-lint
+CHAINSAW       ?= $(TOOLBIN)/chainsaw
+CONTROLLER_GEN ?= $(TOOLBIN)/controller-gen
+CRD_REF_DOCS   ?= $(TOOLBIN)/crd-ref-docs
+CTLPTL         ?= $(TOOLBIN)/ctlptl
+GOLANGCI_LINT  ?= $(TOOLBIN)/golangci-lint
+KIND           ?= $(TOOLBIN)/kind
+KUSTOMIZE      ?= $(TOOLBIN)/kustomize
+MDBOOK         ?= $(TOOLBIN)/mdbook
+SPELL_LINT     ?= $(TOOLBIN)/spell-lint
 
 # Tool Versions
-CHAINSAW_VERSION      ?= v0.2.12
-CRD_REF_DOCS_VERSION  ?= v0.1.0
-CTLPTL_VERSION        ?= v0.8.39
-GOLANGCI_LINT_VERSION ?= v1.64.7
-KIND_VERSION          ?= v0.27.0
-KUSTOMIZE_VERSION     ?= v5.6.0
-MDBOOK_VERSION        ?= v0.4.47
-SPELL_LINT_VERSION    ?= v0.6.0
-HADOLINT_VERSION      ?= v2.12.0
+CHAINSAW_VERSION         ?= v0.2.12
+CONTROLLER_TOOLS_VERSION ?= v0.19.0
+CRD_REF_DOCS_VERSION     ?= v0.1.0
+CTLPTL_VERSION           ?= v0.8.39
+GOLANGCI_LINT_VERSION    ?= v1.64.7
+KIND_VERSION             ?= v0.27.0
+KUSTOMIZE_VERSION        ?= v5.6.0
+MDBOOK_VERSION           ?= v0.4.47
+SPELL_LINT_VERSION       ?= v0.6.0
+HADOLINT_VERSION         ?= v2.12.0
 
 .PHONY: chainsaw
 chainsaw: $(CHAINSAW)-$(CHAINSAW_VERSION)
 $(CHAINSAW)-$(CHAINSAW_VERSION): $(TOOLBIN)
 	$(call go-install-tool,$(CHAINSAW),github.com/kyverno/chainsaw,$(CHAINSAW_VERSION))
+
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN)-$(CONTROLLER_TOOLS_VERSION)
+$(CONTROLLER_GEN)-$(CONTROLLER_TOOLS_VERSION): $(LOCALBIN)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
 
 .PHONY: crd-ref-docs
 crd-ref-docs: $(CRD_REF_DOCS)-$(CRD_REF_DOCS_VERSION)

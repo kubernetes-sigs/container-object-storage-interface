@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: bucketclaims.objectstorage.k8s.io
 spec:
   group: objectstorage.k8s.io
@@ -14,9 +14,10 @@ spec:
     singular: bucketclaim
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - name: v1alpha2
     schema:
       openAPIV3Schema:
+        description: BucketClaim is the Schema for the bucketclaims API
         properties:
           apiVersion:
             description: |-
@@ -36,45 +37,88 @@ spec:
           metadata:
             type: object
           spec:
+            description: spec defines the desired state of BucketClaim
             properties:
-              bucketClassName:
-                description: Name of the BucketClass
+              foo:
+                description: foo is an example field of BucketClaim. Edit bucketclaim_types.go
+                  to remove/update
                 type: string
-              existingBucketName:
-                description: |-
-                  Name of a bucket object that was manually
-                  created to import a bucket created outside of COSI
-                  If unspecified, then a new Bucket will be dynamically provisioned
-                type: string
-              protocols:
-                description: |-
-                  Protocols are the set of data API this bucket is required to support.
-                  The possible values for protocol are:
-                  -  S3: Indicates Amazon S3 protocol
-                  -  Azure: Indicates Microsoft Azure BlobStore protocol
-                  -  GCS: Indicates Google Cloud Storage protocol
-                items:
-                  type: string
-                type: array
-            required:
-            - protocols
             type: object
           status:
+            description: status defines the observed state of BucketClaim
             properties:
-              bucketName:
+              conditions:
                 description: |-
-                  BucketName is the name of the provisioned Bucket in response
-                  to this BucketClaim. It is generated and set by the COSI controller
-                  before making the creation request to the OSP backend.
-                type: string
-              bucketReady:
-                description: |-
-                  BucketReady indicates that the bucket is ready for consumpotion
-                  by workloads
-                type: boolean
-            required:
-            - bucketReady
+                  conditions represent the current state of the BucketClaim resource.
+                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
+
+                  Standard condition types include:
+                  - "Available": the resource is fully functional
+                  - "Progressing": the resource is being created or updated
+                  - "Degraded": the resource failed to reach or maintain its desired state
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true
