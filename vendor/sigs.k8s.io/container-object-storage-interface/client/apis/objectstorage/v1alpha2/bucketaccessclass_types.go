@@ -60,6 +60,8 @@ type BucketAccessClassStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support"
 
 // BucketAccessClass is the Schema for the bucketaccessclasses API
 type BucketAccessClass struct {

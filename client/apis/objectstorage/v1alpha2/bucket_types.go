@@ -18,21 +18,80 @@ package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// BucketDeletionPolicy configures COSI's behavior when a Bucket resource is deleted.
+// +enum
+// +kubebuilder:validation:Enum:=Retain;Delete
+type BucketDeletionPolicy string
+
+const (
+	// BucketDeletionPolicyRetain configures COSI to keep the Bucket object as well as the backend
+	// bucket when a Bucket resource is deleted.
+	BucketDeletionPolicyRetain BucketDeletionPolicy = "Retain"
+
+	// BucketDeletionPolicyDelete configures COSI to delete the Bucket object as well as the backend
+	// bucket when a Bucket resource is deleted.
+	BucketDeletionPolicyDelete BucketDeletionPolicy = "Delete"
+)
 
 // BucketSpec defines the desired state of Bucket
 type BucketSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// driverName is the name of the driver that fulfills requests for this Bucket.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:message="driverName is immutable",rule="self == oldSelf"
+	DriverName string `json:"driverName"`
 
-	// foo is an example field of Bucket. Edit bucket_types.go to remove/update
+	// deletionPolicy determines whether a Bucket should be deleted when its bound BucketClaim is
+	// deleted. This is mutable to allow Admins to change the policy after creation.
+	// Possible values:
+	//  - Retain: keep both the Bucket object and the backend bucket
+	//  - Delete: delete both the Bucket object and the backend bucket
+	// +required
+	DeletionPolicy BucketDeletionPolicy `json:"deletionPolicy"`
+
+	// parameters is an opaque map of driver-specific configuration items passed to the driver that
+	// fulfills requests for this Bucket.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// +kubebuilder:validation:XValidation:message="parameters map is immutable",rule="self == oldSelf"
+	Parameters map[string]string `json:"parameters,omitempty"`
+
+	// protocols lists object store protocols that the provisioned Bucket must support.
+	// If specified, COSI will verify that each item is advertised as supported by the driver.
+	// +optional
+	// +kubebuilder:validation:XValidation:message="protocols list is immutable",rule="self == oldSelf"
+	Protocols []ObjectProtocol `json:"protocols,omitempty"`
+
+	// bucketClaim references the BucketClaim that resulted in the creation of this Bucket.
+	// For statically-provisioned buckets, set the namespace and name of the BucketClaim that is
+	// allowed to bind to this Bucket.
+	// +required
+	BucketClaimRef BucketClaimReference `json:"bucketClaim"`
+}
+
+// BucketClaimReference is a reference to a BucketClaim object.
+type BucketClaimReference struct {
+	// name is the name of the BucketClaim being referenced.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:message="driverName is immutable",rule="self == oldSelf"
+	Name string `json:"name"`
+
+	// namespace is the namespace of the BucketClaim being referenced.
+	// If empty, the Kubernetes 'default' namespace is assumed.
+	// namespace is immutable except to update '' to 'default'.
+	// +optional
+	// +kubebuilder:validation:MinLength=0
+	// +kubebuilder:validation:XValidation:message="driverName is immutable",rule="(oldSelf == '' && self == 'default') || self == oldSelf"
+	Namespace string `json:"namespace"`
+
+	// uid is the UID of the BucketClaim being referenced.
+	// Once set, the UID is immutable.
+	// +optional
+	// +kubebuilder:validation:XValidation:message="driverName is immutable",rule="oldSelf == '' || self == oldSelf"
+	UID types.UID `json:"uid"`
 }
 
 // BucketStatus defines the observed state of Bucket.
@@ -46,6 +105,8 @@ type BucketStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support"
 
 // Bucket is the Schema for the buckets API
 type Bucket struct {

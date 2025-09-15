@@ -10,6 +10,7 @@ replace (
 )
 
 require (
+	github.com/go-logr/logr v1.4.3
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.75.1
 	k8s.io/apimachinery v0.34.1
@@ -32,7 +33,6 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.22.0 // indirect
