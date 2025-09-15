@@ -20,8 +20,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// BucketDeletionPolicy configures COSI's behavior when a Bucket resource is deleted.
+// +enum
+// +kubebuilder:validation:Enum:=Retain;Delete
+type BucketDeletionPolicy string
+
+const (
+	// BucketDeletionPolicyRetain configures COSI to keep the Bucket object as well as the backend
+	// bucket when a Bucket resource is deleted.
+	BucketDeletionPolicyRetain BucketDeletionPolicy = "Retain"
+
+	// BucketDeletionPolicyDelete configures COSI to delete the Bucket object as well as the backend
+	// bucket when a Bucket resource is deleted.
+	BucketDeletionPolicyDelete BucketDeletionPolicy = "Delete"
+)
 
 // BucketSpec defines the desired state of Bucket
 type BucketSpec struct {
@@ -46,6 +58,7 @@ type BucketStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support"
 
 // Bucket is the Schema for the buckets API
 type Bucket struct {

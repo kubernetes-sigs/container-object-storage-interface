@@ -247,7 +247,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `foo` _string_ | foo is an example field of BucketClaim. Edit bucketclaim_types.go to remove/update |  |  |
+| `bucketClassName` _string_ | bucketClassName selects the BucketClass for provisioning the BucketClaim.<br />This field is used only for BucketClaim dynamic provisioning.<br />If unspecified, existingBucketName must be specified for binding to an existing Bucket. |  |  |
+| `protocols` _[ObjectStoreProtocol](#objectstoreprotocol) array_ | protocols lists object store protocols that the provisioned Bucket must support.<br />If specified, COSI will verify that each item is advertised as supported by the driver. |  | Enum: [S3 Azure GCS] <br /> |
+| `existingBucketName` _string_ | existingBucketName selects the name of an existing Bucket resource that this BucketClaim<br />should bind to.<br />This field is used only for BucketClaim static provisioning.<br />If unspecified, bucketClassName must be specified for dynamically provisioning a new bucket. |  |  |
 
 
 #### BucketClaimStatus
@@ -285,7 +287,6 @@ _Appears in:_
 | `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  |  |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[BucketClassSpec](#bucketclassspec)_ | spec defines the desired state of BucketClass |  |  |
-| `status` _[BucketClassStatus](#bucketclassstatus)_ | status defines the observed state of BucketClass |  |  |
 
 
 #### BucketClassList
@@ -321,23 +322,27 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `foo` _string_ | foo is an example field of BucketClass. Edit bucketclass_types.go to remove/update |  |  |
+| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this BucketClass. |  | MinLength: 1 <br /> |
+| `deletionPolicy` _[BucketDeletionPolicy](#bucketdeletionpolicy)_ | deletionPolicy determines whether a Bucket created through the BucketClass should be deleted<br />when its bound BucketClaim is deleted.<br />Possible values:<br /> - Retain: keep both the Bucket object and the backend bucket<br /> - Delete: delete both the Bucket object and the backend bucket |  | Enum: [Retain Delete] <br /> |
+| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this BucketClass. |  |  |
 
 
-#### BucketClassStatus
+#### BucketDeletionPolicy
 
+_Underlying type:_ _string_
 
+BucketDeletionPolicy configures COSI's behavior when a Bucket resource is deleted.
 
-BucketClassStatus defines the observed state of BucketClass.
-
-
+_Validation:_
+- Enum: [Retain Delete]
 
 _Appears in:_
-- [BucketClass](#bucketclass)
+- [BucketClassSpec](#bucketclassspec)
 
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#condition-v1-meta) array_ | conditions represent the current state of the BucketClass resource.<br />Each condition has a unique type and reflects the status of a specific aspect of the resource.<br /><br />Standard condition types include:<br />- "Available": the resource is fully functional<br />- "Progressing": the resource is being created or updated<br />- "Degraded": the resource failed to reach or maintain its desired state<br /><br />The status of each condition is one of True, False, or Unknown. |  |  |
+| Field | Description |
+| --- | --- |
+| `Retain` | BucketDeletionPolicyRetain configures COSI to keep the Bucket object as well as the backend<br />bucket when a Bucket resource is deleted.<br /> |
+| `Delete` | BucketDeletionPolicyDelete configures COSI to delete the Bucket object as well as the backend<br />bucket when a Bucket resource is deleted.<br /> |
 
 
 #### BucketList
@@ -387,5 +392,24 @@ BucketStatus defines the observed state of Bucket.
 _Appears in:_
 - [Bucket](#bucket)
 
+
+
+#### ObjectStoreProtocol
+
+_Underlying type:_ _string_
+
+ObjectStoreProtocol identifies an object storage protocol.
+
+_Validation:_
+- Enum: [S3 Azure GCS]
+
+_Appears in:_
+- [BucketClaimSpec](#bucketclaimspec)
+
+| Field | Description |
+| --- | --- |
+| `S3` | ObjectStoreProtocolS3 identifies the AWS S3 object storage protocol.<br /> |
+| `Azure` | ObjectStoreProtocolAzure identifies the Azure Blob object storage protocol.<br /> |
+| `GCS` | ObjectStoreProtocolGcs identifies the Google Cloud Storage (GCS) object storage protocol.<br /> |
 
 
