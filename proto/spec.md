@@ -2,10 +2,11 @@
 
 Authors:
 
+* Blaine Gardner [@BlaineEXE](https://github.com/BlaineEXE)
+* Mateusz Urbanek [@shanduur](https://github.com/shanduur)
 * Sidharth Mani [@wlan0](https://github.com/wlan0)
 * Jeff Vance [@jeffvance](https://github.com/jeffvance)
 * Srini Brahmaroutu [@brahmaroutu](https://github.com/brahmaroutu)
-
 
 ## Notational Conventions
 
@@ -16,103 +17,16 @@ The key words "unspecified", "undefined", and "implementation-defined" are to be
 An implementation is not compliant if it fails to satisfy one or more of the MUST, REQUIRED, or SHALL requirements for the protocols it implements.
 An implementation is compliant if it satisfies all the MUST, REQUIRED, and SHALL requirements for the protocols it implements.
 
-## Terminology
-
-| Term              | Definition                                       |
-|-------------------|--------------------------------------------------|
-| Bucket            | A flat organization that contains immutable objects.                          |
-| Brownfield Bucket | An existing back-end bucket.                        |
-| Greenfield Bucket | A new back-end bucket created by COSI.                        |
-|COSI  System              | Container Orchestration system/ Container Object Storage Implementation, communicates with Plugins using COSI service RPCs.                                     |
-| SP                | Object Storage Provider, the vendor of a COSI plugin implementation.                                                          |
-| CO                | Container Orchestrator, like Kubernetes.                                                          |
-| RPC/gRPC               | [Remote Procedure Call](https://en.wikipedia.org/wiki/Remote_procedure_call).                                         |
-| Node              | A host where the user workload will be running, uniquely identifiable from the perspective of a Plugin by a node ID. |
-| COSI Driver(aka Plugin)           | Aka “plugin implementation”, a gRPC endpoint that implements the COSI Services.                                        |
-| Sidecar (aka Provisioner Sidecar) | A COSI process that interfaces with the Plugin.                                                       |
-|COSI Node Adapter (aka CSI Driver) | A process that accepts gRPC calls from the Kubelet notifying it when the workload has been started and when it is terminating. |
-| Provisioner | A generic term meant to describe the combination of a sidecar and COSI driver. "Provisioning" a bucket can mean creating a new bucket or granting access to an existing bucket.                                                       |
-| Workload          | The atomic unit of "work" scheduled by a COSI System. This MAY be a container or a collection of containers.                   |
-
 ## Objective
 
-To define a standard “Container Object Storage Interface” (COSI) that enables a storage vendor (SP) to develop an RPC-based plugin once and have it work across multiple Kubernetes clusters and on other COs.
+This document is the primary gRPC spec for the Container Object Storage Interface (COSI).
+`cosi.proto` is generated from this file.
+COSI's design is approved by Kubernetes sig-storage.
+The latest approved and merged design can be found in [kubernetes/enhancements](https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support).
+The COSI KEP version targeted by this document is [`v1alpha2`](https://github.com/kubernetes/enhancements/pull/4599).
 
-### Goals in MVP
-
-The Container Object Storage Interface (COSI) will:
-
-* Enable SP authors to write one COSI compliant RPC Plugin that “just works” across all COs that implement COSI.
-* Define API (RPCs) that enable:
-  * Dynamic provisioning and de-provisioning of a bucket.
-  * Ability to define bucket access control mechanisms
-  * Consumption of both existing and new buckets created on SP.
-  * Define plugin protocol recommendations.
-  * Describe a process by which an admin configures a Plugin.
-  * COSI deployments and templates.
-
-### Non-Goals in MVP
-
-The Container Object Storage Interface (COSI) spec explicitly will not define, provide, or dictate:
-
-* Specific mechanisms by which a Provisioner Sidecar manages the lifecycle of a Plugin, including:
-  * How to deploy, install, upgrade, uninstall, monitor, or respawn (in case of unexpected termination) Plugins.
-* A first class message structure/field to represent "grades of object storage" (aka "bucket class").
-* Protocol-level authentication and authorization.
-* Packaging of a Plugin.
-
-## Solution Overview
-
-This specification defines an interface along with the minimum operational and packaging recommendations for a storage provider (SP) to implement a COSI compatible plugin.
-The interface declares the RPCs that a plugin MUST expose: this is the **primary focus** of the COSI specification.
-Any operational and packaging recommendations offer additional guidance to promote cross-COSI system compatibility.
-
-### Architecture
-
-The primary focus of this specification is on the RPC **protocol** between a COSI System and a Plugin.
-It SHOULD be possible to ship cross-COSI system compatible Plugins for a variety of deployment architectures.
-A COSI system SHOULD be equipped to handle both centralized and headless plugins.
-Interaction of these components is illustrated in the  figure below.
-
-```
-                    COSI System "Master" Host
-+-------------------------------------------+
-|                                           |
-|  +------------+           +------------+  |
-|  |   COSI     |   gRPC    | Controller |  |
-|  |   System   +----------->   Plugin   |  |
-|  +------------+           +------------+  |
-|                                           |
-+-------------------------------------------+
-
-```
-Figure 1: Plugin deployment, all of the COSI system Node hosts run Plugins.
-
-
-![Cosi Components](cosicomponents.png)
-
-Figure 2: Kubernetes implementation - Interaction of COSI components
-
-### Bucket Lifecycle
-
-```
-     CreateBucket +-------------+ DeleteBucket
-    +------------->|  CREATED   +--------------+
-    |              +---+----^---+              |
-    |          Grant   |    | Revoke           v
-    +++        Bucket  |    | Bucket          +++
-    |X|        Access  |    | Access          | |
-    +-+            +---v----+---+             +-+
-                   |   BOUND    |
-                   +---+----^---+
-
-```
-Figure 3: The lifecycle of a dynamically provisioned bucket, from
-creation to deletion.
-
-The above diagrams illustrate a general expectation with respect to how a COSI system MAY manage the lifecycle of a bucket via the API presented in this specification.
-Plugins SHOULD expose all RPCs for an interface: Controller plugins SHOULD implement all RPCs for the  service.
-Unsupported RPCs SHOULD return an appropriate error code that indicates such (e.g. `UNIMPLEMENTED`).
+Because the KEP design document is the primary source of truth, this document avoids repeating unnecessary information.
+Concise information that serves as useful documentation for driver implementers may be duplicated.
 
 ## Container Object Storage Interface
 
@@ -376,7 +290,6 @@ message DriverRevokeBucketAccessResponse {
 
 In general the Cluster Orchestrator (CO) is responsible for ensuring that there is no more than one call “in-flight” per Bucket at a given time.
 Multiple calls to CreateBucket may result in error 'ALREADY_EXISTS' if the call succeeded early. Similarly DeleteBucket, GrantBucketAccess, RevokeBucketAccess will behave the same.
-
 
 #### Field Requirements
 
