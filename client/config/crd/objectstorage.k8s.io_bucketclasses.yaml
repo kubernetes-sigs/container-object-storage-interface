@@ -3,7 +3,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.3
+    api-approved.kubernetes.io: https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: bucketclasses.objectstorage.k8s.io
 spec:
   group: objectstorage.k8s.io
@@ -12,11 +13,12 @@ spec:
     listKind: BucketClassList
     plural: bucketclasses
     singular: bucketclass
-  scope: Cluster
+  scope: Namespaced
   versions:
-  - name: v1alpha1
+  - name: v1alpha2
     schema:
       openAPIV3Schema:
+        description: BucketClass is the Schema for the bucketclasses API
         properties:
           apiVersion:
             description: |-
@@ -24,18 +26,6 @@ spec:
               Servers should convert recognized schemas to the latest internal value, and
               may reject unrecognized values.
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-            type: string
-          deletionPolicy:
-            default: Retain
-            description: |-
-              DeletionPolicy is used to specify how COSI should handle deletion of this
-              bucket. There are 2 possible values:
-               - Retain: Indicates that the bucket should not be deleted from the OSP
-               - Delete: Indicates that the bucket should be deleted from the OSP
-                     once all the workloads accessing this bucket are done
-            type: string
-          driverName:
-            description: DriverName is the name of driver associated with this bucket
             type: string
           kind:
             description: |-
@@ -47,16 +37,41 @@ spec:
             type: string
           metadata:
             type: object
-          parameters:
-            additionalProperties:
-              type: string
-            description: |-
-              Parameters is an opaque map for passing in configuration to a driver
-              for creating the bucket
+          spec:
+            description: spec defines the desired state of BucketClass
+            properties:
+              deletionPolicy:
+                description: |-
+                  deletionPolicy determines whether a Bucket created through the BucketClass should be deleted
+                  when its bound BucketClaim is deleted.
+                  Possible values:
+                   - Retain: keep both the Bucket object and the backend bucket
+                   - Delete: delete both the Bucket object and the backend bucket
+                enum:
+                - Retain
+                - Delete
+                type: string
+              driverName:
+                description: driverName is the name of the driver that fulfills requests
+                  for this BucketClass.
+                minLength: 1
+                type: string
+              parameters:
+                additionalProperties:
+                  type: string
+                description: |-
+                  parameters is an opaque map of driver-specific configuration items passed to the driver that
+                  fulfills requests for this BucketClass.
+                type: object
+            required:
+            - deletionPolicy
+            - driverName
             type: object
+            x-kubernetes-validations:
+            - message: BucketClass is immutable
+              rule: self == oldSelf
         required:
-        - deletionPolicy
-        - driverName
+        - spec
         type: object
     served: true
     storage: true

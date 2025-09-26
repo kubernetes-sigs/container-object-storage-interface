@@ -1,0 +1,72 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha2
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// BucketClassSpec defines the desired state of BucketClass
+// +kubebuilder:validation:XValidation:message="BucketClass is immutable",rule="self == oldSelf"
+type BucketClassSpec struct {
+	// driverName is the name of the driver that fulfills requests for this BucketClass.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	DriverName string `json:"driverName"`
+
+	// deletionPolicy determines whether a Bucket created through the BucketClass should be deleted
+	// when its bound BucketClaim is deleted.
+	// Possible values:
+	//  - Retain: keep both the Bucket object and the backend bucket
+	//  - Delete: delete both the Bucket object and the backend bucket
+	// +required
+	DeletionPolicy BucketDeletionPolicy `json:"deletionPolicy"`
+
+	// parameters is an opaque map of driver-specific configuration items passed to the driver that
+	// fulfills requests for this BucketClass.
+	// +optional
+	Parameters map[string]string `json:"parameters,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support"
+
+// BucketClass is the Schema for the bucketclasses API
+type BucketClass struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is a standard object metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+
+	// spec defines the desired state of BucketClass
+	// +required
+	Spec BucketClassSpec `json:"spec"`
+}
+
+// +kubebuilder:object:root=true
+
+// BucketClassList contains a list of BucketClass
+type BucketClassList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []BucketClass `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&BucketClass{}, &BucketClassList{})
+}

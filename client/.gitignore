@@ -1,2 +1,0 @@
-# necessary for codegen tools, but do not want to git track this vendor dir
-vendor

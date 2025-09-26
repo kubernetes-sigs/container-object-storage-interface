@@ -16,6 +16,7 @@ func (f *FakeIdentityClient) DriverGetInfo(ctx context.Context, in *proto.Driver
 
 type FakeProvisionerClient struct {
 	FakeDriverCreateBucket       func(ctx context.Context, in *proto.DriverCreateBucketRequest, opts ...grpc.CallOption) (*proto.DriverCreateBucketResponse, error)
+	FakeDriverGetExistingBucket  func(ctx context.Context, in *proto.DriverGetExistingBucketRequest, opts ...grpc.CallOption) (*proto.DriverGetExistingBucketResponse, error)
 	FakeDriverDeleteBucket       func(ctx context.Context, in *proto.DriverDeleteBucketRequest, opts ...grpc.CallOption) (*proto.DriverDeleteBucketResponse, error)
 	FakeDriverGrantBucketAccess  func(ctx context.Context, in *proto.DriverGrantBucketAccessRequest, opts ...grpc.CallOption) (*proto.DriverGrantBucketAccessResponse, error)
 	FakeDriverRevokeBucketAccess func(ctx context.Context, in *proto.DriverRevokeBucketAccessRequest, opts ...grpc.CallOption) (*proto.DriverRevokeBucketAccessResponse, error)
@@ -23,6 +24,9 @@ type FakeProvisionerClient struct {
 
 func (f *FakeProvisionerClient) DriverCreateBucket(ctx context.Context, in *proto.DriverCreateBucketRequest, opts ...grpc.CallOption) (*proto.DriverCreateBucketResponse, error) {
 	return f.FakeDriverCreateBucket(ctx, in, opts...)
+}
+func (f *FakeProvisionerClient) DriverGetExistingBucket(ctx context.Context, in *proto.DriverGetExistingBucketRequest, opts ...grpc.CallOption) (*proto.DriverGetExistingBucketResponse, error) {
+	return f.FakeDriverGetExistingBucket(ctx, in, opts...)
 }
 func (f *FakeProvisionerClient) DriverDeleteBucket(ctx context.Context, in *proto.DriverDeleteBucketRequest, opts ...grpc.CallOption) (*proto.DriverDeleteBucketResponse, error) {
 	return f.FakeDriverDeleteBucket(ctx, in, opts...)
