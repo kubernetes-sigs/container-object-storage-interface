@@ -196,6 +196,11 @@ github.com/spf13/pflag
 # github.com/stoewer/go-strcase v1.3.1
 ## explicit; go 1.11
 github.com/stoewer/go-strcase
+# github.com/stretchr/testify v1.11.1
+## explicit; go 1.17
+github.com/stretchr/testify/assert
+github.com/stretchr/testify/assert/yaml
+github.com/stretchr/testify/require
 # github.com/x448/float16 v0.8.4
 ## explicit; go 1.11
 github.com/x448/float16
@@ -456,6 +461,9 @@ gopkg.in/evanphx/json-patch.v4
 # gopkg.in/inf.v0 v0.9.1
 ## explicit
 gopkg.in/inf.v0
+# gopkg.in/yaml.v3 v3.0.1
+## explicit
+gopkg.in/yaml.v3
 # k8s.io/api v0.34.1
 ## explicit; go 1.24.0
 k8s.io/api/admission/v1
@@ -970,6 +978,9 @@ sigs.k8s.io/apiserver-network-proxy/konnectivity-client/proto/client
 # sigs.k8s.io/container-object-storage-interface/client v0.0.0-20250925174816-5fce7c365e9c => ./client
 ## explicit; go 1.24.0
 sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2
+# sigs.k8s.io/container-object-storage-interface/proto v0.0.0-00010101000000-000000000000 => ./proto
+## explicit; go 1.24.0
+sigs.k8s.io/container-object-storage-interface/proto
 # sigs.k8s.io/controller-runtime v0.22.1
 ## explicit; go 1.24.0
 sigs.k8s.io/controller-runtime

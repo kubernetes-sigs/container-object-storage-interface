@@ -20,7 +20,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
-	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -40,8 +39,8 @@ import (
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme = runtime.NewScheme()
+	logger = ctrl.Log.WithName("setup")
 )
 
 func init() {
@@ -88,7 +87,7 @@ func main() {
 	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
 	// - https://github.com/advisories/GHSA-4374-p667-p6c8
 	disableHTTP2 := func(c *tls.Config) {
-		setupLog.Info("disabling http/2")
+		logger.Info("disabling http/2")
 		c.NextProtos = []string{"http/1.1"}
 	}
 
@@ -118,7 +117,7 @@ func main() {
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
 	// this setup is not recommended for production.
 	if len(metricsCertPath) > 0 {
-		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
+		logger.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
 
 		metricsServerOptions.CertDir = metricsCertPath
@@ -126,17 +125,27 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
-	// TODO: use gPRC to get driver name, to use as leader election ID
-	driverName := "placeholder"
+	ctx := ctrl.SetupSignalHandler()
 
-	leaderElectionID := "cosi-sidecar-leader-" + strings.Replace(driverName, "/", "-", -1)
+	rpcEndpoint, ok := os.LookupEnv(objectstoragev1alpha2.RpcEndpointEnvVarName)
+	if !ok {
+		rpcEndpoint = objectstoragev1alpha2.RpcEndpointDefault
+	}
+
+	logger.Info("attempting connection to driver", "endpoint", rpcEndpoint)
+	driverInfo, err := connectRpcAndGetDriverInfo(ctx, rpcEndpoint)
+	if err != nil {
+		logger.Error(err, "driver connection error")
+		os.Exit(1)
+	}
+	logger.Info("successfully connected to driver", "name", driverInfo.GetName())
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       leaderElectionID,
+		LeaderElectionID:       "cosi-sidecar-leader-" + driverInfo.GetName(),
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -150,7 +159,7 @@ func main() {
 		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		logger.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
@@ -158,29 +167,29 @@ func main() {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Bucket")
+		logger.Error(err, "unable to create controller", "controller", "Bucket")
 		os.Exit(1)
 	}
 	if err := (&reconciler.BucketAccessReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "BucketAccess")
+		logger.Error(err, "unable to create controller", "controller", "BucketAccess")
 		os.Exit(1)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+		logger.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+		logger.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
+	logger.Info("starting manager")
+	if err := mgr.Start(ctx); err != nil {
+		logger.Error(err, "problem running manager")
 		os.Exit(1)
 	}
 }
