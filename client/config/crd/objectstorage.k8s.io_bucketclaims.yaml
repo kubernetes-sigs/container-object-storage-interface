@@ -3,6 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    api-approved.kubernetes.io: https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support
     controller-gen.kubebuilder.io/version: v0.19.0
   name: bucketclaims.objectstorage.k8s.io
 spec:
@@ -39,11 +40,42 @@ spec:
           spec:
             description: spec defines the desired state of BucketClaim
             properties:
-              foo:
-                description: foo is an example field of BucketClaim. Edit bucketclaim_types.go
-                  to remove/update
+              bucketClassName:
+                description: |-
+                  bucketClassName selects the BucketClass for provisioning the BucketClaim.
+                  This field is used only for BucketClaim dynamic provisioning.
+                  If unspecified, existingBucketName must be specified for binding to an existing Bucket.
                 type: string
+                x-kubernetes-validations:
+                - message: bucketClassName is immutable
+                  rule: self == oldSelf
+              existingBucketName:
+                description: |-
+                  existingBucketName selects the name of an existing Bucket resource that this BucketClaim
+                  should bind to.
+                  This field is used only for BucketClaim static provisioning.
+                  If unspecified, bucketClassName must be specified for dynamically provisioning a new bucket.
+                type: string
+                x-kubernetes-validations:
+                - message: existingBucketName is immutable
+                  rule: self == oldSelf
+              protocols:
+                description: |-
+                  protocols lists object storage protocols that the provisioned Bucket must support.
+                  If specified, COSI will verify that each item is advertised as supported by the driver.
+                items:
+                  description: ObjectProtocol represents an object protocol type.
+                  type: string
+                type: array
+                x-kubernetes-validations:
+                - message: protocols list is immutable
+                  rule: self == oldSelf
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of the fields in [bucketClassName existingBucketName]
+                must be set
+              rule: '[has(self.bucketClassName),has(self.existingBucketName)].filter(x,x==true).size()
+                == 1'
           status:
             description: status defines the observed state of BucketClaim
             properties:

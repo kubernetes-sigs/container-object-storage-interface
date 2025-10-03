@@ -9,9 +9,9 @@ commonAnnotations:
   api-approved.kubernetes.io: https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support
 
 resources:
-  - client/config/crd/objectstorage.k8s.io_bucketaccesses.yaml
   - client/config/crd/objectstorage.k8s.io_bucketaccessclasses.yaml
-  - client/config/crd/objectstorage.k8s.io_bucketclasses.yaml
+  - client/config/crd/objectstorage.k8s.io_bucketaccesses.yaml
   - client/config/crd/objectstorage.k8s.io_bucketclaims.yaml
+  - client/config/crd/objectstorage.k8s.io_bucketclasses.yaml
   - client/config/crd/objectstorage.k8s.io_buckets.yaml
   - controller
