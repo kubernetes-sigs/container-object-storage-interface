@@ -97,12 +97,23 @@ lint-fix: golangci-lint-fix.client golangci-lint-fix.controller golangci-lint-fi
 golangci-lint-fix.%: golangci-lint
 	cd $* && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml --new --fix
 
+.PHONY: vendor
+vendor: ## Update go vendor dir
+	cd client && go mod tidy
+	cd proto && go mod tidy
+	go mod tidy
+	go mod vendor
+
 ##@ Build
 
-.PHONY: all .gen
+.PHONY: all
+.NOTPARALLEL: all # all generators must run before build
+all: prebuild build ## Build all container images, plus their prerequisites (faster with 'make -j')
+
+.PHONY: prebuild .gen
 .gen: generate codegen # can be done in parallel with 'make -j'
-.NOTPARALLEL: all # codegen must be finished before fmt/vet
-all: .gen fmt vet build ## Build all container images, plus their prerequisites (faster with 'make -j')
+.NOTPARALLEL: prebuild # codegen must be finished before fmt
+prebuild: .gen fmt vendor ## Run all pre-build prerequisite steps (faster with 'make -j')
 
 .PHONY: build
 build: build.controller build.sidecar ## Build container images without prerequisites
