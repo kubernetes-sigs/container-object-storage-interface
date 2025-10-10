@@ -20,48 +20,35 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// BucketClassSpec defines the desired state of BucketClass
+// BucketClassSpec defines the BucketClass.
 type BucketClassSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// driverName is the name of the driver that fulfills requests for this BucketClass.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	DriverName string `json:"driverName"`
 
-	// foo is an example field of BucketClass. Edit bucketclass_types.go to remove/update
+	// deletionPolicy determines whether a Bucket created through the BucketClass should be deleted
+	// when its bound BucketClaim is deleted.
+	// Possible values:
+	//  - Retain: keep both the Bucket object and the backend bucket
+	//  - Delete: delete both the Bucket object and the backend bucket
+	// +required
+	DeletionPolicy BucketDeletionPolicy `json:"deletionPolicy"`
+
+	// parameters is an opaque map of driver-specific configuration items passed to the driver that
+	// fulfills requests for this BucketClass.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
-}
-
-// BucketClassStatus defines the observed state of BucketClass.
-type BucketClassStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
-	// conditions represent the current state of the BucketClass resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Parameters map[string]string `json:"parameters,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support"
 
-// BucketClass is the Schema for the bucketclasses API
+// BucketClass defines a named "class" of object storage buckets.
+// Different classes might map to different object storage protocols, quality-of-service levels,
+// backup policies, or any other arbitrary configuration determined by storage administrators.
+// The name of a BucketClass object is significant, and is how users can request a particular class.
 type BucketClass struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -69,13 +56,10 @@ type BucketClass struct {
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// spec defines the desired state of BucketClass
+	// spec defines the BucketClass. spec is entirely immutable.
 	// +required
+	// +kubebuilder:validation:XValidation:message="BucketClass spec is immutable",rule="self == oldSelf"
 	Spec BucketClassSpec `json:"spec"`
-
-	// status defines the observed state of BucketClass
-	// +optional
-	Status BucketClassStatus `json:"status,omitempty,omitzero"`
 }
 
 // +kubebuilder:object:root=true

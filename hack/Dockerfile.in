@@ -5,17 +5,14 @@ FROM docker.io/library/golang:1.25 AS builder
 
 WORKDIR /buildroot
 
-# Cache deps before building and copying source, so that we don't need to re-download
-# as much and so that source changes don't invalidate our downloaded layer.
-COPY client/ client/
-COPY proto/ proto/
-COPY vendor/ vendor/
-
 COPY go.mod go.mod
 COPY go.sum go.sum
 
-RUN go mod download
+# Cache deps before building and copying source, so that we don't need to re-download
+# as much and so that source changes don't invalidate our downloaded layer.
+COPY vendor/ vendor/
 
+COPY internal/ internal/
 COPY {{COMPONENT}}/cmd/ {{COMPONENT}}/cmd/
 COPY {{COMPONENT}}/internal/ {{COMPONENT}}/internal/
 

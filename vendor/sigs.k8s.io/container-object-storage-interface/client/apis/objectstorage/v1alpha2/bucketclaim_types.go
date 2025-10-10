@@ -20,46 +20,55 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // BucketClaimSpec defines the desired state of BucketClaim
+// +kubebuilder:validation:ExactlyOneOf=bucketClassName;existingBucketName
 type BucketClaimSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of BucketClaim. Edit bucketclaim_types.go to remove/update
+	// bucketClassName selects the BucketClass for provisioning the BucketClaim.
+	// This field is used only for BucketClaim dynamic provisioning.
+	// If unspecified, existingBucketName must be specified for binding to an existing Bucket.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// +kubebuilder:validation:XValidation:message="bucketClassName is immutable",rule="self == oldSelf"
+	BucketClassName string `json:"bucketClassName,omitempty"`
+
+	// protocols lists object storage protocols that the provisioned Bucket must support.
+	// If specified, COSI will verify that each item is advertised as supported by the driver.
+	// +optional
+	// +kubebuilder:validation:XValidation:message="protocols list is immutable",rule="self == oldSelf"
+	Protocols []ObjectProtocol `json:"protocols,omitempty"`
+
+	// existingBucketName selects the name of an existing Bucket resource that this BucketClaim
+	// should bind to.
+	// This field is used only for BucketClaim static provisioning.
+	// If unspecified, bucketClassName must be specified for dynamically provisioning a new bucket.
+	// +optional
+	// +kubebuilder:validation:XValidation:message="existingBucketName is immutable",rule="self == oldSelf"
+	ExistingBucketName string `json:"existingBucketName,omitempty"`
 }
 
 // BucketClaimStatus defines the observed state of BucketClaim.
 type BucketClaimStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// boundBucketName is the name of the Bucket this BucketClaim is bound to.
+	// Once set, this is immutable.
+	// +kubebuilder:validation:XValidation:message="boundBucketName is immutable",rule="oldSelf == '' || self == oldSelf"
+	BoundBucketName string `json:"boundBucketName"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// readyToUse indicates that the bucket is ready for consumption by workloads.
+	ReadyToUse bool `json:"readyToUse"`
 
-	// conditions represent the current state of the BucketClaim resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
+	// protocols is the set of protocols the bound Bucket reports to support. BucketAccesses can
+	// request access to this BucketClaim using any of the protocols reported here.
 	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Protocols []ObjectProtocol `json:"protocols"`
+
+	// error holds the most recent error message, with a timestamp.
+	// This is cleared when provisioning is successful.
+	// +optional
+	Error *TimestampedError `json:"timestampedError,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support"
 
 // BucketClaim is the Schema for the bucketclaims API
 type BucketClaim struct {
@@ -79,6 +88,7 @@ type BucketClaim struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support"
 
 // BucketClaimList contains a list of BucketClaim
 type BucketClaimList struct {

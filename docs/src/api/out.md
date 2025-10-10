@@ -234,6 +234,24 @@ BucketClaimList contains a list of BucketClaim
 | `items` _[BucketClaim](#bucketclaim) array_ |  |  |  |
 
 
+#### BucketClaimReference
+
+
+
+BucketClaimReference is a reference to a BucketClaim object.
+
+
+
+_Appears in:_
+- [BucketSpec](#bucketspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | name is the name of the BucketClaim being referenced. |  | MinLength: 1 <br /> |
+| `namespace` _string_ | namespace is the namespace of the BucketClaim being referenced.<br />If empty, the Kubernetes 'default' namespace is assumed.<br />namespace is immutable except to update '' to 'default'. |  | MinLength: 0 <br /> |
+| `uid` _[UID](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#uid-types-pkg)_ | uid is the UID of the BucketClaim being referenced.<br />Once set, the UID is immutable. |  |  |
+
+
 #### BucketClaimSpec
 
 
@@ -247,7 +265,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `foo` _string_ | foo is an example field of BucketClaim. Edit bucketclaim_types.go to remove/update |  |  |
+| `bucketClassName` _string_ | bucketClassName selects the BucketClass for provisioning the BucketClaim.<br />This field is used only for BucketClaim dynamic provisioning.<br />If unspecified, existingBucketName must be specified for binding to an existing Bucket. |  |  |
+| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols lists object storage protocols that the provisioned Bucket must support.<br />If specified, COSI will verify that each item is advertised as supported by the driver. |  |  |
+| `existingBucketName` _string_ | existingBucketName selects the name of an existing Bucket resource that this BucketClaim<br />should bind to.<br />This field is used only for BucketClaim static provisioning.<br />If unspecified, bucketClassName must be specified for dynamically provisioning a new bucket. |  |  |
 
 
 #### BucketClaimStatus
@@ -263,14 +283,20 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | conditions represent the current state of the BucketClaim resource.<br />Each condition has a unique type and reflects the status of a specific aspect of the resource.<br />Standard condition types include:<br />- "Available": the resource is fully functional<br />- "Progressing": the resource is being created or updated<br />- "Degraded": the resource failed to reach or maintain its desired state<br />The status of each condition is one of True, False, or Unknown. |  |  |
+| `boundBucketName` _string_ | boundBucketName is the name of the Bucket this BucketClaim is bound to.<br />Once set, this is immutable. |  |  |
+| `readyToUse` _boolean_ | readyToUse indicates that the bucket is ready for consumption by workloads. |  |  |
+| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols is the set of protocols the bound Bucket reports to support. BucketAccesses can<br />request access to this BucketClaim using any of the protocols reported here. |  |  |
+| `timestampedError` _[TimestampedError](#timestampederror)_ | error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  |  |
 
 
 #### BucketClass
 
 
 
-BucketClass is the Schema for the bucketclasses API
+BucketClass defines a named "class" of object storage buckets.
+Different classes might map to different object storage protocols, quality-of-service levels,
+backup policies, or any other arbitrary configuration determined by storage administrators.
+The name of a BucketClass object is significant, and is how users can request a particular class.
 
 
 
@@ -284,8 +310,7 @@ _Appears in:_
 | `kind` _string_ | Kind is a string value representing the REST resource this object represents.<br />Servers may infer this from the endpoint the client submits requests to.<br />Cannot be updated.<br />In CamelCase.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  |  |
 | `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  |  |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[BucketClassSpec](#bucketclassspec)_ | spec defines the desired state of BucketClass |  |  |
-| `status` _[BucketClassStatus](#bucketclassstatus)_ | status defines the observed state of BucketClass |  |  |
+| `spec` _[BucketClassSpec](#bucketclassspec)_ | spec defines the BucketClass. spec is entirely immutable. |  |  |
 
 
 #### BucketClassList
@@ -312,7 +337,7 @@ BucketClassList contains a list of BucketClass
 
 
 
-BucketClassSpec defines the desired state of BucketClass
+BucketClassSpec defines the BucketClass.
 
 
 
@@ -321,23 +346,28 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `foo` _string_ | foo is an example field of BucketClass. Edit bucketclass_types.go to remove/update |  |  |
+| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this BucketClass. |  | MinLength: 1 <br /> |
+| `deletionPolicy` _[BucketDeletionPolicy](#bucketdeletionpolicy)_ | deletionPolicy determines whether a Bucket created through the BucketClass should be deleted<br />when its bound BucketClaim is deleted.<br />Possible values:<br /> - Retain: keep both the Bucket object and the backend bucket<br /> - Delete: delete both the Bucket object and the backend bucket |  | Enum: [Retain Delete] <br /> |
+| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this BucketClass. |  |  |
 
 
-#### BucketClassStatus
+#### BucketDeletionPolicy
 
+_Underlying type:_ _string_
 
+BucketDeletionPolicy configures COSI's behavior when a Bucket resource is deleted.
 
-BucketClassStatus defines the observed state of BucketClass.
-
-
+_Validation:_
+- Enum: [Retain Delete]
 
 _Appears in:_
-- [BucketClass](#bucketclass)
+- [BucketClassSpec](#bucketclassspec)
+- [BucketSpec](#bucketspec)
 
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | conditions represent the current state of the BucketClass resource.<br />Each condition has a unique type and reflects the status of a specific aspect of the resource.<br />Standard condition types include:<br />- "Available": the resource is fully functional<br />- "Progressing": the resource is being created or updated<br />- "Degraded": the resource failed to reach or maintain its desired state<br />The status of each condition is one of True, False, or Unknown. |  |  |
+| Field | Description |
+| --- | --- |
+| `Retain` | BucketDeletionPolicyRetain configures COSI to keep the Bucket object as well as the backend<br />bucket when a Bucket resource is deleted.<br /> |
+| `Delete` | BucketDeletionPolicyDelete configures COSI to delete the Bucket object as well as the backend<br />bucket when a Bucket resource is deleted.<br /> |
 
 
 #### BucketList
@@ -373,7 +403,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `foo` _string_ | foo is an example field of Bucket. Edit bucket_types.go to remove/update |  |  |
+| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this Bucket. |  | MinLength: 1 <br /> |
+| `deletionPolicy` _[BucketDeletionPolicy](#bucketdeletionpolicy)_ | deletionPolicy determines whether a Bucket should be deleted when its bound BucketClaim is<br />deleted. This is mutable to allow Admins to change the policy after creation.<br />Possible values:<br /> - Retain: keep both the Bucket object and the backend bucket<br /> - Delete: delete both the Bucket object and the backend bucket |  | Enum: [Retain Delete] <br /> |
+| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this Bucket. |  |  |
+| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols lists object store protocols that the provisioned Bucket must support.<br />If specified, COSI will verify that each item is advertised as supported by the driver. |  |  |
+| `bucketClaim` _[BucketClaimReference](#bucketclaimreference)_ | bucketClaim references the BucketClaim that resulted in the creation of this Bucket.<br />For statically-provisioned buckets, set the namespace and name of the BucketClaim that is<br />allowed to bind to this Bucket. |  |  |
 
 
 #### BucketStatus
@@ -387,5 +421,37 @@ BucketStatus defines the observed state of Bucket.
 _Appears in:_
 - [Bucket](#bucket)
 
+
+
+#### ObjectProtocol
+
+_Underlying type:_ _string_
+
+ObjectProtocol represents an object protocol type.
+
+
+
+_Appears in:_
+- [BucketClaimSpec](#bucketclaimspec)
+- [BucketClaimStatus](#bucketclaimstatus)
+- [BucketSpec](#bucketspec)
+
+
+
+#### TimestampedError
+
+
+
+TimestampedError contains an error message with timestamp.
+
+
+
+_Appears in:_
+- [BucketClaimStatus](#bucketclaimstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `time` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | time is the timestamp when the error was encountered. |  |  |
+| `message` _string_ | message is a string detailing the encountered error.<br />NOTE: message will be logged, and it should not contain sensitive information. |  |  |
 
 
