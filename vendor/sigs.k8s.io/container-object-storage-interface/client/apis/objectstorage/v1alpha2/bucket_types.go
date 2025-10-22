@@ -70,6 +70,14 @@ type BucketSpec struct {
 	// allowed to bind to this Bucket.
 	// +required
 	BucketClaimRef BucketClaimReference `json:"bucketClaim"`
+
+	// existingBucketID is the unique identifier for an existing backend bucket known to the driver.
+	// Use driver documentation to determine how to set this value.
+	// This field is used only for Bucket static provisioning.
+	// This field will be empty when the Bucket is dynamically provisioned from a BucketClaim.
+	// +optional
+	// +kubebuilder:validation:XValidation:message="existingBucketID is immutable",rule="self == oldSelf"
+	ExistingBucketID string `json:"existingBucketID,omitempty"`
 }
 
 // BucketClaimReference is a reference to a BucketClaim object.
@@ -97,11 +105,30 @@ type BucketClaimReference struct {
 
 // BucketStatus defines the observed state of Bucket.
 type BucketStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// readyToUse indicates that the bucket is ready for consumption by workloads.
+	ReadyToUse bool `json:"readyToUse"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// bucketID is the unique identifier for the backend bucket known to the driver.
+	// Once set, this is immutable.
+	// +kubebuilder:validation:XValidation:message="boundBucketName is immutable",rule="oldSelf == '' || self == oldSelf"
+	BucketID string `json:"bucketID"`
+
+	// protocols is the set of protocols the Bucket reports to support. BucketAccesses can request
+	// access to this BucketClaim using any of the protocols reported here.
+	// +optional
+	// +listType=set
+	Protocols []ObjectProtocol `json:"protocols"`
+
+	// BucketInfo reported by the driver, rendered in the COSI_<PROTOCOL>_<KEY> format used for the
+	// BucketAccess Secret. e.g., COSI_S3_ENDPOINT, COSI_AZURE_STORAGE_ACCOUNT.
+	// This should not contain any sensitive information.
+	// +optional
+	BucketInfo map[string]string `json:"bucketInfo,omitempty"`
+
+	// Error holds the most recent error message, with a timestamp.
+	// This is cleared when provisioning is successful.
+	// +optional
+	Error *TimestampedError `json:"error,omitempty"`
 }
 
 // +kubebuilder:object:root=true

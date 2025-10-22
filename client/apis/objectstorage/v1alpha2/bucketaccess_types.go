@@ -20,6 +20,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// BucketAccessAuthenticationType specifies what authentication mechanism is used for provisioning
+// bucket access.
+type BucketAccessAuthenticationType string
+
+const (
+	// The driver will generate a protocol-appropriate access key that clients can use to
+	// authenticate to the backend object store.
+	BucketAccessAuthenticationTypeKey = "Key"
+
+	// The driver should configure the system such that Pods using the given ServiceAccount
+	// authenticate to the backend object store automatically.
+	BucketAccessAuthenticationTypeServiceAccount = "ServiceAccount"
+)
+
 // BucketAccessSpec defines the desired state of BucketAccess
 type BucketAccessSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster

@@ -93,6 +93,16 @@ spec:
                 x-kubernetes-validations:
                 - message: driverName is immutable
                   rule: self == oldSelf
+              existingBucketID:
+                description: |-
+                  existingBucketID is the unique identifier for an existing backend bucket known to the driver.
+                  Use driver documentation to determine how to set this value.
+                  This field is used only for Bucket static provisioning.
+                  This field will be empty when the Bucket is dynamically provisioned from a BucketClaim.
+                type: string
+                x-kubernetes-validations:
+                - message: existingBucketID is immutable
+                  rule: self == oldSelf
               parameters:
                 additionalProperties:
                   type: string
@@ -122,6 +132,54 @@ spec:
             type: object
           status:
             description: status defines the observed state of Bucket
+            properties:
+              bucketID:
+                description: |-
+                  bucketID is the unique identifier for the backend bucket known to the driver.
+                  Once set, this is immutable.
+                type: string
+                x-kubernetes-validations:
+                - message: boundBucketName is immutable
+                  rule: oldSelf == '' || self == oldSelf
+              bucketInfo:
+                additionalProperties:
+                  type: string
+                description: |-
+                  BucketInfo reported by the driver, rendered in the COSI_<PROTOCOL>_<KEY> format used for the
+                  BucketAccess Secret. e.g., COSI_S3_ENDPOINT, COSI_AZURE_STORAGE_ACCOUNT.
+                  This should not contain any sensitive information.
+                type: object
+              error:
+                description: |-
+                  Error holds the most recent error message, with a timestamp.
+                  This is cleared when provisioning is successful.
+                properties:
+                  message:
+                    description: |-
+                      message is a string detailing the encountered error.
+                      NOTE: message will be logged, and it should not contain sensitive information.
+                    type: string
+                  time:
+                    description: time is the timestamp when the error was encountered.
+                    format: date-time
+                    type: string
+                type: object
+              protocols:
+                description: |-
+                  protocols is the set of protocols the Bucket reports to support. BucketAccesses can request
+                  access to this BucketClaim using any of the protocols reported here.
+                items:
+                  description: ObjectProtocol represents an object protocol type.
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              readyToUse:
+                description: readyToUse indicates that the bucket is ready for consumption
+                  by workloads.
+                type: boolean
+            required:
+            - bucketID
+            - readyToUse
             type: object
         required:
         - spec

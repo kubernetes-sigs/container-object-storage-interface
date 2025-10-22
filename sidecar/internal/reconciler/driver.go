@@ -21,8 +21,13 @@ import (
 	"strings"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"k8s.io/apimachinery/pkg/util/validation"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlpredicate "sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 )
 
@@ -37,6 +42,16 @@ type DriverInfo struct {
 // GetName returns the name of the driver
 func (d *DriverInfo) GetName() string {
 	return d.name
+}
+
+// SupportsProtocol returns true if the driver supports the given protocol.
+func (d *DriverInfo) SupportsProtocol(p cosiproto.ObjectProtocol_Type) bool {
+	for _, sp := range d.supportedProtocols {
+		if sp == p {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateAndSetDriverConnectionInfo parses and validates the driver's reported info and returns a
@@ -113,4 +128,44 @@ func validateAndParseProtocols(objProtocols []*cosiproto.ObjectProtocol) ([]cosi
 	}
 
 	return out, nil
+}
+
+// Implements a predicate that enqueues a reconcile for any event of any type if (and only if) the
+// driver name of the object matches the given driver name.
+func driverNameMatchesPredicate(driverName string) ctrlpredicate.Funcs {
+	return ctrlpredicate.NewPredicateFuncs(func(object client.Object) bool {
+		switch t := object.(type) {
+		case *cosiapi.Bucket:
+			return object.(*cosiapi.Bucket).Spec.DriverName == driverName
+		// case *cosiapi.BucketAccess: // TODO: later
+		// 	return object.(*cosiapi.BucketAccess).Status.DriverName == driverName
+		default:
+			logger := ctrl.Log.WithName("driverName-predicate")
+			logger.Error(nil, "cannot attempt to check driverName of type %T", t)
+			return false
+		}
+	})
+}
+
+// Determines whether an error is retryable (true) based on COSI's documented baseline RPC error
+// scheme. The baseline error scheme should be fully and explicitly codified here.
+// If a code isn't codified here, it is assumed to be retryable. RPC commands with unique error code
+// behaviors should check those before falling back to this baseline method.
+func rpcErrorIsRetryable(c codes.Code) bool {
+	switch c {
+	case codes.InvalidArgument:
+		return false
+	case codes.PermissionDenied:
+		return true
+	case codes.AlreadyExists:
+		return false
+	case codes.Aborted:
+		return true
+	case codes.Unimplemented:
+		return false
+	case codes.Unauthenticated:
+		return true
+	default:
+		return true
+	}
 }

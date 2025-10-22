@@ -66,6 +66,8 @@ _Appears in:_
 | `status` _[BucketAccessStatus](#bucketaccessstatus)_ | status defines the observed state of BucketAccess |  |  |
 
 
+
+
 #### BucketAccessClass
 
 
@@ -370,6 +372,8 @@ _Appears in:_
 | `Delete` | BucketDeletionPolicyDelete configures COSI to delete the Bucket object as well as the backend<br />bucket when a Bucket resource is deleted.<br /> |
 
 
+
+
 #### BucketList
 
 
@@ -408,6 +412,7 @@ _Appears in:_
 | `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this Bucket. |  |  |
 | `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols lists object store protocols that the provisioned Bucket must support.<br />If specified, COSI will verify that each item is advertised as supported by the driver. |  |  |
 | `bucketClaim` _[BucketClaimReference](#bucketclaimreference)_ | bucketClaim references the BucketClaim that resulted in the creation of this Bucket.<br />For statically-provisioned buckets, set the namespace and name of the BucketClaim that is<br />allowed to bind to this Bucket. |  |  |
+| `existingBucketID` _string_ | existingBucketID is the unique identifier for an existing backend bucket known to the driver.<br />Use driver documentation to determine how to set this value.<br />This field is used only for Bucket static provisioning.<br />This field will be empty when the Bucket is dynamically provisioned from a BucketClaim. |  |  |
 
 
 #### BucketStatus
@@ -420,6 +425,36 @@ BucketStatus defines the observed state of Bucket.
 
 _Appears in:_
 - [Bucket](#bucket)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `readyToUse` _boolean_ | readyToUse indicates that the bucket is ready for consumption by workloads. |  |  |
+| `bucketID` _string_ | bucketID is the unique identifier for the backend bucket known to the driver.<br />Once set, this is immutable. |  |  |
+| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols is the set of protocols the Bucket reports to support. BucketAccesses can request<br />access to this BucketClaim using any of the protocols reported here. |  |  |
+| `bucketInfo` _object (keys:string, values:string)_ | BucketInfo reported by the driver, rendered in the COSI_<PROTOCOL>_<KEY> format used for the<br />BucketAccess Secret. e.g., COSI_S3_ENDPOINT, COSI_AZURE_STORAGE_ACCOUNT.<br />This should not contain any sensitive information. |  |  |
+| `error` _[TimestampedError](#timestampederror)_ | Error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  |  |
+
+
+#### CosiEnvVar
+
+_Underlying type:_ _string_
+
+A CosiEnvVar defines a COSI environment variable that contains backend bucket or access info.
+Vars marked "Required" will be present with non-empty values in BucketAccess Secrets.
+Some required vars may only be required in certain contexts, like when a specific
+AuthenticationType is used.
+Some vars are only relevant for specific protocols.
+Non-relevant vars will not be present, even when marked "Required".
+Vars are used as data keys in BucketAccess Secrets.
+Vars must be all-caps and must begin with `COSI_`.
+
+
+
+_Appears in:_
+- [BucketInfoVar](#bucketinfovar)
+- [CredentialVar](#credentialvar)
+
+
 
 
 
@@ -435,7 +470,13 @@ _Appears in:_
 - [BucketClaimSpec](#bucketclaimspec)
 - [BucketClaimStatus](#bucketclaimstatus)
 - [BucketSpec](#bucketspec)
+- [BucketStatus](#bucketstatus)
 
+| Field | Description |
+| --- | --- |
+| `S3` | ObjectProtocolS3 represents the S3 object protocol type.<br /> |
+| `Azure` | ObjectProtocolS3 represents the Azure Blob object protocol type.<br /> |
+| `GCS` | ObjectProtocolS3 represents the Google Cloud Storage object protocol type.<br /> |
 
 
 #### TimestampedError
@@ -448,6 +489,7 @@ TimestampedError contains an error message with timestamp.
 
 _Appears in:_
 - [BucketClaimStatus](#bucketclaimstatus)
+- [BucketStatus](#bucketstatus)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |

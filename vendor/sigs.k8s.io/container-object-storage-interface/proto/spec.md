@@ -94,7 +94,7 @@ extend google.protobuf.ServiceOptions {
 }
 ```
 
-There are three sets of RPCs:
+These are the sets of RPCs:
 
 * **Identity Service**: Plugin MUST implement this set of RPCs.
 * **Provisioner Service**: Plugin MUST implement this set of RPCs.
@@ -194,7 +194,6 @@ In addition to those, if the conditions defined below are encountered, the plugi
 
 | Condition | gRPC Code | Description | Recovery Behavior |
 |-----------|-----------|-------------|-------------------|
-| Missing required field | 3 MISSING_ARGUMENT | A required field is missing from the request. | Not retryable. Caller SHOULD fix the request by adding the missing required field before retrying. |
 | Invalid or unsupported field in the request | 3 INVALID_ARGUMENT | One or more fields in this field is either not allowed by the Plugin or has an invalid value. | Not retryable. Caller SHOULD fix the field(s) before retrying. |
 | Permission denied | 7 PERMISSION_DENIED | The Plugin is able to derive or otherwise infer an identity from the secrets present within an RPC, but that identity does not have permission to invoke the RPC. | Retryable with exponential backoff. System administrator SHOULD ensure that requisite permissions are granted before retrying. |
 | Resource exists with non-matching parameters | 6 ALREADY_EXISTS | The resource exists but has non-matching parameters configured. | Not retryable. Caller SHOULD fix the request by modifying the backend resource or request parameters to have matching parameters before retrying. |
@@ -252,7 +251,7 @@ If the Plugin is unable to complete the call successfully, it MUST return a non-
 
 ### Provisioner Service RPC
 
-#### Shared RPC definitions
+#### Protocol Definitions
 
 ```protobuf
 message ObjectProtocol {
@@ -271,23 +270,38 @@ message ObjectProtocol {
 
     Type type = 1;
 }
+
+// Bucket info for the backend bucket corresponding to each protocol.
+// If a protocol is not supported, the message MUST be empty/nil.
+message ObjectProtocolAndBucketInfo {
+    // Protocol support and bucket info for S3 protocol access.
+    S3BucketInfo s3 = 1;
+
+    // Protocol support and bucket info for Azure (Blob) protocol access.
+    AzureBucketInfo azure = 2;
+
+    // Protocol support and bucket info for Google Cloud Storage protocol access.
+    GcsBucketInfo gcs = 3;
+}
 ```
 
-#### S3 Protocol Definitions
+##### S3 Protocol Definitions
 
 ```protobuf
 message S3BucketInfo {
-    // S3 endpoint URL.
-    string endpoint = 1;
-
     // S3 bucket ID needed for client access.
-    string bucket_id = 2;
+    string bucket_id = 1;
+
+    // S3 endpoint URL.
+    string endpoint = 2;
 
     // Geographical region where the S3 server is running.
     string region = 3;
 
-    // S3 signature version for signing all S3 requests.
-    S3SignatureVersion signature_version = 4;
+    // S3 addressing style. Drivers should return an addressing style that the backend supports and
+    // that is most likely to have the broadest client support.
+    // See: https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html
+    S3AddressingStyle addressing_style = 4;
 }
 
 message S3AccessInfo {
@@ -298,23 +312,23 @@ message S3AccessInfo {
     string access_secret_key = 2;
 }
 
-// S3SignatureVersion is the version of the signing algorithm for all S3 requests
-message S3SignatureVersion {
-    enum Version {
+// S3 addressing style.
+// See: https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html
+message S3AddressingStyle {
+    enum Style {
         UNKNOWN = 0;
 
-        // Signature Version 2
-        S3V2 = 1;
+        // Path-style addressing.
+        PATH = 1;
 
-        // Signature Version 4
-        S3V4 = 2;
+        // Virtual-hosted-style addressing.
+        VIRTUAL = 2;
     }
-
-    Version version = 1;
+    Style style = 1;
 }
 ```
 
-#### Azure Protocol Definitions
+##### Azure Protocol Definitions
 
 ```protobuf
 message AzureBucketInfo {
@@ -334,7 +348,7 @@ message AzureAccessInfo {
 }
 ```
 
-#### Google Cloud Storage (GCS) Protocol Definitions
+##### Google Cloud Storage (GCS) Protocol Definitions
 
 ```protobuf
 message GcsBucketInfo {
@@ -362,13 +376,69 @@ message GcsAccessInfo {
 
 #### DriverCreateBucket
 
+A Plugin MUST implement this RPC call.
+
+This operation MUST be idempotent. If a bucket corresponding to the specified name already exists
+and is compatible with the given parameters, the Plugin MUST reply OK.
+
+Important return codes:
+* `AlreadyExists` (not retryable) when the bucket already exists but is incompatible with the request.
+* `InvalidArgument` (not retryable) if any parameters are invalid for the backend.
+
 ```protobuf
 message DriverCreateBucketRequest {
-    // TODO: unimplemented
+    // REQUIRED. The suggested name for the backend bucket.
+    // It serves two purposes:
+    // 1) Suggested name - COSI WILL suggest a name that includes a UID component that is
+    //    statistically likely to be globally unique.
+    // 2) Idempotency - This name is generated by COSI to achieve idempotency. The Plugin SHOULD
+    //    ensure that multiple DriverCreateBucket calls for the same name do not result in more
+    //    than one Bucket being provisioned corresponding to the name.
+    //    The COSI Sidecar WILL call DriverCreateBucket, with the same name, periodically to ensure
+    //    the bucket exists.
+    //    Using or appending random identifiers can lead to multiple unused buckets being created in
+    //    the storage backend in the event of timing-related Driver/Sidecar failures or restarts.
+    // COSI WILL use DNS subdomain format (https://datatracker.ietf.org/doc/html/rfc1123).
+    // It WILL contain contain no more than 253 characters, contain only lowercase alphanumeric
+    // characters, '-' or '.', start with an alphanumeric character, and end with an alphanumeric
+    // character.
+    string name = 1;
+
+    // OPTIONAL. A list of all object storage protocols the provisioned bucket MUST support.
+    // If none are given, the provisioner MAY provision with a set of default protocol(s) or return
+    // `InvalidArgument` with a message indicating that it requires this input.
+    // If any protocol cannot be supported, the Provisioner MUST return `InvalidArgument`.
+    repeated ObjectProtocol protocols = 2;
+
+    // OPTIONAL. Plugin specific parameters passed in as opaque key-value pairs.
+    // The Plugin is responsible for parsing and validating these parameters.
+    map<string, string> parameters = 4;
 }
 
 message DriverCreateBucketResponse {
-    // TODO: unimplemented
+    // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
+    // This value WILL be used by COSI to make subsequent calls related to the bucket, so the
+    // Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
+    // It is RECOMMENDED to use the backend storage system's bucket ID.
+    string bucket_id = 1;
+
+    // REQUIRED: At least one protocol bucket info result MUST be non-nil.
+    //
+    // The primary purpose of this response is to indicate which protocols are supported for
+    // subsequent DriverGrantBucketAccess requests referencing this provisioned bucket. A non-nil
+    // bucket info corresponding to a protocol indicates support.
+    //
+    // The Provisioner MUST indicate support for the protocols in the request. It MAY indicate
+    // support for more protocols than the request. It SHOULD indicate support for all supported
+    // protocols. It MUST NOT indicate support (return a non-nil result) for unsupported protocols.
+    //
+    // The secondary purpose of this response is to report non-credential information about the
+    // bucket. COSI does not expose this information to end-users until a subsequent
+    // DriverGrantBucketAccess is provisioned referencing this bucket. Instead, the info is exposed
+    // to administrators so that they might more easily debug errors in their configuration of COSI.
+    // It is thus RECOMMENDED to return all relevant bucket info for all supported protocols.
+    // However, the Provisioner MAY omit any or all bucket info fields as desired.
+    ObjectProtocolAndBucketInfo protocols = 2;
 }
 ```
 

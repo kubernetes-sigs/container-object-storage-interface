@@ -66,11 +66,11 @@ func AnyGeneric() predicate.Funcs {
 // where the generation changes. For most resources, a generation change means that the resource
 // `spec` has changed, ignoring metadata and status changes.
 //
-// The predicate does not enqueue requests for any Create/Update/Delete events.
+// The predicate does not enqueue requests for any Create/Delete/Generic events.
 // This ensures that other predicates can effectively filter out undesired non-Update events.
 //
 // This is a modified implementation of controller-runtime's GenerationChangedPredicate{} which
-// does enqueue requests for all Create/Update/Delete events -- behavior COSI does not always want.
+// does enqueue requests for all Create/Delete/Generic events -- behavior COSI does not always want.
 func GenerationChangedInUpdateOnly() predicate.Funcs {
 	funcs := allFalseFuncs()
 	funcs.UpdateFunc = func(e event.UpdateEvent) bool {
@@ -83,7 +83,7 @@ func GenerationChangedInUpdateOnly() predicate.Funcs {
 // where the protection finalizer has been removed. This helps ensure that COSI always has a chance
 // to re-apply the protection finalizer when it's needed.
 //
-// The predicate does not enqueue requests for any Create/Update/Delete events.
+// The predicate does not enqueue requests for any Create/Delete/Generic events.
 // This ensures that other predicates can effectively filter out undesired non-Update events.
 func ProtectionFinalizerRemoved(s *runtime.Scheme) predicate.Funcs {
 	funcs := allFalseFuncs()

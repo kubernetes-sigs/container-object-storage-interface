@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
+	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/test"
 )
 
 func Test_connectRpcAndGetDriverInfo(t *testing.T) {
@@ -53,13 +54,6 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer cancel()
 
-		tmpDir := mkTempD(t)
-		defer func() { _ = os.RemoveAll(tmpDir) }()
-		sockPath := tmpDir + "/cosi.sock"
-		sockUri := "unix://" + sockPath
-
-		server := grpc.NewServer()
-
 		identityServer := fakeIdentityServer{
 			getInfoResponse: &cosiproto.DriverGetInfoResponse{
 				Name: "s3.cosi.mydriver.net",
@@ -69,12 +63,13 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 			},
 			getInfoErr: nil,
 		}
-		cosiproto.RegisterIdentityServer(server, &identityServer)
 
-		go startServer(t, sockPath, server)
-		defer server.Stop()
+		cleanup, serve, tmpSockUri, err := test.Server(&identityServer, nil)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
 
-		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, sockUri)
+		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, tmpSockUri)
 		assert.NoError(t, err)
 		assert.Equal(t, "s3.cosi.mydriver.net", driverInfo.GetName())
 	})
@@ -82,13 +77,6 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 	t.Run("azure driver", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer cancel()
-
-		tmpDir := mkTempD(t)
-		defer func() { _ = os.RemoveAll(tmpDir) }()
-		sockPath := tmpDir + "/cosi.sock"
-		sockUri := "unix://" + sockPath
-
-		server := grpc.NewServer()
 
 		identityServer := fakeIdentityServer{
 			getInfoResponse: &cosiproto.DriverGetInfoResponse{
@@ -99,12 +87,13 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 			},
 			getInfoErr: nil,
 		}
-		cosiproto.RegisterIdentityServer(server, &identityServer)
 
-		go startServer(t, sockPath, server)
-		defer server.Stop()
+		cleanup, serve, tmpSockUri, err := test.Server(&identityServer, nil)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
 
-		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, sockUri)
+		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, tmpSockUri)
 		assert.NoError(t, err)
 		assert.Equal(t, "azure.cosi.mydriver.net", driverInfo.GetName())
 	})
@@ -112,13 +101,6 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 	t.Run("gcs driver", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer cancel()
-
-		tmpDir := mkTempD(t)
-		defer func() { _ = os.RemoveAll(tmpDir) }()
-		sockPath := tmpDir + "/cosi.sock"
-		sockUri := "unix://" + sockPath
-
-		server := grpc.NewServer()
 
 		identityServer := fakeIdentityServer{
 			getInfoResponse: &cosiproto.DriverGetInfoResponse{
@@ -129,12 +111,13 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 			},
 			getInfoErr: nil,
 		}
-		cosiproto.RegisterIdentityServer(server, &identityServer)
 
-		go startServer(t, sockPath, server)
-		defer server.Stop()
+		cleanup, serve, tmpSockUri, err := test.Server(&identityServer, nil)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
 
-		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, sockUri)
+		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, tmpSockUri)
 		assert.NoError(t, err)
 		assert.Equal(t, "gcs.cosi.mydriver.net", driverInfo.GetName())
 	})
@@ -142,13 +125,6 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 	t.Run("getInfo error", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer cancel()
-
-		tmpDir := mkTempD(t)
-		defer func() { _ = os.RemoveAll(tmpDir) }()
-		sockPath := tmpDir + "/cosi.sock"
-		sockUri := "unix://" + sockPath
-
-		server := grpc.NewServer()
 
 		identityServer := fakeIdentityServer{
 			getInfoResponse: &cosiproto.DriverGetInfoResponse{
@@ -159,12 +135,13 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 			},
 			getInfoErr: fmt.Errorf("fake error"),
 		}
-		cosiproto.RegisterIdentityServer(server, &identityServer)
 
-		go startServer(t, sockPath, server)
-		defer server.Stop()
+		cleanup, serve, tmpSockUri, err := test.Server(&identityServer, nil)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
 
-		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, sockUri)
+		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, tmpSockUri)
 		assert.ErrorContains(t, err, "fake error")
 		assert.Nil(t, driverInfo)
 	})
@@ -172,13 +149,6 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 	t.Run("getInfo timeout", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer cancel()
-
-		tmpDir := mkTempD(t)
-		defer func() { _ = os.RemoveAll(tmpDir) }()
-		sockPath := tmpDir + "/cosi.sock"
-		sockUri := "unix://" + sockPath
-
-		server := grpc.NewServer()
 
 		identityServer := fakeIdentityServer{
 			getInfoSleep: 3 * time.Second,
@@ -190,12 +160,13 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 			},
 			getInfoErr: nil,
 		}
-		cosiproto.RegisterIdentityServer(server, &identityServer)
 
-		go startServer(t, sockPath, server)
-		defer server.Stop()
+		cleanup, serve, tmpSockUri, err := test.Server(&identityServer, nil)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
 
-		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, sockUri)
+		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, tmpSockUri)
 		assert.ErrorContains(t, err, "unable to get driver info")
 		assert.Nil(t, driverInfo)
 	})
@@ -203,13 +174,6 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 	t.Run("invalid driver name", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer cancel()
-
-		tmpDir := mkTempD(t)
-		defer func() { _ = os.RemoveAll(tmpDir) }()
-		sockPath := tmpDir + "/cosi.sock"
-		sockUri := "unix://" + sockPath
-
-		server := grpc.NewServer()
 
 		identityServer := fakeIdentityServer{
 			getInfoResponse: &cosiproto.DriverGetInfoResponse{
@@ -220,12 +184,13 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 			},
 			getInfoErr: nil,
 		}
-		cosiproto.RegisterIdentityServer(server, &identityServer)
 
-		go startServer(t, sockPath, server)
-		defer server.Stop()
+		cleanup, serve, tmpSockUri, err := test.Server(&identityServer, nil)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
 
-		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, sockUri)
+		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, tmpSockUri)
 		assert.ErrorContains(t, err, "driver info is invalid")
 		assert.Nil(t, driverInfo)
 	})
@@ -234,12 +199,12 @@ func Test_connectRpcAndGetDriverInfo(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer cancel()
 
-		tmpDir := mkTempD(t)
-		defer func() { _ = os.RemoveAll(tmpDir) }()
-		sockPath := tmpDir + "/cosi.sock"
-		sockUri := "unix://" + sockPath
+		cleanup, _, tmpSockUri, err := test.Server(nil, nil)
+		defer cleanup()
+		require.NoError(t, err)
+		// do not call serve()
 
-		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, sockUri)
+		driverInfo, err := connectRpcAndGetDriverInfo(timeoutCtx, tmpSockUri)
 		assert.ErrorContains(t, err, "timed out waiting for RPC client to connect")
 		assert.Nil(t, driverInfo)
 	})
