@@ -21,6 +21,9 @@ limitations under the License.
 package predicate
 
 import (
+	"fmt"
+
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	"sigs.k8s.io/container-object-storage-interface/internal/handoff"
 )
 
 // AnyCreate returns a predicate that enqueues a reconcile for any Create event.
@@ -107,6 +111,93 @@ func ProtectionFinalizerRemoved(s *runtime.Scheme) predicate.Funcs {
 		return false
 	}
 	return funcs
+}
+
+// BucketAccessHandoffOccurred implements a predicate that enqueues a BucketAccess reconcile for
+// Update events where the managing component of the BucketAccess changes, indicating that handoff
+// between Controller and Sidecar has occurred in either direction.
+//
+// The predicate does not enqueue requests for any Create/Delete/Generic events.
+// This ensures that other predicates can effectively filter out undesired non-Update events.
+func BucketAccessHandoffOccurred(s *runtime.Scheme) predicate.Funcs {
+	funcs := allFalseFuncs()
+	funcs.UpdateFunc = func(e event.UpdateEvent) bool {
+		old := e.ObjectOld
+		new := e.ObjectNew
+
+		logger := ctrl.Log.WithName("predicate")
+
+		oldBa, ok := toTypedOrLogError[*cosiapi.BucketAccess](logger.WithValues("oldOrNew", "old"), s, old)
+		if !ok {
+			return false // not a BucketAccess, so don't manage it
+		}
+		newBa, ok := toTypedOrLogError[*cosiapi.BucketAccess](logger.WithValues("oldOrNew", "new"), s, new)
+		if !ok {
+			return false // not a BucketAccess, so don't manage it
+		}
+
+		return handoffOccurred(logger, oldBa, newBa)
+	}
+	return funcs
+}
+
+// Internal logic for determining if BucketAccess Controller-Sidecar handoff has occurred.
+func handoffOccurred(logger logr.Logger, old, new *cosiapi.BucketAccess) bool {
+	oldIsSidecar := handoff.BucketAccessManagedBySidecar(old)
+	newIsSidecar := handoff.BucketAccessManagedBySidecar(new)
+	if oldIsSidecar != newIsSidecar {
+		toComponentName := func(isSidecar bool) string {
+			if isSidecar {
+				return "sidecar"
+			}
+			return "controller"
+		}
+		logger.Info("BucketAccess management handoff occurred",
+			"namespace", old.GetNamespace(), "name", old.GetName(),
+			"oldManagedBy", toComponentName(oldIsSidecar),
+			"newManagedBy", toComponentName(newIsSidecar))
+		return true
+	}
+	return false
+}
+
+// BucketAccessManagedBySidecar implements a predicate that enqueues a BucketAccess reconcile for
+// any event if (and only if) the BucketAccess should be managed by the COSI Sidecar.
+func BucketAccessManagedBySidecar(s *runtime.Scheme) predicate.Funcs {
+	return predicate.NewPredicateFuncs(func(object client.Object) bool {
+		ba, ok := toTypedOrLogError[*cosiapi.BucketAccess](ctrl.Log.WithName("predicate"), s, object)
+		if !ok {
+			return false // not a BucketAccess, so don't manage it
+		}
+		return handoff.BucketAccessManagedBySidecar(ba)
+	})
+}
+
+// BucketAccessManagedByController implements a predicate that enqueues a BucketAccess reconcile for
+// any event if (and only if) the BucketAccess should be managed by the COSI Controller.
+func BucketAccessManagedByController(s *runtime.Scheme) predicate.Funcs {
+	return predicate.NewPredicateFuncs(func(object client.Object) bool {
+		ba, ok := toTypedOrLogError[*cosiapi.BucketAccess](ctrl.Log.WithName("predicate"), s, object)
+		if !ok {
+			return false // not a BucketAccess, so don't manage it
+		}
+		// Note: cannot simply return predicate.Not() of BucketAccessManagedBySidecar() because
+		// any failed type conversion must return false for both Sidecar and Controller
+		return !handoff.BucketAccessManagedBySidecar(ba)
+	})
+}
+
+// Converts a client object to a typed object, and log an error if conversion fails
+func toTypedOrLogError[T client.Object](logger logr.Logger, s *runtime.Scheme, object client.Object) (T, bool) {
+	typed, ok := object.(T)
+	if !ok {
+		logger.Error(nil, "failed to convert object with unexpected type",
+			"expectedType", fmt.Sprintf("%T", *new(T)),
+			"receivedType", fmt.Sprintf("%T", object),
+			"kind", inferKind(object, s), "namespace", object.GetNamespace(), "name", object.GetName())
+		return *new(T), false
+	}
+	return typed, true
 }
 
 // Makes a best-effort attempt to infer a likely Kind for the object in the schema.

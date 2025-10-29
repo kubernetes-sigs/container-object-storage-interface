@@ -82,7 +82,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// On success, clear any errors in the status.
-	if bucket.Status.Error != nil {
+	if bucket.Status.Error != nil && !bucket.DeletionTimestamp.IsZero() {
 		bucket.Status.Error = nil
 		if err := r.Status().Update(ctx, bucket); err != nil {
 			logger.Error(err, "failed to update BucketClaim status after reconcile success")
