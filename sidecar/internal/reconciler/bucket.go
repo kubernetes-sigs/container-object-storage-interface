@@ -19,6 +19,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -366,7 +367,7 @@ func validateDriverSupportsProtocols(driver DriverInfo, required []*cosiproto.Ob
 func validateBucketSupportsProtocols(supported, required []cosiapi.ObjectProtocol) error {
 	unsupported := []string{}
 	for _, req := range required {
-		if !contains(supported, req) {
+		if !slices.Contains(supported, req) {
 			unsupported = append(unsupported, string(req))
 		}
 	}
@@ -385,14 +386,4 @@ func mergeApiInfoIntoStringMap[T cosiapi.BucketInfoVar | cosiapi.CredentialVar](
 	for k, v := range varKey {
 		target[string(k)] = v
 	}
-}
-
-// contains returns true if the given `list` contains the item `key`.
-func contains[T comparable](list []T, key T) bool {
-	for _, i := range list {
-		if i == key {
-			return true
-		}
-	}
-	return false
 }

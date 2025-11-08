@@ -73,14 +73,3 @@ type RpcApiTranslator[RpcType any, ApiType comparable] interface {
 	// Validate checks that user-domain API fields meet requirements and expectations.
 	Validate(map[ApiType]string, cosiapi.BucketAccessAuthenticationType) error
 }
-
-// contains is a helper that returns true if the given `list` contains the item `key`.
-// Useful for a variety of Validate() implementations.
-func contains[T comparable](list []T, key T) bool {
-	for _, i := range list {
-		if i == key {
-			return true
-		}
-	}
-	return false
-}
