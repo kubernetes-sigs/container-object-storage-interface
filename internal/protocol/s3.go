@@ -18,6 +18,7 @@ package protocol
 
 import (
 	"fmt"
+	"slices"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
@@ -114,7 +115,7 @@ func (S3BucketInfoTranslator) Validate(
 	}
 
 	as := vars[cosiapi.BucketInfoVar_S3_AddressingStyle]
-	if !contains(validS3AddressingStyles, as) {
+	if !slices.Contains(validS3AddressingStyles, as) {
 		errs = append(errs, fmt.Sprintf("S3 addressing style %q must be one of %v", as, validS3AddressingStyles))
 	}
 
