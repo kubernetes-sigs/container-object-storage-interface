@@ -25,6 +25,10 @@ const (
 
 // Annotations
 const (
+	// BucketClaimBeingDeletedAnnotation : This annotation is applied by the COSI Controller to a
+	// Bucket when its BucketClaim is being deleted.
+	BucketClaimBeingDeletedAnnotation = `objectstorage.k8.io/bucketclaim-being-deleted`
+
 	// HasBucketAccessReferencesAnnotation : This annotation is applied by the COSI Controller to a
 	// BucketClaim when a BucketAccess that references the BucketClaim is created. The annotation
 	// remains for as long as any BucketAccess references the BucketClaim. Once all BucketAccesses

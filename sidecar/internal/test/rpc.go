@@ -17,6 +17,7 @@ limitations under the License.
 package test
 
 import (
+	"context"
 	"net"
 	"os"
 
@@ -94,4 +95,31 @@ func ClientConn(tmpSockUri string) (*grpc.ClientConn, error) {
 			grpc.WaitForReady(true),
 		),
 	)
+}
+
+// FakeProvisionerServer implements COSI provisioner server with call stubs for use in unit tests.
+// nolint:lll // don't care about the long lines here
+type FakeProvisionerServer struct {
+	cosiproto.UnimplementedProvisionerServer
+
+	CreateBucketFunc      func(context.Context, *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error)
+	GrantBucketAccessFunc func(context.Context, *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error)
+}
+
+func (s *FakeProvisionerServer) DriverCreateBucket(
+	ctx context.Context, req *cosiproto.DriverCreateBucketRequest,
+) (*cosiproto.DriverCreateBucketResponse, error) {
+	if s.CreateBucketFunc != nil {
+		return s.CreateBucketFunc(ctx, req)
+	}
+	return s.UnimplementedProvisionerServer.DriverCreateBucket(ctx, req)
+}
+
+func (s *FakeProvisionerServer) DriverGrantBucketAccess(
+	ctx context.Context, req *cosiproto.DriverGrantBucketAccessRequest,
+) (*cosiproto.DriverGrantBucketAccessResponse, error) {
+	if s.GrantBucketAccessFunc != nil {
+		return s.GrantBucketAccessFunc(ctx, req)
+	}
+	return s.UnimplementedProvisionerServer.DriverGrantBucketAccess(ctx, req)
 }

@@ -24,13 +24,23 @@ import (
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 )
 
+type AzureProtocolGetter struct{}
+
+func (AzureProtocolGetter) ApiProtocol() cosiapi.ObjectProtocol {
+	return cosiapi.ObjectProtocolAzure
+}
+
 // AzureBucketInfoTranslator implements RpcApiTranslator for Azure bucket info.
-type AzureBucketInfoTranslator struct{}
+type AzureBucketInfoTranslator struct {
+	AzureProtocolGetter
+}
 
 var _ RpcApiTranslator[*cosiproto.AzureBucketInfo, cosiapi.BucketInfoVar] = AzureBucketInfoTranslator{}
 
 // AzureCredentialTranslator implements RpcApiTranslator for Azure credentials.
-type AzureCredentialTranslator struct{}
+type AzureCredentialTranslator struct {
+	AzureProtocolGetter
+}
 
 var _ RpcApiTranslator[*cosiproto.AzureCredentialInfo, cosiapi.CredentialVar] = AzureCredentialTranslator{}
 

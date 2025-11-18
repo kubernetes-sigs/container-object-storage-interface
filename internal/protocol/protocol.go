@@ -59,6 +59,9 @@ func (ObjectProtocolTranslator) ApiToRpc(in cosiapi.ObjectProtocol) (cosiproto.O
 // An RpcApiTranslator translates types between the RPC driver-domain and Kubernetes API user-domain
 // for a particular protocol.
 type RpcApiTranslator[RpcType any, ApiType comparable] interface {
+	// ApiProtocol returns the user-domain API object protocol.
+	ApiProtocol() cosiapi.ObjectProtocol
+
 	// RpcToApi translates bucket info from RPC to API with no validation.
 	// If the input is nil, the result map MUST be nil.
 	// All possible API info fields SHOULD be present in the result, even if the corresponding RPC

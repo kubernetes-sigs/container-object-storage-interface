@@ -24,13 +24,23 @@ import (
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 )
 
+type GcsProtocolGetter struct{}
+
+func (GcsProtocolGetter) ApiProtocol() cosiapi.ObjectProtocol {
+	return cosiapi.ObjectProtocolGcs
+}
+
 // GcsBucketInfoTranslator implements RpcApiTranslator for GCS bucket info.
-type GcsBucketInfoTranslator struct{}
+type GcsBucketInfoTranslator struct {
+	GcsProtocolGetter
+}
 
 var _ RpcApiTranslator[*cosiproto.GcsBucketInfo, cosiapi.BucketInfoVar] = GcsBucketInfoTranslator{}
 
 // GcsCredentialTranslator implements RpcApiTranslator for GCS credentials.
-type GcsCredentialTranslator struct{}
+type GcsCredentialTranslator struct {
+	GcsProtocolGetter
+}
 
 var _ RpcApiTranslator[*cosiproto.GcsCredentialInfo, cosiapi.CredentialVar] = GcsCredentialTranslator{}
 
