@@ -958,6 +958,7 @@ func (x *AuthenticationType) GetType() AuthenticationType_Type {
 
 type AccessMode struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mode          AccessMode_Mode        `protobuf:"varint,1,opt,name=mode,proto3,enum=sigs.k8s.io.cosi.v1alpha2.AccessMode_Mode" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -990,6 +991,13 @@ func (x *AccessMode) ProtoReflect() protoreflect.Message {
 // Deprecated: Use AccessMode.ProtoReflect.Descriptor instead.
 func (*AccessMode) Descriptor() ([]byte, []int) {
 	return file_cosi_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AccessMode) GetMode() AccessMode_Mode {
+	if x != nil {
+		return x.Mode
+	}
+	return AccessMode_UNKNOWN
 }
 
 type DriverCreateBucketRequest struct {
@@ -2023,9 +2031,10 @@ const file_cosi_proto_rawDesc = "" +
 	"\x04Type\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\a\n" +
 	"\x03KEY\x10\x01\x12\x13\n" +
-	"\x0fSERVICE_ACCOUNT\x10\x02\"P\n" +
+	"\x0fSERVICE_ACCOUNT\x10\x02\"\x90\x01\n" +
 	"\n" +
-	"AccessMode\"B\n" +
+	"AccessMode\x12>\n" +
+	"\x04mode\x18\x01 \x01(\x0e2*.sigs.k8s.io.cosi.v1alpha2.AccessMode.ModeR\x04mode\"B\n" +
 	"\x04Mode\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +
@@ -2197,49 +2206,50 @@ var file_cosi_proto_depIdxs = []int32{
 	11, // 8: sigs.k8s.io.cosi.v1alpha2.S3BucketInfo.addressing_style:type_name -> sigs.k8s.io.cosi.v1alpha2.S3AddressingStyle
 	1,  // 9: sigs.k8s.io.cosi.v1alpha2.S3AddressingStyle.style:type_name -> sigs.k8s.io.cosi.v1alpha2.S3AddressingStyle.Style
 	2,  // 10: sigs.k8s.io.cosi.v1alpha2.AuthenticationType.type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType.Type
-	6,  // 11: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
-	28, // 12: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.ParametersEntry
-	7,  // 13: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketResponse.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocolAndBucketInfo
-	6,  // 14: sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketRequest.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
-	29, // 15: sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketRequest.ParametersEntry
-	7,  // 16: sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketResponse.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocolAndBucketInfo
-	30, // 17: sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest.ParametersEntry
-	6,  // 18: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.protocol:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
-	16, // 19: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.authentication_type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType
-	31, // 20: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.ParametersEntry
-	32, // 21: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket
-	33, // 22: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.BucketInfo
-	8,  // 23: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.credentials:type_name -> sigs.k8s.io.cosi.v1alpha2.CredentialInfo
-	6,  // 24: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.protocol:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
-	16, // 25: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.authentication_type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType
-	34, // 26: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.ParametersEntry
-	35, // 27: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.AccessedBucket
-	17, // 28: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
-	7,  // 29: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.BucketInfo.bucket_info:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocolAndBucketInfo
-	36, // 30: sigs.k8s.io.cosi.v1alpha2.alpha_enum:extendee -> google.protobuf.EnumOptions
-	37, // 31: sigs.k8s.io.cosi.v1alpha2.alpha_enum_value:extendee -> google.protobuf.EnumValueOptions
-	38, // 32: sigs.k8s.io.cosi.v1alpha2.cosi_secret:extendee -> google.protobuf.FieldOptions
-	38, // 33: sigs.k8s.io.cosi.v1alpha2.alpha_field:extendee -> google.protobuf.FieldOptions
-	39, // 34: sigs.k8s.io.cosi.v1alpha2.alpha_message:extendee -> google.protobuf.MessageOptions
-	40, // 35: sigs.k8s.io.cosi.v1alpha2.alpha_method:extendee -> google.protobuf.MethodOptions
-	41, // 36: sigs.k8s.io.cosi.v1alpha2.alpha_service:extendee -> google.protobuf.ServiceOptions
-	4,  // 37: sigs.k8s.io.cosi.v1alpha2.Identity.DriverGetInfo:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetInfoRequest
-	18, // 38: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverCreateBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest
-	20, // 39: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGetExistingBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketRequest
-	22, // 40: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverDeleteBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest
-	24, // 41: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGrantBucketAccess:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest
-	26, // 42: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverRevokeBucketAccess:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest
-	5,  // 43: sigs.k8s.io.cosi.v1alpha2.Identity.DriverGetInfo:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetInfoResponse
-	19, // 44: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverCreateBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketResponse
-	21, // 45: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGetExistingBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketResponse
-	23, // 46: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverDeleteBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketResponse
-	25, // 47: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGrantBucketAccess:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse
-	27, // 48: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverRevokeBucketAccess:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessResponse
-	43, // [43:49] is the sub-list for method output_type
-	37, // [37:43] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	30, // [30:37] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	3,  // 11: sigs.k8s.io.cosi.v1alpha2.AccessMode.mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode.Mode
+	6,  // 12: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
+	28, // 13: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.ParametersEntry
+	7,  // 14: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketResponse.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocolAndBucketInfo
+	6,  // 15: sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketRequest.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
+	29, // 16: sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketRequest.ParametersEntry
+	7,  // 17: sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketResponse.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocolAndBucketInfo
+	30, // 18: sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest.ParametersEntry
+	6,  // 19: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.protocol:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
+	16, // 20: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.authentication_type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType
+	31, // 21: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.ParametersEntry
+	32, // 22: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket
+	33, // 23: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.BucketInfo
+	8,  // 24: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.credentials:type_name -> sigs.k8s.io.cosi.v1alpha2.CredentialInfo
+	6,  // 25: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.protocol:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
+	16, // 26: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.authentication_type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType
+	34, // 27: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.ParametersEntry
+	35, // 28: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.AccessedBucket
+	17, // 29: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
+	7,  // 30: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.BucketInfo.bucket_info:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocolAndBucketInfo
+	36, // 31: sigs.k8s.io.cosi.v1alpha2.alpha_enum:extendee -> google.protobuf.EnumOptions
+	37, // 32: sigs.k8s.io.cosi.v1alpha2.alpha_enum_value:extendee -> google.protobuf.EnumValueOptions
+	38, // 33: sigs.k8s.io.cosi.v1alpha2.cosi_secret:extendee -> google.protobuf.FieldOptions
+	38, // 34: sigs.k8s.io.cosi.v1alpha2.alpha_field:extendee -> google.protobuf.FieldOptions
+	39, // 35: sigs.k8s.io.cosi.v1alpha2.alpha_message:extendee -> google.protobuf.MessageOptions
+	40, // 36: sigs.k8s.io.cosi.v1alpha2.alpha_method:extendee -> google.protobuf.MethodOptions
+	41, // 37: sigs.k8s.io.cosi.v1alpha2.alpha_service:extendee -> google.protobuf.ServiceOptions
+	4,  // 38: sigs.k8s.io.cosi.v1alpha2.Identity.DriverGetInfo:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetInfoRequest
+	18, // 39: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverCreateBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest
+	20, // 40: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGetExistingBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketRequest
+	22, // 41: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverDeleteBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest
+	24, // 42: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGrantBucketAccess:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest
+	26, // 43: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverRevokeBucketAccess:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest
+	5,  // 44: sigs.k8s.io.cosi.v1alpha2.Identity.DriverGetInfo:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetInfoResponse
+	19, // 45: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverCreateBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketResponse
+	21, // 46: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGetExistingBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetExistingBucketResponse
+	23, // 47: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverDeleteBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketResponse
+	25, // 48: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGrantBucketAccess:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse
+	27, // 49: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverRevokeBucketAccess:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessResponse
+	44, // [44:50] is the sub-list for method output_type
+	38, // [38:44] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	31, // [31:38] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_cosi_proto_init() }

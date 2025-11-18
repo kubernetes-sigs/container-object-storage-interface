@@ -35,13 +35,23 @@ var (
 	}
 )
 
+type S3ProtocolGetter struct{}
+
+func (S3ProtocolGetter) ApiProtocol() cosiapi.ObjectProtocol {
+	return cosiapi.ObjectProtocolS3
+}
+
 // S3BucketInfoTranslator implements RpcApiTranslator for S3 bucket info.
-type S3BucketInfoTranslator struct{}
+type S3BucketInfoTranslator struct {
+	S3ProtocolGetter
+}
 
 var _ RpcApiTranslator[*cosiproto.S3BucketInfo, cosiapi.BucketInfoVar] = S3BucketInfoTranslator{}
 
 // S3CredentialTranslator implements RpcApiTranslator for S3 credentials.
-type S3CredentialTranslator struct{}
+type S3CredentialTranslator struct {
+	S3ProtocolGetter
+}
 
 var _ RpcApiTranslator[*cosiproto.S3CredentialInfo, cosiapi.CredentialVar] = S3CredentialTranslator{}
 
@@ -124,6 +134,10 @@ func (S3BucketInfoTranslator) Validate(
 		return fmt.Errorf("S3 bucket info is invalid: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+func (S3BucketInfoTranslator) ApiProtocol() cosiapi.ObjectProtocol {
+	return cosiapi.ObjectProtocolS3
 }
 
 func (S3CredentialTranslator) RpcToApi(c *cosiproto.S3CredentialInfo) map[cosiapi.CredentialVar]string {
