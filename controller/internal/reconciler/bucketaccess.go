@@ -18,6 +18,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -34,6 +35,7 @@ import (
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	objectstoragev1alpha2 "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	"sigs.k8s.io/container-object-storage-interface/internal/handoff"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 )
@@ -69,7 +71,7 @@ func (r *BucketAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
-	retryError, err := r.reconcile(ctx, logger, access)
+	err := r.reconcile(ctx, logger, access)
 	if err != nil {
 		// Because the BucketAccess status is could be managed by either Sidecar or Controller,
 		// indicate that this error is coming from the Controller.
@@ -80,11 +82,11 @@ func (r *BucketAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if updErr := r.Status().Update(ctx, access); updErr != nil {
 			logger.Error(err, "failed to update BucketAccess status after reconcile error", "updateError", updErr)
 			// If status update fails, we must retry the error regardless of the reconcile return.
-			// The reconcile needs to run again to make sure the status is eventually be updated.
+			// The reconcile needs to run again to make sure the status is eventually updated.
 			return reconcile.Result{}, err
 		}
 
-		if !retryError {
+		if errors.Is(err, cosierr.NonRetryableError(nil)) {
 			return reconcile.Result{}, reconcile.TerminalError(err)
 		}
 		return reconcile.Result{}, err
@@ -121,7 +123,7 @@ func (r *BucketAccessReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *BucketAccessReconciler) reconcile(
 	ctx context.Context, logger logr.Logger, access *cosiapi.BucketAccess,
-) (retryErrorType, error) {
+) error {
 	if !access.GetDeletionTimestamp().IsZero() {
 		logger.V(1).Info("beginning BucketAccess deletion cleanup")
 
@@ -130,16 +132,16 @@ func (r *BucketAccessReconciler) reconcile(
 		ctrlutil.RemoveFinalizer(access, cosiapi.ProtectionFinalizer)
 		if err := r.Update(ctx, access); err != nil {
 			logger.Error(err, "failed to remove finalizer")
-			return RetryError, fmt.Errorf("failed to remove finalizer: %w", err)
+			return fmt.Errorf("failed to remove finalizer: %w", err)
 		}
 
-		return DoNotRetryError, fmt.Errorf("deletion is not yet implemented") // TODO
+		return cosierr.NonRetryableError(fmt.Errorf("deletion is not yet implemented")) // TODO
 	}
 
 	needInit, err := needsControllerInitialization(&access.Status)
 	if err != nil {
 		logger.Error(err, "processed a degraded BucketAccess")
-		return DoNotRetryError, fmt.Errorf("processed a degraded BucketAccess: %w", err)
+		return cosierr.NonRetryableError(fmt.Errorf("processed a degraded BucketAccess: %w", err))
 	}
 	if !needInit {
 		// BucketAccessClass info should only be copied to the BucketAccess status once, upon
@@ -149,7 +151,7 @@ func (r *BucketAccessReconciler) reconcile(
 		// wrong. Sidecar should have ownership, but we determined otherwise, and the Sidecar will
 		// likely also determine us to be the owner.
 		logger.Error(nil, "processed a BucketAccess that should be managed by COSI Sidecar")
-		return DoNotRetryError, fmt.Errorf("processed a BucketAccess that should be managed by COSI Sidecar")
+		return cosierr.NonRetryableError(fmt.Errorf("processed a BucketAccess that should be managed by COSI Sidecar"))
 	}
 
 	logger = logger.WithValues("bucketAccessClassName", access.Spec.BucketAccessClassName)
@@ -160,21 +162,21 @@ func (r *BucketAccessReconciler) reconcile(
 	if didAdd {
 		if err := r.Update(ctx, access); err != nil {
 			logger.Error(err, "failed to add protection finalizer")
-			return RetryError, fmt.Errorf("failed to add protection finalizer: %w", err)
+			return fmt.Errorf("failed to add protection finalizer: %w", err)
 		}
 	}
 
-	claimsByName, retryErr, err := getAllBucketClaims(ctx, r.Client, access.Namespace, access.Spec.BucketClaims)
+	claimsByName, err := getAllBucketClaims(ctx, r.Client, access.Namespace, access.Spec.BucketClaims)
 	if err != nil {
 		logger.Error(err, "failed to get all referenced BucketClaims")
-		return retryErr, err
+		return err
 	}
 
 	// Mark as many referenced BucketClaims as possible as soon as possible in the reconcile.
 	// This ensures that BucketClaims are marked to protect their data from deletion quickly.
 	if err := markAllBucketClaimsAsAccessed(ctx, r.Client, claimsByName); err != nil {
 		logger.Error(err, "failed to mark all referenced BucketClaims")
-		return RetryError, err
+		return err
 	}
 
 	class := &cosiapi.BucketAccessClass{}
@@ -189,21 +191,21 @@ func (r *BucketAccessReconciler) reconcile(
 			// access class reconciler that enqueues requests for BucketAccesses that reference the
 			// class and aren't yet passed to the sidecar.
 			logger.Error(err, "BucketAccessClass not found")
-			return RetryError, err
+			return err
 		}
 		logger.Error(err, "failed to get BucketAccessClass")
-		return RetryError, err
+		return err
 	}
 
 	if err := validateAccessAgainstClass(&class.Spec, &access.Spec); err != nil {
 		logger.Error(err, "BucketAccess failed featureOptions validation")
-		return DoNotRetryError, err
+		return cosierr.NonRetryableError(err)
 	}
 
 	blockers := cannotAccessBucketClaims(claimsByName, access.Spec)
 	if len(blockers) > 0 {
 		logger.Error(nil, "access cannot be provisioned for one or more BucketClaims", "blockers", blockers)
-		return DoNotRetryError, fmt.Errorf("access cannot be provisioned for one or more BucketClaims: %v", blockers)
+		return cosierr.NonRetryableError(fmt.Errorf("access cannot be provisioned for one or more BucketClaims: %v", blockers))
 	}
 
 	waitlist := waitingOnBucketClaims(claimsByName)
@@ -212,13 +214,13 @@ func (r *BucketAccessReconciler) reconcile(
 		// TODO: for now, return an error and allow the controller to exponential backoff until we
 		// are done waiting on the resources. in the future, optimize this by adding a bucketclaim
 		// reconciler that enqueues requests for BucketClaims when they finish provisioning.
-		return RetryError, fmt.Errorf("waiting for prerequisites before provisioning access: %v", waitlist)
+		return fmt.Errorf("waiting for prerequisites before provisioning access: %v", waitlist)
 	}
 
 	accessedBuckets, err := generateAccessedBuckets(access.Spec.BucketClaims, claimsByName)
 	if err != nil {
 		logger.Error(err, "waiting for BucketClaims to finish provisioning")
-		return RetryError, fmt.Errorf("waiting for BucketClaims to finish provisioning: %w", err)
+		return fmt.Errorf("waiting for BucketClaims to finish provisioning: %w", err)
 	}
 
 	// After this status update, resource management should be handed off to the Sidecar
@@ -229,10 +231,10 @@ func (r *BucketAccessReconciler) reconcile(
 	access.Status.Error = nil
 	if err := r.Status().Update(ctx, access); err != nil {
 		logger.Error(err, "failed to update BucketClaim status after successful initialization")
-		return RetryError, err
+		return err
 	}
 
-	return NoError, nil
+	return nil
 }
 
 // Return true if the Controller needs to initialize the BucketAccess with BucketClaim and
@@ -273,18 +275,16 @@ func needsControllerInitialization(s *cosiapi.BucketAccessStatus) (bool, error) 
 // When no error is returned, the output map MUST have an entry for every given BucketClaimAccess.
 func getAllBucketClaims(
 	ctx context.Context, client client.Client, namespace string, claimAccesses []cosiapi.BucketClaimAccess,
-) (map[string]*cosiapi.BucketClaim, retryErrorType, error) {
+) (map[string]*cosiapi.BucketClaim, error) {
 	claims := make(map[string]*cosiapi.BucketClaim, len(claimAccesses))
 	errs := []error{}
-	retryErr := RetryError
 
 	for _, ref := range claimAccesses {
 		if _, ok := claims[ref.BucketClaimName]; ok {
 			// In testing, the CEL validation rules prevent this case, but no duplicates is critical
 			// to the access initialization, so double check it.
-			errs = append(errs, fmt.Errorf("BucketClaim %q is referenced more than once", ref.BucketClaimName))
-			retryErr = DoNotRetryError
-			continue
+			return nil, cosierr.NonRetryableError(
+				fmt.Errorf("BucketClaim %q is referenced more than once", ref.BucketClaimName))
 		}
 
 		c := cosiapi.BucketClaim{}
@@ -306,15 +306,15 @@ func getAllBucketClaims(
 	}
 
 	if len(errs) > 0 {
-		return nil, retryErr, fmt.Errorf("could not get one or more BucketClaims: %v", errs)
+		return nil, fmt.Errorf("could not get one or more BucketClaims: %v", errs)
 	}
 
 	if len(claims) != len(claimAccesses) {
 		// Should never happen, but double check because the 1:1 requirement is critical.
-		return nil, retryErr, fmt.Errorf("did not get one or more BucketClaims, but no errors observed")
+		return nil, fmt.Errorf("did not get one or more BucketClaims, but no errors observed")
 	}
 
-	return claims, retryErr, nil
+	return claims, nil
 }
 
 // Mark all (non-nil) BucketClaims as having a BucketAccess reference.

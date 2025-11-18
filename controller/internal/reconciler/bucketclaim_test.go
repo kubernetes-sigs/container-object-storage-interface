@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 )
 
 func Test_determineBucketName(t *testing.T) {
@@ -162,7 +163,7 @@ func Test_createIntermediateBucket(t *testing.T) {
 		claim := baseClaim.DeepCopy()
 		client := newClient(baseClass.DeepCopy())
 
-		bucket, _, err := createIntermediateBucket(ctx, nolog, client, claim, "bc-qwerty")
+		bucket, err := createIntermediateBucket(ctx, nolog, client, claim, "bc-qwerty")
 		assert.NoError(t, err)
 
 		assert.Empty(t, bucket.Finalizers) // NO finalizers pre-applied
@@ -185,10 +186,10 @@ func Test_createIntermediateBucket(t *testing.T) {
 		claim := baseClaim.DeepCopy()
 		client := newClient() // no bucketclass exists
 
-		bucket, retryErr, err := createIntermediateBucket(ctx, nolog, client, claim, "bc-qwerty")
+		bucket, err := createIntermediateBucket(ctx, nolog, client, claim, "bc-qwerty")
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "s3-class") // the class name
-		assert.Equal(t, RetryError, retryErr)
+		assert.NotErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, bucket)
 	})
 
@@ -197,9 +198,9 @@ func Test_createIntermediateBucket(t *testing.T) {
 		claim.Spec.BucketClassName = ""
 		client := newClient(baseClass.DeepCopy())
 
-		bucket, retryErr, err := createIntermediateBucket(ctx, nolog, client, claim, "bc-qwerty")
+		bucket, err := createIntermediateBucket(ctx, nolog, client, claim, "bc-qwerty")
 		assert.Error(t, err)
-		assert.Equal(t, DoNotRetryError, retryErr)
+		assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, bucket)
 	})
 
@@ -213,9 +214,9 @@ func Test_createIntermediateBucket(t *testing.T) {
 		}
 		client := newClient(baseClass.DeepCopy(), raceBucket)
 
-		bucket, retryErr, err := createIntermediateBucket(ctx, nolog, client, claim, "bc-qwerty")
+		bucket, err := createIntermediateBucket(ctx, nolog, client, claim, "bc-qwerty")
 		assert.Error(t, err)
-		assert.Equal(t, RetryError, retryErr)
+		assert.NotErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, bucket)
 	})
 }

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/test"
 )
@@ -537,7 +538,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			"option": "setting",
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_S3},
@@ -546,7 +547,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
-		assert.False(t, bool(retryErr))
 		assert.Equal(t, "bc-qwerty", details.bucketId)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
 		// If we check the exact results of details.allProtoBucketInfo, we will tie the unit tests
@@ -588,7 +588,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_S3},
@@ -598,7 +598,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "fake unknown err")
-		assert.True(t, bool(retryErr))
+		assert.NotErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, details)
 	})
 
@@ -626,7 +626,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_S3},
@@ -636,7 +636,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "fake invalid arg err")
-		assert.False(t, bool(retryErr))
+		assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, details)
 	})
 
@@ -674,7 +674,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_S3},
@@ -684,7 +684,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "all bucketClaimRef fields must be set")
-		assert.False(t, bool(retryErr))
+		assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, details)
 	})
 
@@ -722,7 +722,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_S3},
@@ -732,7 +732,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "bucket ID missing")
-		assert.False(t, bool(retryErr))
+		assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, details)
 	})
 
@@ -763,7 +763,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_S3},
@@ -773,7 +773,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "protocol response missing")
-		assert.False(t, bool(retryErr))
+		assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, details)
 	})
 
@@ -806,7 +806,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_S3},
@@ -815,7 +815,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
-		assert.False(t, bool(retryErr))
 		assert.Equal(t, "bc-qwerty", details.bucketId)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
 		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
@@ -854,7 +853,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_AZURE},
@@ -863,7 +862,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
-		assert.False(t, bool(retryErr))
 		assert.Equal(t, "bc-qwerty", details.bucketId)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolAzure}, details.supportedProtos)
 		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
@@ -902,7 +900,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_GCS},
@@ -911,7 +909,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
-		assert.False(t, bool(retryErr))
 		assert.Equal(t, "bc-qwerty", details.bucketId)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}, details.supportedProtos)
 		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
@@ -954,7 +951,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		details, retryErr, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
+		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
 			bucketName: "bc-qwerty",
 			requiredProtos: []*cosiproto.ObjectProtocol{
 				{Type: cosiproto.ObjectProtocol_S3}, // example of request for S3, returned support for S3+Azure
@@ -963,7 +960,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
-		assert.False(t, bool(retryErr))
 		assert.Equal(t, "bc-qwerty", details.bucketId)
 		assert.ElementsMatch(t,
 			[]cosiapi.ObjectProtocol{

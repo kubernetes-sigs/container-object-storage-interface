@@ -18,6 +18,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 	"sigs.k8s.io/container-object-storage-interface/internal/protocol"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
@@ -64,18 +66,18 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	retryError, err := r.reconcile(ctx, logger, bucket)
+	err := r.reconcile(ctx, logger, bucket)
 	if err != nil {
 		// Record any error as a timestamped error in the status.
 		bucket.Status.Error = cosiapi.NewTimestampedError(time.Now(), err.Error())
 		if updErr := r.Status().Update(ctx, bucket); updErr != nil {
 			logger.Error(err, "failed to update Bucket status after reconcile error", "updateError", updErr)
 			// If status update fails, we must retry the error regardless of the reconcile return.
-			// The reconcile needs to run again to make sure the status is eventually be updated.
+			// The reconcile needs to run again to make sure the status is eventually updated.
 			return reconcile.Result{}, err
 		}
 
-		if !retryError {
+		if errors.Is(err, cosierr.NonRetryableError(nil)) {
 			return reconcile.Result{}, reconcile.TerminalError(err)
 		}
 		return reconcile.Result{}, err
@@ -116,23 +118,12 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// Type definition enforces readability. true/false in code is hard to read/review/maintain.
-type retryErrorType bool
-
-const (
-	RetryError      retryErrorType = true  // DO retry the error.
-	DoNotRetryError retryErrorType = false // Do NOT retry the error.
-	NoError         retryErrorType = false // No error, don't retry. For readability.
-)
-
-func (r *BucketReconciler) reconcile(
-	ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket,
-) (retryErrorType, error) {
+func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket) error {
 	if bucket.Spec.DriverName != r.DriverInfo.name {
 		// TODO: configure the predicate to ignore any reconcile with non-matching driver
 		// keep this log to help debug any issues that might arise with predicate logic
 		logger.Info("not reconciling bucket with non-matching driver name %q", bucket.Spec.DriverName)
-		return NoError, nil
+		return nil
 	}
 
 	if !bucket.GetDeletionTimestamp().IsZero() {
@@ -143,28 +134,28 @@ func (r *BucketReconciler) reconcile(
 		ctrlutil.RemoveFinalizer(bucket, cosiapi.ProtectionFinalizer)
 		if err := r.Update(ctx, bucket); err != nil {
 			logger.Error(err, "failed to remove finalizer")
-			return RetryError, fmt.Errorf("failed to remove finalizer: %w", err)
+			return fmt.Errorf("failed to remove finalizer: %w", err)
 		}
 
-		return DoNotRetryError, fmt.Errorf("deletion is not yet implemented") // TODO
+		return cosierr.NonRetryableError(fmt.Errorf("deletion is not yet implemented")) // TODO
 	}
 
 	requiredProtos, err := objectProtocolListFromApiList(bucket.Spec.Protocols)
 	if err != nil {
 		logger.Error(err, "failed to parse protocol list")
-		return DoNotRetryError, err
+		return cosierr.NonRetryableError(err)
 	}
 
 	if err := validateDriverSupportsProtocols(r.DriverInfo, requiredProtos); err != nil {
 		logger.Error(err, "protocol(s) are unsupported")
-		return DoNotRetryError, err
+		return cosierr.NonRetryableError(err)
 	}
 
 	isStaticProvisioning := false
 	if bucket.Spec.ExistingBucketID != "" {
 		// isStaticProvisioning = true
 		// logger = logger.WithValues("provisioningStrategy", "static")
-		return DoNotRetryError, fmt.Errorf("static provisioning is not yet supported") // TODO
+		return cosierr.NonRetryableError(fmt.Errorf("static provisioning is not yet supported")) // TODO
 	} else {
 		logger = logger.WithValues("provisioningStrategy", "dynamic")
 	}
@@ -175,16 +166,15 @@ func (r *BucketReconciler) reconcile(
 	if didAdd {
 		if err := r.Update(ctx, bucket); err != nil {
 			logger.Error(err, "failed to add protection finalizer")
-			return RetryError, fmt.Errorf("failed to add protection finalizer: %w", err)
+			return fmt.Errorf("failed to add protection finalizer: %w", err)
 		}
 	}
 
 	var provisionedBucket *provisionedBucketDetails
-	var retryErr retryErrorType
 	if isStaticProvisioning {
 		logger.Error(err, "how did we get here?") // TODO: static
 	} else {
-		provisionedBucket, retryErr, err = r.dynamicProvision(ctx, logger, dynamicProvisionParams{
+		provisionedBucket, err = r.dynamicProvision(ctx, logger, dynamicProvisionParams{
 			bucketName:     bucket.Name,
 			requiredProtos: requiredProtos,
 			parameters:     bucket.Spec.Parameters,
@@ -192,19 +182,19 @@ func (r *BucketReconciler) reconcile(
 		})
 	}
 	if err != nil {
-		return retryErr, err
+		return err
 	}
 
 	// final validation and status updates are the same for dynamic and static provisioning
 
 	if len(provisionedBucket.supportedProtos) == 0 {
 		logger.Error(nil, "created bucket supports no protocols")
-		return DoNotRetryError, fmt.Errorf("created bucket supports no protocols")
+		return cosierr.NonRetryableError(fmt.Errorf("created bucket supports no protocols"))
 	}
 
 	if err := validateBucketSupportsProtocols(provisionedBucket.supportedProtos, bucket.Spec.Protocols); err != nil {
 		logger.Error(err, "bucket required protocols missing")
-		return DoNotRetryError, fmt.Errorf("bucket required protocols missing: %w", err)
+		return cosierr.NonRetryableError(fmt.Errorf("bucket required protocols missing: %w", err))
 	}
 
 	bucket.Status = cosiapi.BucketStatus{
@@ -216,10 +206,10 @@ func (r *BucketReconciler) reconcile(
 	}
 	if err := r.Status().Update(ctx, bucket); err != nil {
 		logger.Error(err, "failed to update Bucket status after successful bucket creation")
-		return RetryError, fmt.Errorf("failed to update Bucket status after successful bucket creation: %w", err)
+		return fmt.Errorf("failed to update Bucket status after successful bucket creation: %w", err)
 	}
 
-	return NoError, nil
+	return nil
 }
 
 // Details about provisioned bucket for both dynamic and static provisioning.
@@ -248,14 +238,14 @@ func (r *BucketReconciler) dynamicProvision(
 	dynamic dynamicProvisionParams,
 ) (
 	details *provisionedBucketDetails,
-	retry retryErrorType,
 	err error,
 ) {
 	cr := dynamic.claimRef
 	if cr.Name == "" || cr.Namespace == "" || cr.UID == "" {
 		// likely a malformed bucket intended for static provisioning (possible COSI controller bug)
 		logger.Error(nil, "all bucketClaimRef fields must be set for dynamic provisioning", "bucketClaimRef", cr)
-		return nil, DoNotRetryError, fmt.Errorf("all bucketClaimRef fields must be set for dynamic provisioning: %#v", cr)
+		return nil, cosierr.NonRetryableError(
+			fmt.Errorf("all bucketClaimRef fields must be set for dynamic provisioning: %#v", cr))
 	}
 
 	resp, err := r.DriverInfo.provisionerClient.DriverCreateBucket(ctx,
@@ -268,21 +258,21 @@ func (r *BucketReconciler) dynamicProvision(
 	if err != nil {
 		logger.Error(err, "DriverCreateBucketRequest error")
 		if rpcErrorIsRetryable(status.Code(err)) {
-			return nil, RetryError, err
+			return nil, err
 		}
-		return nil, DoNotRetryError, err
+		return nil, cosierr.NonRetryableError(err)
 	}
 
 	if resp.BucketId == "" {
 		logger.Error(nil, "created bucket ID missing")
 		// driver behavior is unlikely to change if the request is retried
-		return nil, DoNotRetryError, fmt.Errorf("created bucket ID missing")
+		return nil, cosierr.NonRetryableError(fmt.Errorf("created bucket ID missing"))
 	}
 
 	protoResp := resp.Protocols
 	if protoResp == nil {
 		logger.Error(nil, "created bucket protocol response missing")
-		return nil, DoNotRetryError, fmt.Errorf("created bucket protocol response missing")
+		return nil, cosierr.NonRetryableError(fmt.Errorf("created bucket protocol response missing"))
 	}
 
 	supportedProtos, allBucketInfo := parseProtocolBucketInfo(protoResp)
@@ -292,7 +282,7 @@ func (r *BucketReconciler) dynamicProvision(
 		supportedProtos:    supportedProtos,
 		allProtoBucketInfo: allBucketInfo,
 	}
-	return details, NoError, nil
+	return details, nil
 }
 
 // Parse driver's per-protocol bucket info into raw user-facing info. Input must be non-nil.

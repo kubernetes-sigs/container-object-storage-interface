@@ -18,6 +18,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 )
 
@@ -63,18 +65,18 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	retryError, err := r.reconcile(ctx, logger, claim)
+	err := r.reconcile(ctx, logger, claim)
 	if err != nil {
 		// Record any error as a timestamped error in the status.
 		claim.Status.Error = cosiapi.NewTimestampedError(time.Now(), err.Error())
 		if updErr := r.Status().Update(ctx, claim); updErr != nil {
 			logger.Error(err, "failed to update BucketClaim status after reconcile error", "updateError", updErr)
 			// If status update fails, we must retry the error regardless of the reconcile return.
-			// The reconcile needs to run again to make sure the status is eventually be updated.
+			// The reconcile needs to run again to make sure the status is eventually updated.
 			return reconcile.Result{}, err
 		}
 
-		if !retryError {
+		if errors.Is(err, cosierr.NonRetryableError(nil)) {
 			return reconcile.Result{}, reconcile.TerminalError(err)
 		}
 		return reconcile.Result{}, err
@@ -112,31 +114,20 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// Type definition enforces readability. true/false in code is hard to read/review/maintain.
-type retryErrorType bool
-
-const (
-	RetryError      retryErrorType = true  // DO retry the error.
-	DoNotRetryError retryErrorType = false // Do NOT retry the error.
-	NoError         retryErrorType = false // No error, don't retry. For readability.
-)
-
-func (r *BucketClaimReconciler) reconcile(
-	ctx context.Context, logger logr.Logger, claim *cosiapi.BucketClaim,
-) (retryErrorType, error) {
+func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logger, claim *cosiapi.BucketClaim) error {
 	bucketName, err := determineBucketName(claim)
 	if err != nil {
 		// Opinion: It is best to not apply a missing finalizer when boundBucketName is degraded
 		// (err returned here). When degraded, the user needs to delete and re-create the
 		// BucketClaim to fix the degradation, which requires the finalizer be absent.
 		logger.Error(err, "failed to determine Bucket name for claim")
-		return DoNotRetryError, err
+		return cosierr.NonRetryableError(err)
 	}
 
 	logger = logger.WithValues("bucketName", bucketName)
 
 	if claim.Spec.ExistingBucketName != "" {
-		return DoNotRetryError, fmt.Errorf("static provisioning is not yet supported") // TODO
+		return cosierr.NonRetryableError(fmt.Errorf("static provisioning is not yet supported")) // TODO
 	}
 
 	if !claim.GetDeletionTimestamp().IsZero() {
@@ -147,10 +138,10 @@ func (r *BucketClaimReconciler) reconcile(
 		ctrlutil.RemoveFinalizer(claim, cosiapi.ProtectionFinalizer)
 		if err := r.Update(ctx, claim); err != nil {
 			logger.Error(err, "failed to remove finalizer")
-			return RetryError, fmt.Errorf("failed to remove finalizer: %w", err)
+			return fmt.Errorf("failed to remove finalizer: %w", err)
 		}
 
-		return DoNotRetryError, fmt.Errorf("deletion is not yet implemented") // TODO
+		return cosierr.NonRetryableError(fmt.Errorf("deletion is not yet implemented")) // TODO
 	}
 
 	logger.V(1).Info("reconciling BucketClaim")
@@ -159,7 +150,7 @@ func (r *BucketClaimReconciler) reconcile(
 	if didAdd {
 		if err := r.Update(ctx, claim); err != nil {
 			logger.Error(err, "failed to add protection finalizer")
-			return RetryError, fmt.Errorf("failed to add protection finalizer: %w", err)
+			return fmt.Errorf("failed to add protection finalizer: %w", err)
 		}
 	}
 
@@ -168,7 +159,7 @@ func (r *BucketClaimReconciler) reconcile(
 		claim.Status.BoundBucketName = bucketName
 		if err := r.Status().Update(ctx, claim); err != nil {
 			logger.Error(err, "failed to bind BucketClaim to Bucket")
-			return RetryError, fmt.Errorf("failed to bind BucketClaim to Bucket: %w", err)
+			return fmt.Errorf("failed to bind BucketClaim to Bucket: %w", err)
 		}
 	}
 
@@ -180,14 +171,14 @@ func (r *BucketClaimReconciler) reconcile(
 	if err := r.Get(ctx, bucketNsName, bucket); err != nil {
 		if !kerrors.IsNotFound(err) {
 			logger.Error(err, "failed to determine if Bucket exists")
-			return RetryError, err
+			return err
 		}
 
 		// TODO: static provisioning: don't do this
 		logger.Info("creating intermediate Bucket")
-		_, retryErr, err := createIntermediateBucket(ctx, logger, r.Client, claim, bucketName)
+		_, err := createIntermediateBucket(ctx, logger, r.Client, claim, bucketName)
 		if err != nil {
-			return retryErr, err
+			return err
 		}
 	}
 
@@ -205,7 +196,7 @@ func (r *BucketClaimReconciler) reconcile(
 	//     1. Supported protocols
 	//     2. `ReadyToUse`
 
-	return NoError, nil
+	return nil
 }
 
 // Determine the bucket name that should go with the claim. No errors can be retried.
@@ -244,11 +235,11 @@ func createIntermediateBucket(
 	client client.Client,
 	claim *cosiapi.BucketClaim,
 	bucketName string,
-) (*cosiapi.Bucket, retryErrorType, error) {
+) (*cosiapi.Bucket, error) {
 	className := claim.Spec.BucketClassName
 	if className == "" {
 		logger.Error(nil, "BucketClaim cannot have empty bucketClassName")
-		return nil, DoNotRetryError, fmt.Errorf("BucketClaim cannot have empty bucketClassName")
+		return nil, cosierr.NonRetryableError(fmt.Errorf("BucketClaim cannot have empty bucketClassName"))
 	}
 
 	logger = logger.WithValues("bucketClassName", className)
@@ -265,10 +256,10 @@ func createIntermediateBucket(
 			// BucketClass reconciler that enqueues requests for BucketClaims that reference the
 			// class and don't yet have a bound Bucket.
 			logger.Error(err, "BucketClass not found")
-			return nil, RetryError, err
+			return nil, err
 		}
 		logger.Error(err, "failed to get BucketClass")
-		return nil, RetryError, err
+		return nil, err
 	}
 
 	logger.V(1).Info("using BucketClass for intermediate Bucket")
@@ -279,13 +270,13 @@ func createIntermediateBucket(
 		if kerrors.IsAlreadyExists(err) {
 			// Unlikely race condition. Error to allow the next reconcile to attempt to recover.
 			logger.Error(err, "intermediate Bucket already exists")
-			return nil, RetryError, err
+			return nil, err
 		}
 		logger.Error(err, "failed to create intermediate Bucket")
-		return nil, RetryError, err
+		return nil, err
 	}
 
-	return bucket, NoError, nil
+	return bucket, nil
 }
 
 func generateIntermediateBucket(
