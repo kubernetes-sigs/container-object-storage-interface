@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	kubeclientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha1"
 	bucketclientset "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned"
@@ -216,9 +217,27 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 		bucketClaim.Status.BucketReady = false
 	}
 
-	// Fetching the updated bucketClaim again, so that the update
-	// operation doesn't happen on an outdated version of the bucketClaim.
-	bucketClaim, err = b.bucketClaims(bucketClaim.ObjectMeta.Namespace).UpdateStatus(ctx, bucketClaim, metav1.UpdateOptions{})
+	// Update status with retry logic for conflict errors
+	// Store the status values we want to set before entering retry loop
+	statusBucketName := bucketClaim.Status.BucketName
+	statusBucketReady := bucketClaim.Status.BucketReady
+
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Fetch the latest version of the BucketClaim
+		latest, getErr := b.bucketClaims(bucketClaim.Namespace).Get(ctx, bucketClaim.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+
+		// Apply the status changes to the latest version
+		latest.Status.BucketName = statusBucketName
+		latest.Status.BucketReady = statusBucketReady
+
+		// Try to update the status
+		var updateErr error
+		bucketClaim, updateErr = b.bucketClaims(bucketClaim.Namespace).UpdateStatus(ctx, latest, metav1.UpdateOptions{})
+		return updateErr
+	})
 	if err != nil {
 		klog.V(3).ErrorS(err, "Failed to update status of BucketClaim", "name", bucketClaim.ObjectMeta.Name)
 		return b.recordError(inputBucketClaim, v1.EventTypeWarning, v1alpha1.FailedCreateBucket, err)
@@ -226,8 +245,22 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 
 	// Add the finalizers so that bucketClaim is deleted
 	// only after the associated bucket is deleted.
-	controllerutil.AddFinalizer(bucketClaim, util.BucketClaimFinalizer)
-	_, err = b.bucketClaims(bucketClaim.ObjectMeta.Namespace).Update(ctx, bucketClaim, metav1.UpdateOptions{})
+	// Update with retry logic for conflict errors
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Fetch the latest version of the BucketClaim
+		latest, getErr := b.bucketClaims(bucketClaim.Namespace).Get(ctx, bucketClaim.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+
+		// Add the finalizer to the latest version
+		controllerutil.AddFinalizer(latest, util.BucketClaimFinalizer)
+
+		// Try to update
+		var updateErr error
+		bucketClaim, updateErr = b.bucketClaims(bucketClaim.Namespace).Update(ctx, latest, metav1.UpdateOptions{})
+		return updateErr
+	})
 	if err != nil {
 		klog.V(3).ErrorS(err, "Failed to add finalizer BucketClaim", "name", bucketClaim.ObjectMeta.Name)
 		return b.recordError(inputBucketClaim, v1.EventTypeWarning, v1alpha1.FailedCreateBucket, err)
