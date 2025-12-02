@@ -390,7 +390,11 @@ func TestRetryOnConflictStatusUpdate(t *testing.T) {
 		defer wg.Done()
 		for i := range 10 {
 			// Fetch and update the BucketClaim to change its resourceVersion
-			bc, getErr := client.ObjectstorageV1alpha1().BucketClaims(bucketClaim.Namespace).Get(ctx, bucketClaim.Name, metav1.GetOptions{})
+			bc, getErr := client.ObjectstorageV1alpha1().BucketClaims(bucketClaim.Namespace).Get(
+				ctx,
+				bucketClaim.Name,
+				metav1.GetOptions{},
+			)
 			if getErr != nil {
 				return
 			}
@@ -399,7 +403,11 @@ func TestRetryOnConflictStatusUpdate(t *testing.T) {
 				bc.Annotations = make(map[string]string)
 			}
 			bc.Annotations[fmt.Sprintf("test-%d", i)] = "value"
-			_, _ = client.ObjectstorageV1alpha1().BucketClaims(bc.Namespace).Update(ctx, bc, metav1.UpdateOptions{})
+			_, _ = client.ObjectstorageV1alpha1().BucketClaims(bc.Namespace).Update(
+				ctx,
+				bc,
+				metav1.UpdateOptions{},
+			)
 		}
 	}()
 
@@ -413,7 +421,11 @@ func TestRetryOnConflictStatusUpdate(t *testing.T) {
 	wg.Wait()
 
 	// Verify the final state - status should be updated correctly
-	updatedClaim, err := client.ObjectstorageV1alpha1().BucketClaims(bucketClaim.Namespace).Get(ctx, bucketClaim.Name, metav1.GetOptions{})
+	updatedClaim, err := client.ObjectstorageV1alpha1().BucketClaims(bucketClaim.Namespace).Get(
+		ctx,
+		bucketClaim.Name,
+		metav1.GetOptions{},
+	)
 	if err != nil {
 		t.Fatalf("Error occurred when reading BucketClaim: %v", err)
 	}

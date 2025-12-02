@@ -224,7 +224,11 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch the latest version of the BucketClaim
-		latest, getErr := b.bucketClaims(bucketClaim.Namespace).Get(ctx, bucketClaim.Name, metav1.GetOptions{})
+		latest, getErr := b.bucketClaims(bucketClaim.Namespace).Get(
+			ctx,
+			bucketClaim.Name,
+			metav1.GetOptions{},
+		)
 		if getErr != nil {
 			return getErr
 		}
@@ -235,7 +239,11 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 
 		// Try to update the status
 		var updateErr error
-		bucketClaim, updateErr = b.bucketClaims(bucketClaim.Namespace).UpdateStatus(ctx, latest, metav1.UpdateOptions{})
+		bucketClaim, updateErr = b.bucketClaims(bucketClaim.Namespace).UpdateStatus(
+			ctx,
+			latest,
+			metav1.UpdateOptions{},
+		)
 		return updateErr
 	})
 	if err != nil {
@@ -248,7 +256,11 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 	// Update with retry logic for conflict errors
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch the latest version of the BucketClaim
-		latest, getErr := b.bucketClaims(bucketClaim.Namespace).Get(ctx, bucketClaim.Name, metav1.GetOptions{})
+		latest, getErr := b.bucketClaims(bucketClaim.Namespace).Get(
+			ctx,
+			bucketClaim.Name,
+			metav1.GetOptions{},
+		)
 		if getErr != nil {
 			return getErr
 		}
@@ -258,7 +270,11 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 
 		// Try to update
 		var updateErr error
-		bucketClaim, updateErr = b.bucketClaims(bucketClaim.Namespace).Update(ctx, latest, metav1.UpdateOptions{})
+		bucketClaim, updateErr = b.bucketClaims(bucketClaim.Namespace).Update(
+			ctx,
+			latest,
+			metav1.UpdateOptions{},
+		)
 		return updateErr
 	})
 	if err != nil {
