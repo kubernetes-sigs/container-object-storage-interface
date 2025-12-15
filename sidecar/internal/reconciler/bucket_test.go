@@ -41,18 +41,6 @@ import (
 	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/test"
 )
 
-type fakeProvisionerServer struct {
-	cosiproto.UnimplementedProvisionerServer
-
-	createBucketFunc func(context.Context, *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error)
-}
-
-func (s *fakeProvisionerServer) DriverCreateBucket(
-	ctx context.Context, req *cosiproto.DriverCreateBucketRequest,
-) (*cosiproto.DriverCreateBucketResponse, error) {
-	return s.createBucketFunc(ctx, req)
-}
-
 func TestBucketReconciler_Reconcile(t *testing.T) {
 	baseBucket := cosiapi.Bucket{
 		ObjectMeta: meta.ObjectMeta{
@@ -91,8 +79,8 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 	t.Run("dynamic provisioning, happy path", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
 		var requestError error
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
 					BucketId: "cosi-" + dcbr.Name,
@@ -244,8 +232,8 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, bucket missing", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
 					BucketId: "cosi-" + dcbr.Name,
@@ -294,8 +282,8 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, driver name mismatch", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
 					BucketId: "cosi-" + dcbr.Name,
@@ -354,8 +342,8 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, proto not supported", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
 					BucketId: "cosi-" + dcbr.Name,
@@ -420,8 +408,8 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, provisioned bucket supports wrong proto", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
 					BucketId: "cosi-" + dcbr.Name,
@@ -498,8 +486,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	t.Run("valid driver and bucket, successful provision", func(t *testing.T) {
 		requestParams := map[string]string{} // record the params sent in the request to verify later
 
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				requestParams = dcbr.Parameters
 				ret := &cosiproto.DriverCreateBucketResponse{
 					BucketId: dcbr.Name,
@@ -562,8 +550,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver and bucket, retryable provision error", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				if len(dcbr.Parameters) != 0 {
 					t.Errorf("expecting request parameters to be empty")
 				}
@@ -603,8 +591,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver and bucket, non-retryable provision error", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{}, status.Error(codes.InvalidArgument, "fake invalid arg err")
 			},
 		}
@@ -641,8 +629,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, claim ref malformed", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
@@ -689,8 +677,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, bucket ID missing", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "", // MISSING
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
@@ -737,8 +725,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, proto response nil", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId:  "bc-qwerty",
 					Protocols: nil,
@@ -778,8 +766,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, empty S3 proto response", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
@@ -825,8 +813,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, empty Azure proto response", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
@@ -872,8 +860,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, empty GCS proto response", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
@@ -919,8 +907,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, empty S3+Azure proto response", func(t *testing.T) {
-		fakeServer := fakeProvisionerServer{
-			createBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+		fakeServer := test.FakeProvisionerServer{
+			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
@@ -974,155 +962,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			assert.Empty(t, v) // but all info will be empty string
 		}
 	})
-}
-
-func Test_parseProtocolBucketInfo(t *testing.T) {
-	tests := []struct {
-		name string // description of this test case
-		// Named input parameters for target function.
-		pbi                 *cosiproto.ObjectProtocolAndBucketInfo
-		wantProtos          []cosiapi.ObjectProtocol
-		wantInfoVarPrefixes []string
-	}{
-		{"no info", &cosiproto.ObjectProtocolAndBucketInfo{}, []cosiapi.ObjectProtocol{}, []string{}},
-		{"s3 empty",
-			&cosiproto.ObjectProtocolAndBucketInfo{
-				S3: &cosiproto.S3BucketInfo{},
-			},
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolS3,
-			},
-			[]string{
-				"COSI_S3_",
-			},
-		},
-		{"s3 non-empty",
-			&cosiproto.ObjectProtocolAndBucketInfo{
-				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
-					Endpoint: "cosi.corp.net",
-				},
-			},
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolS3,
-			},
-			[]string{
-				"COSI_S3_",
-			},
-		},
-		{"azure empty",
-			&cosiproto.ObjectProtocolAndBucketInfo{
-				Azure: &cosiproto.AzureBucketInfo{},
-			},
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolAzure,
-			},
-			[]string{
-				"COSI_AZURE_",
-			},
-		},
-		{"azure non-empty",
-			&cosiproto.ObjectProtocolAndBucketInfo{
-				Azure: &cosiproto.AzureBucketInfo{
-					StorageAccount: "something",
-				},
-			},
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolAzure,
-			},
-			[]string{
-				"COSI_AZURE_",
-			},
-		},
-		{"GCS empty",
-			&cosiproto.ObjectProtocolAndBucketInfo{
-				Gcs: &cosiproto.GcsBucketInfo{},
-			},
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolGcs,
-			},
-			[]string{
-				"COSI_GCS_",
-			},
-		},
-		{"GCS non-empty",
-			&cosiproto.ObjectProtocolAndBucketInfo{
-				Gcs: &cosiproto.GcsBucketInfo{
-					BucketName: "something",
-				},
-			},
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolGcs,
-			},
-			[]string{
-				"COSI_GCS_",
-			},
-		},
-		{"s3+azure+GCS empty",
-			&cosiproto.ObjectProtocolAndBucketInfo{
-				S3:    &cosiproto.S3BucketInfo{},
-				Azure: &cosiproto.AzureBucketInfo{},
-				Gcs:   &cosiproto.GcsBucketInfo{},
-			},
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolS3,
-				cosiapi.ObjectProtocolAzure,
-				cosiapi.ObjectProtocolGcs,
-			},
-			[]string{
-				"COSI_S3_",
-				"COSI_AZURE_",
-				"COSI_GCS_",
-			},
-		},
-		{"s3+azure+GCS non-empty",
-			&cosiproto.ObjectProtocolAndBucketInfo{
-				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
-				},
-				Azure: &cosiproto.AzureBucketInfo{
-					StorageAccount: "acct",
-				},
-				Gcs: &cosiproto.GcsBucketInfo{
-					BucketName: "something",
-				},
-			},
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolS3,
-				cosiapi.ObjectProtocolAzure,
-				cosiapi.ObjectProtocolGcs,
-			},
-			[]string{
-				"COSI_S3_",
-				"COSI_AZURE_",
-				"COSI_GCS_",
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			protos, infoVars := parseProtocolBucketInfo(tt.pbi)
-			assert.Equal(t, tt.wantProtos, protos)
-			// If we check the exact results of details.allProtoBucketInfo, we will tie the unit
-			// tests to the specific implementation of bucket info translators, tested elsewhere.
-			// Instead, check only that prefixes match what we expect.
-			if len(tt.wantProtos) > 0 {
-				assert.NotZero(t, len(infoVars))
-			} else {
-				assert.Zero(t, len(infoVars))
-			}
-			for _, p := range tt.wantInfoVarPrefixes {
-				found := false
-				for k := range infoVars {
-					assert.True(t, strings.HasPrefix(k, "COSI_")) // all vars must be prefixed COSI_
-					if strings.HasPrefix(k, p) {
-						found = true
-					}
-				}
-				assert.Truef(t, found, "prefix %q not found in %v keys", p, infoVars)
-			}
-		})
-	}
 }
 
 func Test_objectProtocolListFromApiList(t *testing.T) {

@@ -172,8 +172,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&reconciler.BucketAccessReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		DriverInfo: *driverInfo,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create controller", "controller", "BucketAccess")
 		os.Exit(1)

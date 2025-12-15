@@ -419,6 +419,7 @@ message AccessMode {
         // Write-only access mode.
         WRITE_ONLY = 3;
     }
+    Mode mode = 1;
 }
 ```
 

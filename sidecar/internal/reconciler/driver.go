@@ -137,8 +137,8 @@ func driverNameMatchesPredicate(driverName string) ctrlpredicate.Funcs {
 		switch t := object.(type) {
 		case *cosiapi.Bucket:
 			return object.(*cosiapi.Bucket).Spec.DriverName == driverName
-		// case *cosiapi.BucketAccess: // TODO: later
-		// 	return object.(*cosiapi.BucketAccess).Status.DriverName == driverName
+		case *cosiapi.BucketAccess:
+			return object.(*cosiapi.BucketAccess).Status.DriverName == driverName
 		default:
 			logger := ctrl.Log.WithName("driverName-predicate")
 			logger.Error(nil, "cannot attempt to check driverName of type %T", t)
