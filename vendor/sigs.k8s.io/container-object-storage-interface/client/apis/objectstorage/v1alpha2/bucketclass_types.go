@@ -23,8 +23,13 @@ import (
 // BucketClassSpec defines the BucketClass.
 type BucketClassSpec struct {
 	// driverName is the name of the driver that fulfills requests for this BucketClass.
+	// See driver documentation to determine the correct value to set.
+	// Must be 63 characters or less, beginning and ending with an alphanumeric character
+	// ([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between.
 	// +required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,61}[a-zA-Z0-9])?$`
 	DriverName string `json:"driverName,omitempty"`
 
 	// deletionPolicy determines whether a Bucket created through the BucketClass should be deleted
@@ -37,7 +42,11 @@ type BucketClassSpec struct {
 
 	// parameters is an opaque map of driver-specific configuration items passed to the driver that
 	// fulfills requests for this BucketClass.
+	// See driver documentation to determine supported parameters and their effects.
+	// A maximum of 512 parameters are allowed.
 	// +optional
+	// +kubebuilder:validation:MinProperties=1
+	// +kubebuilder:validation:MaxProperties=512
 	Parameters map[string]string `json:"parameters,omitempty"`
 }
 

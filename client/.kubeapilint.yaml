@@ -18,6 +18,7 @@ linters:
               - statussubresource
               - optionalfields # instead of nonpointerstructs
               - requiredfields # instead of nonpointerstructs
+              - maxlength
             disable:
               - nonpointerstructs # not intended for CRDs
               - statusoptional

@@ -1080,6 +1080,8 @@ type DriverCreateBucketResponse struct {
 	// This value WILL be used by COSI to make subsequent calls related to the bucket, so the
 	// Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
 	// It is RECOMMENDED to use the backend storage system's bucket ID.
+	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	BucketId string `protobuf:"bytes,1,opt,name=bucket_id,json=bucketId,proto3" json:"bucket_id,omitempty"`
 	// REQUIRED: At least one protocol bucket info result MUST be non-nil.
 	//
@@ -1151,6 +1153,8 @@ type DriverGetExistingBucketRequest struct {
 	// REQUIRED. The unique identifier for the existing backend bucket known to the Provisioner.
 	// Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
 	// It is RECOMMENDED to use the backend storage system's bucket ID.
+	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	ExistingBucketId string `protobuf:"bytes,1,opt,name=existing_bucket_id,json=existingBucketId,proto3" json:"existing_bucket_id,omitempty"`
 	// OPTIONAL. A list of all object storage protocols the provisioned bucket MUST support.
 	// If none are given, the provisioner MAY provision with a set of default protocol(s) or return
@@ -1221,6 +1225,8 @@ type DriverGetExistingBucketResponse struct {
 	// This value WILL be used by COSI to make subsequent calls related to the bucket, so the
 	// Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
 	// It is RECOMMENDED to use the backend storage system's bucket ID.
+	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	BucketId string `protobuf:"bytes,1,opt,name=bucket_id,json=bucketId,proto3" json:"bucket_id,omitempty"`
 	// REQUIRED: At least one protocol bucket info result MUST be non-nil.
 	//
@@ -1290,6 +1296,8 @@ func (x *DriverGetExistingBucketResponse) GetProtocols() *ObjectProtocolAndBucke
 type DriverDeleteBucketRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// REQUIRED. The unique identifier for the existing backend bucket known to the Provisioner.
+	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	BucketId string `protobuf:"bytes,1,opt,name=bucket_id,json=bucketId,proto3" json:"bucket_id,omitempty"`
 	// OPTIONAL. Plugin specific parameters associated with the provisioned bucket.
 	Parameters    map[string]string `protobuf:"bytes,4,rep,name=parameters,proto3" json:"parameters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -1492,6 +1500,8 @@ type DriverGrantBucketAccessResponse struct {
 	// This value WILL be used by COSI to make subsequent calls related to the access, so the
 	// Provisioner MUST be able to correlate `account_id` to the backend access.
 	// It is RECOMMENDED to use the backend storage system's bucket ID.
+	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	AccountId string `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	// REQUIRED. The Provisioner MUST return info for all `buckets` in the request.
 	Buckets []*DriverGrantBucketAccessResponse_BucketInfo `protobuf:"bytes,2,rep,name=buckets,proto3" json:"buckets,omitempty"`
@@ -1555,6 +1565,8 @@ func (x *DriverGrantBucketAccessResponse) GetCredentials() *CredentialInfo {
 type DriverRevokeBucketAccessRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// REQUIRED. The unique identifier for the backend access account
+	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	AccountId string `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	// REQUIRED. The object storage protocol associated with the provisioned access.
 	Protocol *ObjectProtocol `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
@@ -1683,6 +1695,8 @@ func (*DriverRevokeBucketAccessResponse) Descriptor() ([]byte, []int) {
 type DriverGrantBucketAccessRequest_AccessedBucket struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
+	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	BucketId string `protobuf:"bytes,1,opt,name=bucket_id,json=bucketId,proto3" json:"bucket_id,omitempty"`
 	// REQUIRED. The read/write access mode that the Provisioner SHOULD provision for the bucket
 	// associated with `bucket_id`.
@@ -1738,6 +1752,8 @@ func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetAccessMode() *AccessM
 type DriverGrantBucketAccessResponse_BucketInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
+	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	BucketId string `protobuf:"bytes,1,opt,name=bucket_id,json=bucketId,proto3" json:"bucket_id,omitempty"`
 	// REQUIRED: EXACTLY one protocol bucket info result MUST be non-nil.
 	// The Provisioner MUST fill in all required bucket info for the requested protocol.
