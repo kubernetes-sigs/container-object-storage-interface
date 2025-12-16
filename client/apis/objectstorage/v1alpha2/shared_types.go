@@ -35,7 +35,10 @@ type TimestampedError struct {
 
 	// message is a string detailing the encountered error.
 	// NOTE: message will be logged, and it should not contain sensitive information.
+	// Must not exceed 1.5MB.
 	// +optional
+	// +kubebuilder:validation:MinLength=0
+	// +kubebuilder:validation:MaxLength=1572864
 	Message *string `json:"message,omitempty" protobuf:"bytes,2,opt,name=message"`
 }
 
