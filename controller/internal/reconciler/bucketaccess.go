@@ -36,8 +36,8 @@ import (
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	objectstoragev1alpha2 "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
-	"sigs.k8s.io/container-object-storage-interface/internal/handoff"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 )
 
@@ -67,7 +67,7 @@ func (r *BucketAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	if handoff.BucketAccessManagedBySidecar(access) {
+	if bucketaccess.ManagedBySidecar(access) {
 		logger.V(1).Info("not reconciling BucketAccess that should be managed by sidecar")
 		return ctrl.Result{}, nil
 	}
@@ -142,12 +142,12 @@ func (r *BucketAccessReconciler) reconcile(
 		return cosierr.NonRetryableError(fmt.Errorf("deletion is not yet implemented")) // TODO
 	}
 
-	needInit, err := needsControllerInitialization(&access.Status)
+	initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status)
 	if err != nil {
 		logger.Error(err, "processed a degraded BucketAccess")
 		return cosierr.NonRetryableError(fmt.Errorf("processed a degraded BucketAccess: %w", err))
 	}
-	if !needInit {
+	if initialized {
 		// BucketAccessClass info should only be copied to the BucketAccess status once, upon
 		// initial provisioning. After the info is copied, make no attempt to fill in any missing or
 		// lost info because we don't know whether the current Class is compatible with the info
@@ -242,38 +242,6 @@ func (r *BucketAccessReconciler) reconcile(
 	}
 
 	return nil
-}
-
-// Return true if the Controller needs to initialize the BucketAccess with BucketClaim and
-// BucketAccessClass info. Return false if required info is set.
-// Return an error if any required info is only partially set. This indicates some sort of
-// degradation or bug.
-func needsControllerInitialization(s *cosiapi.BucketAccessStatus) (bool, error) {
-	requiredFields := map[string]bool{}
-	requiredFieldIsSet := func(fieldName string, isSet bool) {
-		requiredFields[fieldName] = isSet
-	}
-
-	requiredFieldIsSet("status.accessedBuckets", len(s.AccessedBuckets) > 0)
-	requiredFieldIsSet("status.driverName", s.DriverName != "")
-	requiredFieldIsSet("status.authenticationType", string(s.AuthenticationType) != "")
-
-	set := []string{}
-	for field, isSet := range requiredFields {
-		if isSet {
-			set = append(set, field)
-		}
-	}
-
-	if len(set) == 0 {
-		return true, nil
-	}
-
-	if len(set) == len(requiredFields) {
-		return false, nil
-	}
-
-	return false, fmt.Errorf("required Controller-managed fields are only partially set: %v", requiredFields)
 }
 
 // Get all BucketClaims that this BucketAccess references.

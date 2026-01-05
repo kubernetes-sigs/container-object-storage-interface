@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
-	"sigs.k8s.io/container-object-storage-interface/internal/handoff"
+	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
 )
 
 // AnyCreate returns a predicate that enqueues a reconcile for any Create event.
@@ -143,8 +143,8 @@ func BucketAccessHandoffOccurred(s *runtime.Scheme) predicate.Funcs {
 
 // Internal logic for determining if BucketAccess Controller-Sidecar handoff has occurred.
 func handoffOccurred(logger logr.Logger, old, new *cosiapi.BucketAccess) bool {
-	oldIsSidecar := handoff.BucketAccessManagedBySidecar(old)
-	newIsSidecar := handoff.BucketAccessManagedBySidecar(new)
+	oldIsSidecar := bucketaccess.ManagedBySidecar(old)
+	newIsSidecar := bucketaccess.ManagedBySidecar(new)
 	if oldIsSidecar != newIsSidecar {
 		toComponentName := func(isSidecar bool) string {
 			if isSidecar {
@@ -169,7 +169,7 @@ func BucketAccessManagedBySidecar(s *runtime.Scheme) predicate.Funcs {
 		if !ok {
 			return false // not a BucketAccess, so don't manage it
 		}
-		return handoff.BucketAccessManagedBySidecar(ba)
+		return bucketaccess.ManagedBySidecar(ba)
 	})
 }
 
@@ -183,7 +183,7 @@ func BucketAccessManagedByController(s *runtime.Scheme) predicate.Funcs {
 		}
 		// Note: cannot simply return predicate.Not() of BucketAccessManagedBySidecar() because
 		// any failed type conversion must return false for both Sidecar and Controller
-		return !handoff.BucketAccessManagedBySidecar(ba)
+		return !bucketaccess.ManagedBySidecar(ba)
 	})
 }
 

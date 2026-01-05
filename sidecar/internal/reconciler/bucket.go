@@ -128,7 +128,6 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket) error {
 	if bucket.Spec.DriverName != r.DriverInfo.name {
-		// TODO: configure the predicate to ignore any reconcile with non-matching driver
 		// keep this log to help debug any issues that might arise with predicate logic
 		logger.Info("not reconciling bucket with non-matching driver name %q", bucket.Spec.DriverName)
 		return nil
@@ -283,7 +282,12 @@ func (r *BucketReconciler) dynamicProvision(
 		return nil, cosierr.NonRetryableError(fmt.Errorf("created bucket protocol response missing"))
 	}
 
-	supportedProtos, allBucketInfo := parseProtocolBucketInfo(protoResp)
+	var noValidation *validationConfig = nil
+	supportedProtos, allBucketInfo, err := TranslateBucketInfoToApi(protoResp, noValidation)
+	if err != nil {
+		logger.Error(nil, "errors translating bucket info")
+		return nil, cosierr.NonRetryableError(err)
+	}
 
 	details = &provisionedBucketDetails{
 		bucketId:           resp.BucketId,
@@ -291,35 +295,6 @@ func (r *BucketReconciler) dynamicProvision(
 		allProtoBucketInfo: allBucketInfo,
 	}
 	return details, nil
-}
-
-// Parse driver's per-protocol bucket info into raw user-facing info. Input must be non-nil.
-func parseProtocolBucketInfo(pbi *cosiproto.ObjectProtocolAndBucketInfo) (
-	supportedProtos []cosiapi.ObjectProtocol,
-	allProtoBucketInfo map[string]string,
-) {
-	supportedProtos = []cosiapi.ObjectProtocol{}
-	allProtoBucketInfo = map[string]string{}
-
-	if pbi.S3 != nil {
-		supportedProtos = append(supportedProtos, cosiapi.ObjectProtocolS3)
-		s3Translator := protocol.S3BucketInfoTranslator{}
-		mergeApiInfoIntoStringMap(s3Translator.RpcToApi(pbi.S3), allProtoBucketInfo)
-	}
-
-	if pbi.Azure != nil {
-		supportedProtos = append(supportedProtos, cosiapi.ObjectProtocolAzure)
-		azureTranslator := protocol.AzureBucketInfoTranslator{}
-		mergeApiInfoIntoStringMap(azureTranslator.RpcToApi(pbi.Azure), allProtoBucketInfo)
-	}
-
-	if pbi.Gcs != nil {
-		supportedProtos = append(supportedProtos, cosiapi.ObjectProtocolGcs)
-		gcsTranslator := protocol.GcsBucketInfoTranslator{}
-		mergeApiInfoIntoStringMap(gcsTranslator.RpcToApi(pbi.Gcs), allProtoBucketInfo)
-	}
-
-	return supportedProtos, allProtoBucketInfo
 }
 
 // convert an API proto list into an RPC proto message list
@@ -372,15 +347,4 @@ func validateBucketSupportsProtocols(supported, required []cosiapi.ObjectProtoco
 		return fmt.Errorf("required protocols are not supported: %v", unsupported)
 	}
 	return nil
-}
-
-func mergeApiInfoIntoStringMap[T cosiapi.BucketInfoVar | cosiapi.CredentialVar](
-	varKey map[T]string, target map[string]string,
-) {
-	if target == nil {
-		target = map[string]string{}
-	}
-	for k, v := range varKey {
-		target[string(k)] = v
-	}
 }

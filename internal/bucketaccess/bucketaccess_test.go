@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package handoff
+package bucketaccess
 
 import (
 	"testing"
@@ -27,7 +27,7 @@ import (
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 )
 
-func TestBucketAccessManagedBySidecar(t *testing.T) {
+func TestManagedBySidecar(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		// input parameters for target function.
@@ -125,8 +125,8 @@ func TestBucketAccessManagedBySidecar(t *testing.T) {
 			if tt.isHandedOffToSidecar {
 				copy.Status.AccessedBuckets = []cosiapi.AccessedBucket{
 					{
-						BucketName: "bc-asdfgh",
-						AccessMode: cosiapi.BucketAccessModeReadWrite,
+						BucketName:      "bc-asdfgh",
+						BucketClaimName: "bc-1",
 					},
 				}
 				copy.Status.DriverName = "some.driver.io"
@@ -142,12 +142,12 @@ func TestBucketAccessManagedBySidecar(t *testing.T) {
 				copy.Annotations[cosiapi.SidecarCleanupFinishedAnnotation] = ""
 			}
 
-			got := BucketAccessManagedBySidecar(copy)
+			got := ManagedBySidecar(copy)
 			assert.Equal(t, tt.want, got)
 
 			// for all cases,applying the controller override annotation makes it controller-managed
 			copy.Annotations[cosiapi.ControllerManagementOverrideAnnotation] = ""
-			withOverride := BucketAccessManagedBySidecar(copy)
+			withOverride := ManagedBySidecar(copy)
 			assert.False(t, withOverride)
 		})
 	}
