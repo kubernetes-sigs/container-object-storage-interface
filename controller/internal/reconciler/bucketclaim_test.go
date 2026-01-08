@@ -19,6 +19,7 @@ package reconciler
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
@@ -27,6 +28,7 @@ import (
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -242,7 +244,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 		Name:      baseClaim.Name,
 	}
 
-	// valid base class used by subests
+	// valid base class used by subtests
 	baseClass := cosiapi.BucketClass{
 		ObjectMeta: meta.ObjectMeta{
 			Name: "s3-class",
@@ -267,34 +269,43 @@ func TestBucketClaimReconcile(t *testing.T) {
 		return fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(withObj...).
-			WithStatusSubresource(withObj...). // assume all starting objects have status
+			WithStatusSubresource(
+				&cosiapi.BucketClaim{},
+				&cosiapi.Bucket{},
+				&cosiapi.BucketAccess{},
+			).
 			Build()
 	}
 
-	t.Run("dynamic provisioning, happy path", func(t *testing.T) {
+	dynamicHappyPathTest := func(t *testing.T, nctx context.Context) (
+		*BucketClaimReconciler,
+		*cosiapi.BucketClaim, *cosiapi.Bucket,
+	) {
 		c := newClient(baseClaim.DeepCopy(), baseClass.DeepCopy())
 		r := BucketClaimReconciler{
 			Client: c,
 			Scheme: scheme,
 		}
-		nctx := logr.NewContext(ctx, nolog)
 
 		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: claimNsName})
-		assert.NoError(t, err)
+		assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
+		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		claim := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, claimNsName, claim)
+		err = c.Get(nctx, claimNsName, claim)
 		require.NoError(t, err)
 		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := claim.Status
 		assert.Equal(t, "bc-qwerty", status.BoundBucketName)
 		assert.Equal(t, false, *status.ReadyToUse)
 		assert.Empty(t, status.Protocols)
-		assert.Nil(t, status.Error)
+		require.NotNil(t, status.Error)
+		assert.NotNil(t, status.Error.Time)
+		assert.Contains(t, *status.Error.Message, "waiting for Bucket to be provisioned")
 
 		bucket := &cosiapi.Bucket{}
-		err = c.Get(ctx, types.NamespacedName{Name: "bc-qwerty"}, bucket)
+		err = c.Get(nctx, types.NamespacedName{Name: "bc-qwerty"}, bucket)
 		require.NoError(t, err)
 		// intermediate bucket generation is already thoroughly tested elsewhere
 		// just test a couple basic fields to ensure it's integrated
@@ -303,22 +314,95 @@ func TestBucketClaimReconcile(t *testing.T) {
 		assert.Equal(t, baseClaim.Spec.Protocols, bucket.Spec.Protocols)
 		assert.Empty(t, bucket.Status)
 
-		t.Log("run Reconcile() a second time to ensure nothing is modified")
+		return &r, claim, bucket
+	}
 
-		// using the same client and stuff from before
-		res, err = r.Reconcile(nctx, ctrl.Request{NamespacedName: claimNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
+	t.Run("dynamic provisioning, bucket initialization", func(t *testing.T) {
+		nctx := logr.NewContext(ctx, nolog)
 
-		secondClaim := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, claimNsName, secondClaim)
-		require.NoError(t, err)
-		assert.Equal(t, claim, secondClaim)
+		t.Run("initial success", func(t *testing.T) {
+			dynamicHappyPathTest(t, nctx)
+		})
 
-		secondBucket := &cosiapi.Bucket{}
-		err = c.Get(ctx, types.NamespacedName{Name: "bc-qwerty"}, secondBucket)
-		require.NoError(t, err)
-		assert.Equal(t, bucket, secondBucket)
+		t.Run("subsequent reconcile no change", func(t *testing.T) {
+			r, firstClaim, firstBucket := dynamicHappyPathTest(t, nctx)
+
+			res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: claimNsName})
+			assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
+			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.Empty(t, res)
+
+			secondClaim := &cosiapi.BucketClaim{}
+			err = r.Get(nctx, claimNsName, secondClaim)
+			require.NoError(t, err)
+			assert.Equal(t, firstClaim.Finalizers, secondClaim.Finalizers)
+			assert.Equal(t, firstClaim.Spec, secondClaim.Spec)
+			assert.Equal(t, firstClaim.Status, secondClaim.Status)
+
+			secondBucket := &cosiapi.Bucket{}
+			err = r.Get(nctx, types.NamespacedName{Name: "bc-qwerty"}, secondBucket)
+			require.NoError(t, err)
+			assert.Equal(t, firstBucket, secondBucket)
+		})
+	})
+
+	t.Run("dynamic provisioning, bucket completion", func(t *testing.T) {
+		nctx := logr.NewContext(ctx, nolog)
+
+		t.Run("bucket finished", func(t *testing.T) {
+			r, firstClaim, bucket := dynamicHappyPathTest(t, nctx)
+
+			bucket.Status.BucketID = "cosi-bc-qwerty"
+			bucket.Status.ReadyToUse = ptr.To(true)
+			bucket.Status.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
+			err := r.Status().Update(nctx, bucket)
+			require.NoError(t, err)
+
+			res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: claimNsName})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			secondClaim := &cosiapi.BucketClaim{}
+			err = r.Get(ctx, claimNsName, secondClaim)
+			require.NoError(t, err)
+			assert.Equal(t, firstClaim.Finalizers, secondClaim.Finalizers)
+			assert.Equal(t, firstClaim.Spec, secondClaim.Spec)
+			assert.Equal(t, firstClaim.Status.BoundBucketName, secondClaim.Status.BoundBucketName)
+			assert.True(t, *secondClaim.Status.ReadyToUse)
+			assert.Equal(t, bucket.Status.Protocols, secondClaim.Status.Protocols)
+			assert.Nil(t, secondClaim.Status.Error)
+
+			secondBucket := &cosiapi.Bucket{}
+			err = r.Get(ctx, types.NamespacedName{Name: "bc-qwerty"}, secondBucket)
+			require.NoError(t, err)
+			assert.Equal(t, bucket, secondBucket)
+		})
+
+		t.Run("bucket failed", func(t *testing.T) {
+			r, firstClaim, bucket := dynamicHappyPathTest(t, nctx)
+
+			bucket.Status.ReadyToUse = ptr.To(false)
+			bucket.Status.Error = cosiapi.NewTimestampedError(time.Now(), "fake error")
+			err := r.Status().Update(nctx, bucket)
+			require.NoError(t, err)
+
+			res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: claimNsName})
+			assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
+			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.Empty(t, res)
+
+			secondClaim := &cosiapi.BucketClaim{}
+			err = r.Get(nctx, claimNsName, secondClaim)
+			require.NoError(t, err)
+			assert.Equal(t, firstClaim.Finalizers, secondClaim.Finalizers)
+			assert.Equal(t, firstClaim.Spec, secondClaim.Spec)
+			assert.Equal(t, firstClaim.Status, secondClaim.Status)
+
+			secondBucket := &cosiapi.Bucket{}
+			err = r.Get(nctx, types.NamespacedName{Name: "bc-qwerty"}, secondBucket)
+			require.NoError(t, err)
+			assert.Equal(t, bucket, secondBucket)
+		})
 	})
 
 	t.Run("dynamic provisioning, no bucketclass", func(t *testing.T) {
