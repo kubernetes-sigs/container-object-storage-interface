@@ -184,27 +184,45 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 			return err
 		}
 
-		// TODO: static provisioning: don't do this
 		logger.Info("creating intermediate Bucket")
-		_, err := createIntermediateBucket(ctx, logger, r.Client, claim, bucketName)
+		bucket, err = createIntermediateBucket(ctx, logger, r.Client, claim, bucketName)
 		if err != nil {
 			return err
 		}
 	}
 
-	// TODO: static provisioning: verify that the bucket got matches this claim
+	isBound, err := bucketIsBoundToClaim(bucket, claim)
+	if err != nil {
+		logger.Error(err, "Bucket binding does not match BucketClaim")
+		return cosierr.NonRetryableError(err)
+	}
+	if !isBound {
+		// TODO: static provisioning case: update bucket with UID of this claim
 
-	// TODO:
-	// 4. Controller fills in BucketClaim status to point to intermediate Bucket (claim is now bound to Bucket)
-	// 5. Controller waits for the intermediate Bucket to be reconciled by COSI sidecar
+		logger.Error(nil, "dynamic Bucket is malformed") // internal bug
+		return cosierr.NonRetryableError(fmt.Errorf("dynamic Bucket is malformed: %w", err))
+	}
 
-	// TODO:
-	// 5. Controller detects that the Bucket is provisioned successfully (`ReadyToUse`==true)
-	// 1. Controller finishes BucketClaim reconciliation processing
-	// 2. Controller validates BucketClaim and Bucket fields to ensure provisioning success
-	// 3. Controller copies Bucket status items to BucketClaim status as needed. Importantly:
-	//     1. Supported protocols
-	//     2. `ReadyToUse`
+	if bucket.Status.BucketID == "" {
+		// TODO: In the future, set up Bucket watcher to enqueue this BucketClaim when the Bucket
+		// is updated. For now, return error to requeue with backoff.
+		logger.Info("waiting for Bucket to be provisioned")
+		return fmt.Errorf("waiting for Bucket to be provisioned")
+	}
+
+	readyToUse := ptr.Deref(bucket.Status.ReadyToUse, false)
+	if readyToUse && len(bucket.Status.Protocols) == 0 {
+		logger.Error(nil, "provisioned Bucket supports no protocols")
+		return cosierr.NonRetryableError(fmt.Errorf("provisioned Bucket supports no protocols"))
+	}
+
+	claim.Status.ReadyToUse = bucket.Status.ReadyToUse
+	claim.Status.Protocols = bucket.Status.Protocols
+	claim.Status.Error = nil
+	if err := r.Status().Update(ctx, claim); err != nil {
+		logger.Error(err, "failed to update BucketClaim status after successful provisioning")
+		return err
+	}
 
 	return nil
 }
@@ -312,5 +330,49 @@ func generateIntermediateBucket(
 				UID:       claim.UID,
 			},
 		},
+		Status: cosiapi.BucketStatus{},
 	}
+}
+
+func bucketIsBoundToClaim(bucket *cosiapi.Bucket, claim *cosiapi.BucketClaim) (bool, error) {
+	errs := []error{}
+
+	if claim.Status.BoundBucketName != bucket.Name {
+		// bucket is gotten by name, so this should never happen
+		//nolint:staticcheck // ST1005: okay to capitalize resource kind
+		errs = append(errs, fmt.Errorf("BucketClaim bound bucket name %q does not match Bucket name %q",
+			claim.Status.BoundBucketName, bucket.Name))
+	}
+
+	claimRef := bucket.Spec.BucketClaimRef
+
+	if claimRef.Namespace != claim.Namespace {
+		//nolint:staticcheck // ST1005: okay to capitalize resource kind
+		errs = append(errs, fmt.Errorf("Bucket claim ref namespace %q does not match BucketClaim namespace %q",
+			claimRef.Namespace, claim.Namespace))
+	}
+
+	if claimRef.Name != claim.Name {
+		//nolint:staticcheck // ST1005: okay to capitalize resource kind
+		errs = append(errs, fmt.Errorf("Bucket claim ref name %q does not match BucketClaim name %q",
+			claimRef.Name, claim.Name))
+	}
+
+	if string(claimRef.UID) == "" { // bucket is not (yet) bound to this claim
+		if len(errs) > 0 {
+			return false, fmt.Errorf("unbound Bucket does not match BucketClaim: %w", errors.Join(errs...))
+		}
+		return false, nil
+	}
+
+	if claimRef.UID != claim.UID {
+		//nolint:staticcheck // ST1005: okay to capitalize resource kind
+		errs = append(errs, fmt.Errorf("Bucket claim ref UID %q does not match BucketClaim UID %q",
+			claimRef.UID, claim.UID))
+	}
+
+	if len(errs) > 0 {
+		return false, fmt.Errorf("bound Bucket does not match BucketClaim: %w", errors.Join(errs...))
+	}
+	return true, nil
 }
