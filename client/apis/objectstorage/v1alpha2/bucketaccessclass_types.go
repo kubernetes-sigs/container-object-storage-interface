@@ -41,15 +41,6 @@ type BucketAccessClassSpec struct {
 	// +optional
 	Parameters map[string]string `json:"parameters,omitempty"`
 
-	// featureOptions can be used to adjust various COSI access provisioning behaviors.
-	// If specified, at least one option must be set.
-	// +optional
-	FeatureOptions BucketAccessFeatureOptions `json:"featureOptions,omitzero"`
-}
-
-// BucketAccessFeatureOptions defines various COSI access provisioning behaviors.
-// +kubebuilder:validation:MinProperties=1
-type BucketAccessFeatureOptions struct {
 	// disallowedBucketAccessModes is a list of disallowed Read/Write access modes. A BucketAccess
 	// using this class will not be allowed to request access to a BucketClaim with any access mode
 	// listed here.
@@ -57,11 +48,26 @@ type BucketAccessFeatureOptions struct {
 	// +listType=set
 	DisallowedBucketAccessModes []BucketAccessMode `json:"disallowedBucketAccessModes,omitempty"`
 
-	// disallowMultiBucketAccess disables the ability for a BucketAccess to reference multiple
-	// BucketClaims when set.
+	// multiBucketAccess specifies whether a BucketAccess using this class can reference multiple
+	// BucketClaims. When unspecified, multi-bucket access is allowed.
 	// +optional
-	DisallowMultiBucketAccess *bool `json:"disallowMultiBucketAccess,omitempty"`
+	MultiBucketAccess MultiBucketAccess `json:"multiBucketAccess,omitempty"`
 }
+
+// MultiBucketAccess specifies whether a BucketAccess can reference multiple BucketClaims.
+// +enum
+// +kubebuilder:validation:Enum:=SingleBucket;MultipleBuckets
+type MultiBucketAccess string
+
+const (
+	// MultiBucketAccessSingleBucket indicates that a BucketAccess can reference only a single
+	// BucketClaim.
+	MultiBucketAccessSingleBucket MultiBucketAccess = "SingleBucket"
+
+	// MultiBucketAccessMultipleBuckets indicates that a BucketAccess can reference multiple
+	// (1 or more) BucketClaims.
+	MultiBucketAccessMultipleBuckets MultiBucketAccess = "MultipleBuckets"
+)
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
