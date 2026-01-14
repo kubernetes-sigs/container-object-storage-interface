@@ -338,12 +338,12 @@ func validateAccessAgainstClass(
 		errs = append(errs, fmt.Errorf("serviceAccountName must be specified"))
 	}
 
-	if ptr.Deref(class.FeatureOptions.DisallowMultiBucketAccess, false) && len(access.BucketClaims) > 1 {
+	if !class.SupportsMultiBucketAccess() && len(access.BucketClaims) > 1 {
 		errs = append(errs, fmt.Errorf("multi-bucket access is disallowed"))
 	}
 
 	for _, claimRef := range access.BucketClaims {
-		if slices.Contains(class.FeatureOptions.DisallowedBucketAccessModes, claimRef.AccessMode) {
+		if slices.Contains(class.DisallowedBucketAccessModes, claimRef.AccessMode) {
 			errs = append(errs,
 				fmt.Errorf("accessMode %q requested for BucketClaim %q is disallowed",
 					claimRef.AccessMode, claimRef.BucketClaimName),
