@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
-	"sigs.k8s.io/container-object-storage-interface/internal/handoff"
+	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -195,10 +195,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 			status.Parameters,
 		)
 
-		assert.True(t, handoff.BucketAccessManagedBySidecar(access))   // MUST hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST be fully initialized
+		assert.True(t, bucketaccess.ManagedBySidecar(access))                       // MUST hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST be fully initialized
 		assert.NoError(t, err)
-		assert.False(t, needInit)
+		assert.True(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -267,10 +267,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.Empty(t, status.AuthenticationType)
 		assert.Empty(t, status.Parameters)
 
-		assert.False(t, handoff.BucketAccessManagedBySidecar(access))  // MUST NOT hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST NOT be initialized
+		assert.False(t, bucketaccess.ManagedBySidecar(access))                      // MUST NOT hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST NOT be initialized
 		assert.NoError(t, err)
-		assert.True(t, needInit)
+		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -315,10 +315,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.Empty(t, status.AuthenticationType)
 		assert.Empty(t, status.Parameters)
 
-		assert.False(t, handoff.BucketAccessManagedBySidecar(access))  // MUST NOT hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST NOT be initialized
+		assert.False(t, bucketaccess.ManagedBySidecar(access))                      // MUST NOT hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST NOT be initialized
 		assert.NoError(t, err)
-		assert.True(t, needInit)
+		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -371,10 +371,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.Empty(t, status.AuthenticationType)
 		assert.Empty(t, status.Parameters)
 
-		assert.False(t, handoff.BucketAccessManagedBySidecar(access))  // MUST NOT hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST NOT be initialized
+		assert.False(t, bucketaccess.ManagedBySidecar(access))                      // MUST NOT hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST NOT be initialized
 		assert.NoError(t, err)
-		assert.True(t, needInit)
+		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -424,10 +424,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.Empty(t, status.AuthenticationType)
 		assert.Empty(t, status.Parameters)
 
-		assert.False(t, handoff.BucketAccessManagedBySidecar(access))  // MUST NOT hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST NOT be initialized
+		assert.False(t, bucketaccess.ManagedBySidecar(access))                      // MUST NOT hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST NOT be initialized
 		assert.NoError(t, err)
-		assert.True(t, needInit)
+		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -474,10 +474,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.Empty(t, status.AuthenticationType)
 		assert.Empty(t, status.Parameters)
 
-		assert.False(t, handoff.BucketAccessManagedBySidecar(access))  // MUST NOT hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST NOT be initialized
+		assert.False(t, bucketaccess.ManagedBySidecar(access))                      // MUST NOT hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST NOT be initialized
 		assert.NoError(t, err)
-		assert.True(t, needInit)
+		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -526,10 +526,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.Empty(t, status.AuthenticationType)
 		assert.Empty(t, status.Parameters)
 
-		assert.False(t, handoff.BucketAccessManagedBySidecar(access))  // MUST NOT hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST NOT be initialized
+		assert.False(t, bucketaccess.ManagedBySidecar(access))                      // MUST NOT hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST NOT be initialized
 		assert.NoError(t, err)
-		assert.True(t, needInit)
+		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -594,10 +594,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 			status.Parameters,
 		)
 
-		assert.True(t, handoff.BucketAccessManagedBySidecar(access))   // MUST hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST be fully initialized
+		assert.True(t, bucketaccess.ManagedBySidecar(access))                       // MUST hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST be fully initialized
 		assert.NoError(t, err)
-		assert.False(t, needInit)
+		assert.True(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -650,10 +650,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.Empty(t, status.AuthenticationType)
 		assert.Empty(t, status.Parameters)
 
-		assert.False(t, handoff.BucketAccessManagedBySidecar(access))  // MUST NOT hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST NOT be initialized
+		assert.False(t, bucketaccess.ManagedBySidecar(access))                      // MUST NOT hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST NOT be initialized
 		assert.NoError(t, err)
-		assert.True(t, needInit)
+		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
@@ -706,10 +706,10 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.Empty(t, status.AuthenticationType)
 		assert.Empty(t, status.Parameters)
 
-		assert.False(t, handoff.BucketAccessManagedBySidecar(access))  // MUST NOT hand off to sidecar
-		needInit, err := needsControllerInitialization(&access.Status) // MUST NOT be initialized
+		assert.False(t, bucketaccess.ManagedBySidecar(access))                      // MUST NOT hand off to sidecar
+		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST NOT be initialized
 		assert.NoError(t, err)
-		assert.True(t, needInit)
+		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
 		err = c.Get(ctx, readWriteClaimNsName, crw)
