@@ -30,16 +30,25 @@ type BucketClaimSpec struct {
 	// bucketClassName selects the BucketClass for provisioning the BucketClaim.
 	// This field is used only for BucketClaim dynamic provisioning.
 	// If unspecified, existingBucketName must be specified for binding to an existing Bucket.
+	// Must be a valid Kubernetes resource name: at most 253 characters, consisting only of
+	// lower-case alphanumeric characters, hyphens, and periods, starting and ending with an
+	// alphanumeric character.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:message="name must be a valid resource name",rule="!format.dns1123Subdomain().validate(self).hasValue()"
 	// +kubebuilder:validation:XValidation:message="bucketClassName is immutable",rule="self == oldSelf"
 	BucketClassName string `json:"bucketClassName,omitempty"`
 
 	// protocols lists object storage protocols that the provisioned Bucket must support.
 	// If specified, COSI will verify that each item is advertised as supported by the driver.
+	// It is recommended to specify all protocols that applications will rely on in BucketAccesses
+	// referencing this BucketClaim.
+	// Possible values: 'S3', 'Azure', 'GCS'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=3
 	// +kubebuilder:validation:XValidation:message="protocols list is immutable",rule="self == oldSelf"
 	Protocols []ObjectProtocol `json:"protocols,omitempty"`
 
@@ -47,9 +56,13 @@ type BucketClaimSpec struct {
 	// should bind to.
 	// This field is used only for BucketClaim static provisioning.
 	// If unspecified, bucketClassName must be specified for dynamically provisioning a new bucket.
+	// Must be a valid Kubernetes resource name: at most 253 characters, consisting only of
+	// lower-case alphanumeric characters, hyphens, and periods, starting and ending with an
+	// alphanumeric character.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:message="name must be a valid resource name",rule="!format.dns1123Subdomain().validate(self).hasValue()"
 	// +kubebuilder:validation:XValidation:message="existingBucketName is immutable",rule="self == oldSelf"
 	ExistingBucketName string `json:"existingBucketName,omitempty"`
 }
@@ -59,9 +72,13 @@ type BucketClaimSpec struct {
 // +kubebuilder:validation:XValidation:message="protocols cannot be removed once set",rule="!has(oldSelf.protocols) || has(self.protocols)"
 type BucketClaimStatus struct {
 	// boundBucketName is the name of the Bucket this BucketClaim is bound to.
+	// Must be a valid Kubernetes resource name: at most 253 characters, consisting only of
+	// lower-case alphanumeric characters, hyphens, and periods, starting and ending with an
+	// alphanumeric character.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:message="name must be a valid resource name",rule="!format.dns1123Subdomain().validate(self).hasValue()"
 	// +kubebuilder:validation:XValidation:message="boundBucketName is immutable once set",rule="self == oldSelf"
 	BoundBucketName string `json:"boundBucketName,omitempty"`
 
@@ -71,8 +88,11 @@ type BucketClaimStatus struct {
 
 	// protocols is the set of protocols the bound Bucket reports to support. BucketAccesses can
 	// request access to this BucketClaim using any of the protocols reported here.
+	// Possible values: 'S3', 'Azure', 'GCS'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=3
 	Protocols []ObjectProtocol `json:"protocols,omitempty"`
 
 	// error holds the most recent error message, with a timestamp.

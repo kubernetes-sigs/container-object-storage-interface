@@ -35,8 +35,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bucketName` _string_ | bucketName is the name of a Bucket the access should have permissions for. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
-| `bucketClaimName` _string_ | bucketClaimName must match a BucketClaimAccess's BucketClaimName from the spec. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `bucketName` _string_ | bucketName is the name of a Bucket the access should have permissions for.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `bucketClaimName` _string_ | bucketClaimName must match a BucketClaimAccess's BucketClaimName from the spec.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 
 
 #### Bucket
@@ -153,9 +153,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this BucketAccessClass. |  | MinLength: 1 <br /> |
-| `authenticationType` _[BucketAccessAuthenticationType](#bucketaccessauthenticationtype)_ | authenticationType specifies which authentication mechanism is used bucket access.<br />Possible values:<br /> - Key: The driver should generate a protocol-appropriate access key that clients can use to<br />   authenticate to the backend object store.<br /> - ServiceAccount: The driver should configure the system such that Pods using the given<br />   ServiceAccount authenticate to the backend object store automatically. |  | Enum: [Key ServiceAccount] <br /> |
-| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this BucketAccessClass. |  |  |
+| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this BucketAccessClass.<br />See driver documentation to determine the correct value to set.<br />Must be 63 characters or less, beginning and ending with an alphanumeric character<br />([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between. |  | MaxLength: 63 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9]([a-zA-Z0-9\-\.]\{0,61\}[a-zA-Z0-9])?$` <br /> |
+| `authenticationType` _[BucketAccessAuthenticationType](#bucketaccessauthenticationtype)_ | authenticationType specifies which authentication mechanism is used bucket access.<br />See driver documentation to determine which values are supported.<br />Possible values:<br /> - Key: The driver should generate a protocol-appropriate access key that clients can use to<br />   authenticate to the backend object store.<br /> - ServiceAccount: The driver should configure the system such that Pods using the given<br />   ServiceAccount authenticate to the backend object store automatically. |  | Enum: [Key ServiceAccount] <br /> |
+| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this BucketAccessClass.<br />See driver documentation to determine supported parameters and their effects.<br />A maximum of 512 parameters are allowed. |  | MaxProperties: 512 <br />MinProperties: 1 <br /> |
 | `featureOptions` _[BucketAccessFeatureOptions](#bucketaccessfeatureoptions)_ | featureOptions can be used to adjust various COSI access provisioning behaviors.<br />If specified, at least one option must be set. |  | MinProperties: 1 <br /> |
 
 
@@ -173,7 +173,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disallowedBucketAccessModes` _[BucketAccessMode](#bucketaccessmode) array_ | disallowedBucketAccessModes is a list of disallowed Read/Write access modes. A BucketAccess<br />using this class will not be allowed to request access to a BucketClaim with any access mode<br />listed here. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
+| `disallowedBucketAccessModes` _[BucketAccessMode](#bucketaccessmode) array_ | disallowedBucketAccessModes is a list of disallowed Read/Write access modes. A BucketAccess<br />using this class will not be allowed to request access to a BucketClaim with any access mode<br />listed here.<br />This is particularly useful for administrators to restrict access to a statically-provisioned<br />bucket that is managed outside the BucketAccess Namespace or Kubernetes cluster.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
 | `disallowMultiBucketAccess` _boolean_ | disallowMultiBucketAccess disables the ability for a BucketAccess to reference multiple<br />BucketClaims when set. |  |  |
 
 
@@ -230,10 +230,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bucketClaims` _[BucketClaimAccess](#bucketclaimaccess) array_ | bucketClaims is a list of BucketClaims the provisioned access must have permissions for,<br />along with per-BucketClaim access parameters and system output definitions.<br />At least one BucketClaim must be referenced.<br />Multiple references to the same BucketClaim are not permitted. |  | MinItems: 1 <br /> |
+| `bucketClaims` _[BucketClaimAccess](#bucketclaimaccess) array_ | bucketClaims is a list of BucketClaims the provisioned access must have permissions for,<br />along with per-BucketClaim access parameters and system output definitions.<br />At least one BucketClaim must be referenced.<br />A maximum of 128 BucketClaims may be referenced.<br />Multiple references to the same BucketClaim are not permitted. |  | MaxItems: 128 <br />MinItems: 1 <br /> |
 | `bucketAccessClassName` _string_ | bucketAccessClassName selects the BucketAccessClass for provisioning the access. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
-| `protocol` _[ObjectProtocol](#objectprotocol)_ | protocol is the object storage protocol that the provisioned access must use. |  | Enum: [S3 Azure GCS] <br /> |
-| `serviceAccountName` _string_ | serviceAccountName is the name of the Kubernetes ServiceAccount that user application Pods<br />intend to use for access to referenced BucketClaims.<br />This has different behavior based on the BucketAccessClass's defined AuthenticationType:<br />- Key: This field is ignored.<br />- ServiceAccount: This field is required. The driver should configure the system so that Pods<br />  using the ServiceAccount authenticate to the object storage backend automatically. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `protocol` _[ObjectProtocol](#objectprotocol)_ | protocol is the object storage protocol that the provisioned access must use.<br />Access can only be granted for BucketClaims that support the requested protocol.<br />Each BucketClaim status reports which protocols are supported for the BucketClaim's bucket.<br />Possible values: 'S3', 'Azure', 'GCS'. |  | Enum: [S3 Azure GCS] <br /> |
+| `serviceAccountName` _string_ | serviceAccountName is the name of the Kubernetes ServiceAccount that user application Pods<br />intend to use for access to referenced BucketClaims.<br />Required when the BucketAccessClass is configured to use ServiceAccount authentication type.<br />Ignored for all other authentication types.<br />It is recommended to specify this for all BucketAccesses to improve portability. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 
 
 #### BucketAccessStatus
@@ -250,12 +250,12 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `readyToUse` _boolean_ | readyToUse indicates that the BucketAccess is ready for consumption by workloads. |  |  |
-| `accountID` _string_ | accountID is the unique identifier for the backend access known to the driver.<br />This field is populated by the COSI Sidecar once access has been successfully granted. |  | MinLength: 1 <br /> |
-| `accessedBuckets` _[AccessedBucket](#accessedbucket) array_ | accessedBuckets is a list of Buckets the provisioned access must have permissions for, along<br />with per-Bucket access options. This field is populated by the COSI Controller based on the<br />referenced BucketClaims in the spec. |  | MinItems: 1 <br /> |
-| `driverName` _string_ | driverName holds a copy of the BucketAccessClass driver name from the time of BucketAccess<br />provisioning. This field is populated by the COSI Controller. |  | MinLength: 1 <br /> |
-| `authenticationType` _[BucketAccessAuthenticationType](#bucketaccessauthenticationtype)_ | authenticationType holds a copy of the BucketAccessClass authentication type from the time of<br />BucketAccess provisioning. This field is populated by the COSI Controller. |  | Enum: [Key ServiceAccount] <br /> |
-| `parameters` _object (keys:string, values:string)_ | parameters holds a copy of the BucketAccessClass parameters from the time of BucketAccess<br />provisioning. This field is populated by the COSI Controller. |  |  |
-| `error` _[TimestampedError](#timestampederror)_ | error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  |  |
+| `accountID` _string_ | accountID is the unique identifier for the backend access known to the driver.<br />This field is populated by the COSI Sidecar once access has been successfully granted.<br />Must be at most 2048 characters and consist only of alphanumeric characters ([a-z0-9A-Z]),<br />dashes (-), dots (.), underscores (_), and forward slash (/). |  | MaxLength: 2048 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9/._-]+$` <br /> |
+| `accessedBuckets` _[AccessedBucket](#accessedbucket) array_ | accessedBuckets is a list of Buckets the provisioned access must have permissions for, along<br />with per-Bucket access options. This field is populated by the COSI Controller based on the<br />referenced BucketClaims in the spec. |  | MaxItems: 128 <br />MinItems: 1 <br /> |
+| `driverName` _string_ | driverName holds a copy of the BucketAccessClass driver name from the time of BucketAccess<br />provisioning. This field is populated by the COSI Controller.<br />Must be 63 characters or less, beginning and ending with an alphanumeric character<br />([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between. |  | MaxLength: 63 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9]([a-zA-Z0-9\-\.]\{0,61\}[a-zA-Z0-9])?$` <br /> |
+| `authenticationType` _[BucketAccessAuthenticationType](#bucketaccessauthenticationtype)_ | authenticationType holds a copy of the BucketAccessClass authentication type from the time of<br />BucketAccess provisioning. This field is populated by the COSI Controller.<br />Possible values:<br /> - Key: clients may use a protocol-appropriate access key to authenticate to the backend object store.<br /> - ServiceAccount: Pods using the ServiceAccount given in spec.serviceAccountName may authenticate to the backend object store automatically. |  | Enum: [Key ServiceAccount] <br /> |
+| `parameters` _object (keys:string, values:string)_ | parameters holds a copy of the BucketAccessClass parameters from the time of BucketAccess<br />provisioning. This field is populated by the COSI Controller. |  | MaxProperties: 512 <br />MinProperties: 1 <br /> |
+| `error` _[TimestampedError](#timestampederror)_ | error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  | MinProperties: 0 <br /> |
 
 
 #### BucketClaim
@@ -295,9 +295,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bucketClaimName` _string_ | bucketClaimName is the name of a BucketClaim the access should have permissions for.<br />The BucketClaim must be in the same Namespace as the BucketAccess. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
-| `accessMode` _[BucketAccessMode](#bucketaccessmode)_ | accessMode is the Read/Write access mode that the access should have for the bucket.<br />Possible values: ReadWrite, ReadOnly, WriteOnly. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
-| `accessSecretName` _string_ | accessSecretName is the name of a Kubernetes Secret that COSI should create and populate with<br />bucket info and access credentials for the bucket.<br />The Secret is created in the same Namespace as the BucketAccess and is deleted when the<br />BucketAccess is deleted and deprovisioned.<br />The Secret name must be unique across all bucketClaimRefs for all BucketAccesses in the same<br />Namespace. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `bucketClaimName` _string_ | bucketClaimName is the name of a BucketClaim the access should have permissions for.<br />The BucketClaim must be in the same Namespace as the BucketAccess.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `accessMode` _[BucketAccessMode](#bucketaccessmode)_ | accessMode is the Read/Write access mode that the access should have for the bucket.<br />The provisioned access will have the corresponding permissions to read and/or write objects<br />the BucketClaim's bucket.<br />The provisioned access can also assume to have corresponding permissions to read and/or write<br />object metadata and object metadata (e.g., tags) except when metadata changes would change<br />object store behaviors or permissions (e.g., changes to object caching behaviors).<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
+| `accessSecretName` _string_ | accessSecretName is the name of a Kubernetes Secret that COSI should create and populate with<br />bucket info and access credentials for the bucket.<br />The Secret is created in the same Namespace as the BucketAccess and is deleted when the<br />BucketAccess is deleted and deprovisioned.<br />The Secret name must be unique across all bucketClaimRefs for all BucketAccesses in the same<br />Namespace.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 
 
 #### BucketClaimList
@@ -333,9 +333,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | name is the name of the BucketClaim being referenced. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
-| `namespace` _string_ | namespace is the namespace of the BucketClaim being referenced. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
-| `uid` _[UID](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#uid-types-pkg)_ | uid is the UID of the BucketClaim being referenced. |  |  |
+| `name` _string_ | name is the name of the BucketClaim being referenced.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `namespace` _string_ | namespace is the namespace of the BucketClaim being referenced.<br />Must be a valid Kubernetes Namespace name: at most 63 characters, consisting only of<br />lower-case alphanumeric characters and hyphens, starting and ending with alphanumerics. |  | MaxLength: 63 <br />MinLength: 1 <br /> |
+| `uid` _[UID](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#uid-types-pkg)_ | uid is the UID of the BucketClaim being referenced.<br />Must be a valid Kubernetes UID: RFC 4122 form with lowercase hexadecimal characters<br />(xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx). |  | MaxLength: 36 <br />MinLength: 36 <br />Pattern: `^[0-9a-f]\{8\}-([0-9a-f]\{4\}\-)\{3\}[0-9a-f]\{12\}$` <br />Type: string <br /> |
 
 
 #### BucketClaimSpec
@@ -352,9 +352,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bucketClassName` _string_ | bucketClassName selects the BucketClass for provisioning the BucketClaim.<br />This field is used only for BucketClaim dynamic provisioning.<br />If unspecified, existingBucketName must be specified for binding to an existing Bucket. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
-| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols lists object storage protocols that the provisioned Bucket must support.<br />If specified, COSI will verify that each item is advertised as supported by the driver. |  | Enum: [S3 Azure GCS] <br /> |
-| `existingBucketName` _string_ | existingBucketName selects the name of an existing Bucket resource that this BucketClaim<br />should bind to.<br />This field is used only for BucketClaim static provisioning.<br />If unspecified, bucketClassName must be specified for dynamically provisioning a new bucket. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `bucketClassName` _string_ | bucketClassName selects the BucketClass for provisioning the BucketClaim.<br />This field is used only for BucketClaim dynamic provisioning.<br />If unspecified, existingBucketName must be specified for binding to an existing Bucket.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols lists object storage protocols that the provisioned Bucket must support.<br />If specified, COSI will verify that each item is advertised as supported by the driver.<br />It is recommended to specify all protocols that applications will rely on in BucketAccesses<br />referencing this BucketClaim.<br />Possible values: 'S3', 'Azure', 'GCS'. |  | Enum: [S3 Azure GCS] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
+| `existingBucketName` _string_ | existingBucketName selects the name of an existing Bucket resource that this BucketClaim<br />should bind to.<br />This field is used only for BucketClaim static provisioning.<br />If unspecified, bucketClassName must be specified for dynamically provisioning a new bucket.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 
 
 #### BucketClaimStatus
@@ -370,10 +370,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `boundBucketName` _string_ | boundBucketName is the name of the Bucket this BucketClaim is bound to. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `boundBucketName` _string_ | boundBucketName is the name of the Bucket this BucketClaim is bound to.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 | `readyToUse` _boolean_ | readyToUse indicates that the bucket is ready for consumption by workloads. |  |  |
-| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols is the set of protocols the bound Bucket reports to support. BucketAccesses can<br />request access to this BucketClaim using any of the protocols reported here. |  | Enum: [S3 Azure GCS] <br /> |
-| `error` _[TimestampedError](#timestampederror)_ | error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  |  |
+| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols is the set of protocols the bound Bucket reports to support. BucketAccesses can<br />request access to this BucketClaim using any of the protocols reported here.<br />Possible values: 'S3', 'Azure', 'GCS'. |  | Enum: [S3 Azure GCS] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
+| `error` _[TimestampedError](#timestampederror)_ | error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  | MinProperties: 0 <br /> |
 
 
 #### BucketClass
@@ -433,9 +433,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this BucketClass. |  | MinLength: 1 <br /> |
+| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this BucketClass.<br />See driver documentation to determine the correct value to set.<br />Must be 63 characters or less, beginning and ending with an alphanumeric character<br />([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between. |  | MaxLength: 63 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9]([a-zA-Z0-9\-\.]\{0,61\}[a-zA-Z0-9])?$` <br /> |
 | `deletionPolicy` _[BucketDeletionPolicy](#bucketdeletionpolicy)_ | deletionPolicy determines whether a Bucket created through the BucketClass should be deleted<br />when its bound BucketClaim is deleted.<br />Possible values:<br /> - Retain: keep both the Bucket object and the backend bucket<br /> - Delete: delete both the Bucket object and the backend bucket |  | Enum: [Retain Delete] <br /> |
-| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this BucketClass. |  |  |
+| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this BucketClass.<br />See driver documentation to determine supported parameters and their effects.<br />A maximum of 512 parameters are allowed. |  | MaxProperties: 512 <br />MinProperties: 1 <br /> |
 
 
 #### BucketDeletionPolicy
@@ -492,12 +492,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this Bucket. |  | MinLength: 1 <br /> |
+| `driverName` _string_ | driverName is the name of the driver that fulfills requests for this Bucket.<br />See driver documentation to determine the correct value to set.<br />Must be 63 characters or less, beginning and ending with an alphanumeric character<br />([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between. |  | MaxLength: 63 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9]([a-zA-Z0-9\-\.]\{0,61\}[a-zA-Z0-9])?$` <br /> |
 | `deletionPolicy` _[BucketDeletionPolicy](#bucketdeletionpolicy)_ | deletionPolicy determines whether a Bucket should be deleted when its bound BucketClaim is<br />deleted. This is mutable to allow Admins to change the policy after creation.<br />Possible values:<br /> - Retain: keep both the Bucket object and the backend bucket<br /> - Delete: delete both the Bucket object and the backend bucket |  | Enum: [Retain Delete] <br /> |
-| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this Bucket. |  |  |
-| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols lists object store protocols that the provisioned Bucket must support.<br />If specified, COSI will verify that each item is advertised as supported by the driver. |  | Enum: [S3 Azure GCS] <br /> |
-| `bucketClaim` _[BucketClaimReference](#bucketclaimreference)_ | bucketClaim references the BucketClaim that resulted in the creation of this Bucket.<br />For statically-provisioned buckets, set the namespace and name of the BucketClaim that is<br />allowed to bind to this Bucket. |  |  |
-| `existingBucketID` _string_ | existingBucketID is the unique identifier for an existing backend bucket known to the driver.<br />Use driver documentation to determine how to set this value.<br />This field is used only for Bucket static provisioning.<br />This field will be empty when the Bucket is dynamically provisioned from a BucketClaim. |  | MinLength: 1 <br /> |
+| `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this Bucket.<br />See driver documentation to determine supported parameters and their effects.<br />A maximum of 512 parameters are allowed. |  | MaxProperties: 512 <br />MinProperties: 1 <br /> |
+| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols lists object store protocols that the provisioned Bucket must support.<br />If specified, COSI will verify that each item is advertised as supported by the driver.<br />See driver documentation to determine supported protocols.<br />Possible values: 'S3', 'Azure', 'GCS'. |  | Enum: [S3 Azure GCS] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
+| `bucketClaimRef` _[BucketClaimReference](#bucketclaimreference)_ | bucketClaimRef references the BucketClaim that resulted in the creation of this Bucket.<br />For statically-provisioned buckets, set the namespace and name of the BucketClaim that is<br />allowed to bind to this Bucket; UID may be left unset if desired and will be updated by COSI. |  |  |
+| `existingBucketID` _string_ | existingBucketID is the unique identifier for an existing backend bucket known to the driver.<br />Use driver documentation to determine the correct value to set.<br />This field is used only for static Bucket provisioning.<br />This field will be empty when the Bucket is dynamically provisioned from a BucketClaim.<br />Must be at most 2048 characters and consist only of alphanumeric characters ([a-z0-9A-Z]),<br />dashes (-), dots (.), underscores (_), and forward slash (/). |  | MaxLength: 2048 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9/._-]+$` <br /> |
 
 
 #### BucketStatus
@@ -514,10 +514,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `readyToUse` _boolean_ | readyToUse indicates that the bucket is ready for consumption by workloads. |  |  |
-| `bucketID` _string_ | bucketID is the unique identifier for the backend bucket known to the driver. |  | MinLength: 1 <br /> |
-| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols is the set of protocols the Bucket reports to support. BucketAccesses can request<br />access to this BucketClaim using any of the protocols reported here. |  | Enum: [S3 Azure GCS] <br /> |
-| `bucketInfo` _object (keys:string, values:string)_ | bucketInfo contains info about the bucket reported by the driver, rendered in the same<br />COSI_<PROTOCOL>_<KEY> format used for the BucketAccess Secret.<br />e.g., COSI_S3_ENDPOINT, COSI_AZURE_STORAGE_ACCOUNT.<br />This should not contain any sensitive information. |  |  |
-| `error` _[TimestampedError](#timestampederror)_ | error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  |  |
+| `bucketID` _string_ | bucketID is the unique identifier for the backend bucket known to the driver.<br />Must be at most 2048 characters and consist only of alphanumeric characters ([a-z0-9A-Z]),<br />dashes (-), dots (.), underscores (_), and forward slash (/). |  | MaxLength: 2048 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9/._-]+$` <br /> |
+| `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols is the set of protocols the Bucket reports to support. BucketAccesses can request<br />access to this Bucket using any of the protocols reported here.<br />Possible values: 'S3', 'Azure', 'GCS'. |  | Enum: [S3 Azure GCS] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
+| `bucketInfo` _object (keys:string, values:string)_ | bucketInfo contains info about the bucket reported by the driver, rendered in the same<br />COSI_<PROTOCOL>_<KEY> format used for the BucketAccess Secret.<br />e.g., COSI_S3_ENDPOINT, COSI_AZURE_STORAGE_ACCOUNT.<br />This should not contain any sensitive information. |  | MaxProperties: 128 <br />MinProperties: 1 <br /> |
+| `error` _[TimestampedError](#timestampederror)_ | error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  | MinProperties: 0 <br /> |
 
 
 #### CosiEnvVar
@@ -572,7 +572,8 @@ _Appears in:_
 
 TimestampedError contains an error message with timestamp.
 
-
+_Validation:_
+- MinProperties: 0
 
 _Appears in:_
 - [BucketAccessStatus](#bucketaccessstatus)
@@ -582,6 +583,6 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `time` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | time is the timestamp when the error was encountered. |  |  |
-| `message` _string_ | message is a string detailing the encountered error.<br />NOTE: message will be logged, and it should not contain sensitive information. |  |  |
+| `message` _string_ | message is a string detailing the encountered error.<br />NOTE: message will be logged, and it should not contain sensitive information.<br />Must not exceed 1.5MB. |  | MaxLength: 1572864 <br />MinLength: 0 <br /> |
 
 

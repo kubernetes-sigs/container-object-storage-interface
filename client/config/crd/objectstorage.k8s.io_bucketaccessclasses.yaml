@@ -43,6 +43,7 @@ spec:
               authenticationType:
                 description: |-
                   authenticationType specifies which authentication mechanism is used bucket access.
+                  See driver documentation to determine which values are supported.
                   Possible values:
                    - Key: The driver should generate a protocol-appropriate access key that clients can use to
                      authenticate to the backend object store.
@@ -53,9 +54,14 @@ spec:
                 - ServiceAccount
                 type: string
               driverName:
-                description: driverName is the name of the driver that fulfills requests
-                  for this BucketAccessClass.
+                description: |-
+                  driverName is the name of the driver that fulfills requests for this BucketAccessClass.
+                  See driver documentation to determine the correct value to set.
+                  Must be 63 characters or less, beginning and ending with an alphanumeric character
+                  ([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between.
+                maxLength: 63
                 minLength: 1
+                pattern: ^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,61}[a-zA-Z0-9])?$
                 type: string
               featureOptions:
                 description: |-
@@ -73,6 +79,9 @@ spec:
                       disallowedBucketAccessModes is a list of disallowed Read/Write access modes. A BucketAccess
                       using this class will not be allowed to request access to a BucketClaim with any access mode
                       listed here.
+                      This is particularly useful for administrators to restrict access to a statically-provisioned
+                      bucket that is managed outside the BucketAccess Namespace or Kubernetes cluster.
+                      Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
                     items:
                       description: BucketAccessMode describes the Read/Write mode
                         an access should have for a bucket.
@@ -81,6 +90,8 @@ spec:
                       - ReadOnly
                       - WriteOnly
                       type: string
+                    maxItems: 3
+                    minItems: 1
                     type: array
                     x-kubernetes-list-type: set
                 type: object
@@ -90,6 +101,10 @@ spec:
                 description: |-
                   parameters is an opaque map of driver-specific configuration items passed to the driver that
                   fulfills requests for this BucketAccessClass.
+                  See driver documentation to determine supported parameters and their effects.
+                  A maximum of 512 parameters are allowed.
+                maxProperties: 512
+                minProperties: 1
                 type: object
             required:
             - authenticationType

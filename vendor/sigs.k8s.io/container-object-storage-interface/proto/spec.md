@@ -469,6 +469,8 @@ message DriverCreateBucketResponse {
     // This value WILL be used by COSI to make subsequent calls related to the bucket, so the
     // Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
     // It is RECOMMENDED to use the backend storage system's bucket ID.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
     string bucket_id = 1;
 
     // REQUIRED: At least one protocol bucket info result MUST be non-nil.
@@ -508,6 +510,8 @@ message DriverGetExistingBucketRequest {
     // REQUIRED. The unique identifier for the existing backend bucket known to the Provisioner.
     // Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
     // It is RECOMMENDED to use the backend storage system's bucket ID.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
     string existing_bucket_id = 1;
 
     // OPTIONAL. A list of all object storage protocols the provisioned bucket MUST support.
@@ -526,6 +530,8 @@ message DriverGetExistingBucketResponse {
     // This value WILL be used by COSI to make subsequent calls related to the bucket, so the
     // Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
     // It is RECOMMENDED to use the backend storage system's bucket ID.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
     string bucket_id = 1;
 
     // REQUIRED: At least one protocol bucket info result MUST be non-nil.
@@ -558,6 +564,8 @@ the Plugin MUST reply OK.
 ```protobuf
 message DriverDeleteBucketRequest {
     // REQUIRED. The unique identifier for the existing backend bucket known to the Provisioner.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
     string bucket_id = 1;
 
     // OPTIONAL. Plugin specific parameters associated with the provisioned bucket.
@@ -619,6 +627,8 @@ message DriverGrantBucketAccessRequest {
 
     message AccessedBucket {
         // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
+        // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+        // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
         string bucket_id = 1;
 
         // REQUIRED. The read/write access mode that the Provisioner SHOULD provision for the bucket
@@ -635,10 +645,14 @@ message DriverGrantBucketAccessResponse {
     // This value WILL be used by COSI to make subsequent calls related to the access, so the
     // Provisioner MUST be able to correlate `account_id` to the backend access.
     // It is RECOMMENDED to use the backend storage system's bucket ID.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
     string account_id = 1;
 
     message BucketInfo {
         // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
+        // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+        // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
         string bucket_id = 1;
 
         // REQUIRED: EXACTLY one protocol bucket info result MUST be non-nil.
@@ -669,6 +683,8 @@ exist, the Plugin MUST reply OK.
 ```protobuf
 message DriverRevokeBucketAccessRequest {
     // REQUIRED. The unique identifier for the backend access account
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
     string account_id = 1;
 
     // REQUIRED. The object storage protocol associated with the provisioned access.

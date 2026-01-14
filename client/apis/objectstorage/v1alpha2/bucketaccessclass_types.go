@@ -23,11 +23,17 @@ import (
 // BucketAccessClassSpec defines the desired state of BucketAccessClass
 type BucketAccessClassSpec struct {
 	// driverName is the name of the driver that fulfills requests for this BucketAccessClass.
+	// See driver documentation to determine the correct value to set.
+	// Must be 63 characters or less, beginning and ending with an alphanumeric character
+	// ([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between.
 	// +required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,61}[a-zA-Z0-9])?$`
 	DriverName string `json:"driverName,omitempty"`
 
 	// authenticationType specifies which authentication mechanism is used bucket access.
+	// See driver documentation to determine which values are supported.
 	// Possible values:
 	//  - Key: The driver should generate a protocol-appropriate access key that clients can use to
 	//    authenticate to the backend object store.
@@ -38,7 +44,11 @@ type BucketAccessClassSpec struct {
 
 	// parameters is an opaque map of driver-specific configuration items passed to the driver that
 	// fulfills requests for this BucketAccessClass.
+	// See driver documentation to determine supported parameters and their effects.
+	// A maximum of 512 parameters are allowed.
 	// +optional
+	// +kubebuilder:validation:MinProperties=1
+	// +kubebuilder:validation:MaxProperties=512
 	Parameters map[string]string `json:"parameters,omitempty"`
 
 	// featureOptions can be used to adjust various COSI access provisioning behaviors.
@@ -53,8 +63,13 @@ type BucketAccessFeatureOptions struct {
 	// disallowedBucketAccessModes is a list of disallowed Read/Write access modes. A BucketAccess
 	// using this class will not be allowed to request access to a BucketClaim with any access mode
 	// listed here.
+	// This is particularly useful for administrators to restrict access to a statically-provisioned
+	// bucket that is managed outside the BucketAccess Namespace or Kubernetes cluster.
+	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=3
 	DisallowedBucketAccessModes []BucketAccessMode `json:"disallowedBucketAccessModes,omitempty"`
 
 	// disallowMultiBucketAccess disables the ability for a BucketAccess to reference multiple
