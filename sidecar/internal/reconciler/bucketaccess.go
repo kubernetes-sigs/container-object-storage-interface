@@ -141,17 +141,8 @@ func (r *BucketAccessReconciler) reconcile(
 	}
 
 	if !access.GetDeletionTimestamp().IsZero() {
-		logger.V(1).Info("beginning BucketAccess deletion cleanup")
-
-		// TODO: deletion logic
-
-		ctrlutil.RemoveFinalizer(access, cosiapi.ProtectionFinalizer)
-		if err := r.Update(ctx, access); err != nil {
-			logger.Error(err, "failed to remove finalizer")
-			return fmt.Errorf("failed to remove finalizer: %w", err)
-		}
-
-		return cosierr.NonRetryableError(fmt.Errorf("deletion is not yet implemented")) // TODO
+		logger.V(1).Info("beginning BucketAccess deletion")
+		return r.reconcileDelete(ctx, logger, access)
 	}
 
 	initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status)
@@ -191,7 +182,7 @@ func (r *BucketAccessReconciler) reconcile(
 		return err
 	}
 
-	internalCfg, err := newInternalAccessConfig(access, bucketsByName, secretsByName)
+	internalCfg, err := newInternalGrantAccessConfig(access, bucketsByName, secretsByName)
 	if err != nil {
 		logger.Error(err, "failed to build internal representation of access configuration")
 		return fmt.Errorf("failed to build internal representation of access configuration: %w", err)
@@ -252,34 +243,79 @@ func (r *BucketAccessReconciler) reconcile(
 	return nil
 }
 
+func (r *BucketAccessReconciler) reconcileDelete(
+	ctx context.Context, logger logr.Logger, access *cosiapi.BucketAccess,
+) error {
+	if err := r.deleteOwnedAccessSecrets(ctx, logger, access); err != nil {
+		logger.Error(err, "failed to ensure deletion of access Secrets")
+		return err
+	}
+
+	resp, err := r.DriverInfo.provisionerClient.DriverRevokeBucketAccess(ctx,
+		&cosiproto.DriverRevokeBucketAccessRequest{
+			AccountName:        access.Status.AccountID,
+			Protocol:           &cosiproto.ObjectProtocol{Type: internalCfg.Protocol},
+			AuthenticationType: &cosiproto.AuthenticationType{Type: internalCfg.AuthenticationType},
+			ServiceAccountName: internalCfg.ServiceAccountName,
+			Parameters:         internalCfg.Parameters,
+			Buckets:            internalCfg.RpcAccessedBucketsList(),
+		},
+	)
+	if err != nil {
+		logger.Error(err, "DriverRevokeBucketAccess error")
+		if rpcErrorIsRetryable(status.Code(err)) {
+			return err
+		}
+		// Do not proceed with k8s resource cleanup after a non-retryable error. Proceeding would
+		// risk leaving backend resources orphaned without any clear indication to administrators
+		// that they need to do manual cleanup if desired. If this is a sidecar or driver error, an
+		// update could resolve the issue to allow a future deletion to succeed.
+		return cosierr.NonRetryableError(err)
+	}
+
+	// Do not remove finalizer. Controller will do that after it cleans up.
+
+	return nil
+}
+
 // Internal representation of access configuration.
 type internalAccessConfig struct {
-	AccountName        string
 	Protocol           cosiproto.ObjectProtocol_Type
 	AuthenticationType cosiproto.AuthenticationType_Type
 	ServiceAccountName string
 	Parameters         map[string]string
 
-	AccessConfigsByBucketId map[string]bucketAccessConfig
-
 	BucketsByName map[string]*cosiapi.Bucket
+}
+
+// Internal representation of access configuration for granting access.
+type internalGrantAccessConfig struct {
+	internalAccessConfig
+
+	AccountName             string
+	AccessConfigsByBucketId map[string]bucketGrantAccessConfig
+
 	SecretsByName map[string]*corev1.Secret
 }
 
-// Internal access configuration for a specific bucket.
-type bucketAccessConfig struct {
+// Internal grant-access configuration for a specific bucket.
+type bucketGrantAccessConfig struct {
 	AccessMode       cosiproto.AccessMode_Mode
 	AccessSecretName string
+}
+
+// Internal representation of access configuration for revoking access.
+type internalRevokeAccessConfig struct {
+	internalAccessConfig
+
+	AccessID string
 }
 
 // Parse the access, and generate a new internal access config struct for follow-up.
 func newInternalAccessConfig(
 	access *cosiapi.BucketAccess,
 	bucketsByName map[string]*cosiapi.Bucket,
-	secretsByName map[string]*corev1.Secret,
 ) (*internalAccessConfig, error) {
-	acctName := "ba-" + string(access.UID) // DO NOT CHANGE
-
 	proto, err := protocol.ObjectProtocolTranslator{}.ApiToRpc(access.Spec.Protocol)
 	if err != nil {
 		return nil, cosierr.NonRetryableError(err)
@@ -296,20 +332,40 @@ func newInternalAccessConfig(
 		svcAcct = access.Spec.ServiceAccountName
 	}
 
-	accessConfigsByBucketId, err := generateInternalAccessedBucketConfigs(access, bucketsByName)
-	if err != nil {
-		return nil, err
-	}
-
 	d := &internalAccessConfig{
-		AccountName:        acctName,
 		Protocol:           proto,
 		AuthenticationType: authType,
 		ServiceAccountName: svcAcct,
 		Parameters:         access.Status.Parameters,
 
+		BucketsByName: bucketsByName,
+	}
+	return d, nil
+}
+
+// Parse the access, and generate a new internal grant access config struct for follow-up.
+func newInternalGrantAccessConfig(
+	access *cosiapi.BucketAccess,
+	bucketsByName map[string]*cosiapi.Bucket,
+	secretsByName map[string]*corev1.Secret,
+) (*internalGrantAccessConfig, error) {
+	sharedCfg, err := newInternalAccessConfig(access, bucketsByName)
+	if err != nil {
+		return nil, err
+	}
+
+	acctName := "ba-" + string(access.UID) // DO NOT CHANGE
+
+	accessConfigsByBucketId, err := generateInternalAccessedBucketConfigs(access, bucketsByName)
+	if err != nil {
+		return nil, err
+	}
+
+	d := &internalGrantAccessConfig{
+		internalAccessConfig: *sharedCfg,
+
+		AccountName:             acctName,
 		AccessConfigsByBucketId: accessConfigsByBucketId,
-		BucketsByName:           bucketsByName,
 		SecretsByName:           secretsByName,
 	}
 	return d, nil
@@ -322,7 +378,7 @@ func newInternalAccessConfig(
 func generateInternalAccessedBucketConfigs(
 	access *cosiapi.BucketAccess,
 	bucketsByName map[string]*cosiapi.Bucket,
-) (accessConfigsByBucketId map[string]bucketAccessConfig, err error) {
+) (accessConfigsByBucketId map[string]bucketGrantAccessConfig, err error) {
 	errs := []error{}
 
 	bucketNamesByClaimName := make(map[string]string, len(access.Status.AccessedBuckets))
@@ -330,7 +386,7 @@ func generateInternalAccessedBucketConfigs(
 		bucketNamesByClaimName[ab.BucketClaimName] = ab.BucketName
 	}
 
-	accessConfigsByBucketId = make(map[string]bucketAccessConfig, len(access.Spec.BucketClaims))
+	accessConfigsByBucketId = make(map[string]bucketGrantAccessConfig, len(access.Spec.BucketClaims))
 	for _, claimRef := range access.Spec.BucketClaims {
 		claimName := claimRef.BucketClaimName
 		bucketName, ok := bucketNamesByClaimName[claimName]
@@ -361,7 +417,7 @@ func generateInternalAccessedBucketConfigs(
 			continue
 		}
 
-		cfg := bucketAccessConfig{
+		cfg := bucketGrantAccessConfig{
 			AccessMode:       rpcMode,
 			AccessSecretName: claimRef.AccessSecretName,
 		}
@@ -376,8 +432,8 @@ func generateInternalAccessedBucketConfigs(
 	return accessConfigsByBucketId, nil
 }
 
-// Generate bucket access configs for the RPC call.
-func (d *internalAccessConfig) RpcAccessedBucketsList() []*cosiproto.DriverGrantBucketAccessRequest_AccessedBucket {
+// Generate bucket access configs for the grant RPC call.
+func (d *internalGrantAccessConfig) RpcAccessedBucketsList() []*cosiproto.DriverGrantBucketAccessRequest_AccessedBucket {
 	out := make([]*cosiproto.DriverGrantBucketAccessRequest_AccessedBucket, len(d.AccessConfigsByBucketId))
 
 	i := 0
@@ -395,6 +451,42 @@ func (d *internalAccessConfig) RpcAccessedBucketsList() []*cosiproto.DriverGrant
 	}
 
 	return out
+}
+
+// Generate bucket access configs for the revoke RPC call.
+func (d *internalRevokeAccessConfig) RpcAccessedBucketsList() []*cosiproto.DriverRevokeBucketAccessRequest_AccessedBucket {
+	out := make([]*cosiproto.DriverRevokeBucketAccessRequest_AccessedBucket, len(d.BucketIDs))
+
+	for i, id := range d.BucketIDs {
+		out[i] = &cosiproto.DriverRevokeBucketAccessRequest_AccessedBucket{
+			BucketId: id,
+		}
+	}
+
+	return out
+}
+
+// Parse the access, and generate a new internal revoke access config struct for follow-up.
+// Returns nil if information needed to revoke access is not present.
+func newInternalRevokeAccessConfig(
+	access *cosiapi.BucketAccess,
+	bucketsByName map[string]*cosiapi.Bucket,
+) (*internalRevokeAccessConfig, error) {
+	sharedCfg, err := newInternalAccessConfig(access, bucketsByName)
+	if err != nil {
+		return nil, err
+	}
+
+	if access.Status.AccountID == "" {
+		return nil, nil // cannot revoke without account ID
+	}
+
+	d := &internalRevokeAccessConfig{
+		internalAccessConfig: *sharedCfg,
+
+		AccessID: access.Status.AccountID,
+	}
+	return d, nil
 }
 
 // Internal API-domain details about a successfully-granted access.
@@ -451,7 +543,7 @@ func translateDriverGrantBucketAccessResponseToApi(
 
 // Even with a granted access response that translates successfully, there could be other errors
 // related to the granted access not matching what was requested.
-func validateGrantedAccess(internalCfg *internalAccessConfig, granted *grantedAccessApiDetails) error {
+func validateGrantedAccess(internalCfg *internalGrantAccessConfig, granted *grantedAccessApiDetails) error {
 	errs := []error{}
 
 	for bucketId := range internalCfg.AccessConfigsByBucketId {
@@ -475,7 +567,7 @@ func validateGrantedAccess(internalCfg *internalAccessConfig, granted *grantedAc
 // Update BucketAccess Secret(s)'s data fields with credential and bucket info.
 func (r *BucketAccessReconciler) updateSecretsWithGrantedInfo(
 	ctx context.Context,
-	internalCfg *internalAccessConfig,
+	internalCfg *internalGrantAccessConfig,
 	granted *grantedAccessApiDetails,
 ) error {
 	errs := []error{}
@@ -705,4 +797,47 @@ func setAccessSecretRequiredMetadata(secret *corev1.Secret) {
 
 	// TODO: Consider using Secret type to help hint about COSI usage and the object protocol type?
 	secret.Type = corev1.SecretTypeOpaque
+}
+
+func (r *BucketAccessReconciler) deleteOwnedAccessSecrets(
+	ctx context.Context, logger logr.Logger,
+	access *cosiapi.BucketAccess,
+) error {
+	errs := []error{}
+
+	for _, claimRef := range access.Spec.BucketClaims {
+		secretName := claimRef.AccessSecretName
+
+		nsName := types.NamespacedName{
+			Namespace: access.Namespace,
+			Name:      secretName,
+		}
+		secret := &corev1.Secret{}
+		err := r.Get(ctx, nsName, secret)
+		if err != nil {
+			if kerrors.IsNotFound(err) {
+				logger.V(1).Info("access Secret already deleted", "secretName", secretName)
+				continue
+			}
+			errs = append(errs, err) // retry later
+			continue
+		}
+
+		if !metav1.IsControlledBy(secret, access) {
+			logger.V(1).Info("not deleting access Secret not belonging to BucketAccess", "secretName", secretName)
+			// Returning an error here would prevent BucketAccess deletion when a pre-existing
+			// Secret is specified in a spec.bucketClaims.accessSecretName.
+			continue
+		}
+
+		if err := r.Delete(ctx, secret); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to ensure deletion of one or more access Secrets: %w", errors.Join(errs...))
+	}
+	return nil
 }
