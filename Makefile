@@ -72,9 +72,9 @@ golangci-lint-fix.%: golangci-lint
 	cd $* && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml --new --fix
 
 .PHONY: test
-test: .test.proto test.client test.controller test.sidecar ## Run all unit tests including vet and fmt
-test.%: fmt.% vet.% FORCE
-	cd $* && go test ./...
+test: .test.proto vet .test.go ## Run all unit tests including vet and fmt
+.test.go: fmt
+	go test -v -cover ./...
 .PHONY: .test.proto
 .test.proto: # gRPC proto has a special unit test
 	$(MAKE) -C proto check
@@ -126,14 +126,12 @@ codegen.proto:
 	$(MAKE) -C proto codegen
 
 .PHONY: fmt
-fmt: fmt.client fmt.controller fmt.sidecar
-fmt.%: FORCE
-	cd $* && go fmt ./...
+fmt:
+	go fmt ./...
 
 .PHONY: vet
-vet: vet.client vet.controller vet.sidecar
-vet.%: FORCE
-	cd $* && go vet ./...
+vet:
+	go vet ./...
 
 .PHONY: docs
 docs: generate crd-ref-docs mdbook ## Build docs
