@@ -32,7 +32,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
@@ -394,86 +393,93 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("secret already exists with incompatible owner", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
-			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
-				panic("should not be called")
-			},
-		}
-
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := test.ClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		preExistingSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "readwrite-bucket-creds",
-				Namespace: baseAccess.Namespace,
-			},
-			StringData: map[string]string{
-				"PRE_EXISTING_DATA": "important_thing",
-			},
-		}
-		require.NoError(t,
-			ctrlutil.SetControllerReference(
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "secret-operator",
-						Namespace: baseAccess.Namespace,
-						UID:       "poiuyt",
-					},
+		testIncompatibleOwner := func(t *testing.T, owner *metav1.OwnerReference) {
+			fakeServer := test.FakeProvisionerServer{
+				GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
+					panic("should not be called")
 				},
+			}
+
+			cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+			defer cleanup()
+			require.NoError(t, err)
+			go serve()
+
+			conn, err := test.ClientConn(tmpSock)
+			require.NoError(t, err)
+			rpcClient := cosiproto.NewProvisionerClient(conn)
+
+			preExistingSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "readwrite-bucket-creds",
+					Namespace: baseAccess.Namespace,
+				},
+				StringData: map[string]string{
+					"PRE_EXISTING_DATA": "important_thing",
+				},
+			}
+			if owner != nil {
+				preExistingSecret.OwnerReferences = []metav1.OwnerReference{*owner}
+			}
+
+			c := newClient(
+				baseAccess.DeepCopy(),
+				baseReadWriteBucket.DeepCopy(),
+				baseReadOnlyBucket.DeepCopy(),
 				preExistingSecret,
-				scheme,
-				ctrlutil.WithBlockOwnerDeletion(true),
-			),
-		)
+			)
 
-		c := newClient(
-			baseAccess.DeepCopy(),
-			baseReadWriteBucket.DeepCopy(),
-			baseReadOnlyBucket.DeepCopy(),
-			preExistingSecret,
-		)
+			r := newReconciler(c, rpcClient)
+			nctx := logr.NewContext(ctx, nolog)
 
-		r := newReconciler(c, rpcClient)
-		nctx := logr.NewContext(ctx, nolog)
+			res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.Empty(t, res)
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
+			access := &cosiapi.BucketAccess{}
+			require.NoError(t, c.Get(ctx, accessNsName, access))
+			assert.Equal(t, access.Finalizers, access.Finalizers)
+			assert.Equal(t, access.Spec, access.Spec)
+			require.NotNil(t, access.Status.Error)
+			assert.NotNil(t, access.Status.Error.Time)
+			assert.NotNil(t, access.Status.Error.Message)
+			assert.Contains(t, *access.Status.Error.Message, "failed to reserve one or more Secrets")
+			{ // non-error fields stay the same
+				accessNoError := access.DeepCopy()
+				accessNoError.Status.Error = nil
+				assert.Equal(t, baseAccess.Status, accessNoError.Status)
+			}
 
-		access := &cosiapi.BucketAccess{}
-		require.NoError(t, c.Get(ctx, accessNsName, access))
-		assert.Equal(t, access.Finalizers, access.Finalizers)
-		assert.Equal(t, access.Spec, access.Spec)
-		require.NotNil(t, access.Status.Error)
-		assert.NotNil(t, access.Status.Error.Time)
-		assert.NotNil(t, access.Status.Error.Message)
-		assert.Contains(t, *access.Status.Error.Message, "failed to reserve one or more Secrets")
-		{ // non-error fields stay the same
-			accessNoError := access.DeepCopy()
-			accessNoError.Status.Error = nil
-			assert.Equal(t, baseAccess.Status, accessNoError.Status)
+			// pre-existing secret that was already owned hasn't been touched
+			rws := &corev1.Secret{}
+			require.NoError(t, c.Get(ctx, readWriteSecretNsName, rws))
+			assert.Equal(t, preExistingSecret, rws)
+
+			// other secret has been reserved successfully
+			ros := &corev1.Secret{}
+			require.NoError(t, c.Get(ctx, readOnlySecretNsName, ros))
+			assert.Contains(t, ros.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			require.Len(t, ros.OwnerReferences, 1)
+			assert.Equal(t, "zxcvbn", string(ros.OwnerReferences[0].UID))
+			assert.Len(t, ros.StringData, 0)
 		}
 
-		// pre-existing secret that was already owned hasn't been touched
-		rws := &corev1.Secret{}
-		require.NoError(t, c.Get(ctx, readWriteSecretNsName, rws))
-		assert.Equal(t, preExistingSecret, rws)
+		t.Run("no owners", func(t *testing.T) {
+			testIncompatibleOwner(t, nil)
+		})
 
-		// other secret has been reserved successfully
-		ros := &corev1.Secret{}
-		require.NoError(t, c.Get(ctx, readOnlySecretNsName, ros))
-		assert.Contains(t, ros.GetFinalizers(), cosiapi.ProtectionFinalizer)
-		require.Len(t, ros.OwnerReferences, 1)
-		assert.Equal(t, "zxcvbn", string(ros.OwnerReferences[0].UID))
-		assert.Len(t, ros.StringData, 0)
+		t.Run("different controller-owner", func(t *testing.T) {
+			o := &metav1.OwnerReference{
+				APIVersion:         "other.controller.io/v1",
+				Kind:               "gvk.Kind",
+				Name:               "other-owner",
+				UID:                "aaaaaa",
+				BlockOwnerDeletion: ptr.To(true),
+				Controller:         ptr.To(true),
+			}
+			testIncompatibleOwner(t, o)
+		})
 	})
 
 	t.Run("repeated secret name in spec.bucketClaims", func(t *testing.T) {

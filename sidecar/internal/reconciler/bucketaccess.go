@@ -590,7 +590,7 @@ func validateBucketIsReadyForAccess(b *cosiapi.Bucket) error {
 }
 
 // Before access is provisioned, reserve all spec.bucketClaims access Secrets by creating new ones
-// bound to the BucketAccess and/or binding existing Secrets.
+// controller-owned by the BucketAccess. Additionally, update existing Secret metadata as needed.
 func (r *BucketAccessReconciler) reserveAccessSecrets(
 	ctx context.Context, access *cosiapi.BucketAccess,
 ) (secretsByName map[string]*corev1.Secret, err error) {
@@ -602,7 +602,7 @@ func (r *BucketAccessReconciler) reserveAccessSecrets(
 
 		if _, ok := secretsByName[secretName]; ok {
 			errs = append(errs, cosierr.NonRetryableError(
-				fmt.Errorf("multiple referenced bucketClaims use the same accessSecretName %q", secretName)))
+				fmt.Errorf("multiple referenced BucketClaims use the same accessSecretName %q", secretName)))
 			continue
 		}
 
@@ -618,7 +618,7 @@ func (r *BucketAccessReconciler) reserveAccessSecrets(
 				continue
 			}
 
-			newSecret, err := r.createNewBoundAccessSecret(ctx, r.Client, secretName, access)
+			newSecret, err := r.createNewOwnedAccessSecret(ctx, r.Client, secretName, access)
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -628,8 +628,7 @@ func (r *BucketAccessReconciler) reserveAccessSecrets(
 			continue
 		}
 
-		err = r.bindExistingAccessSecret(ctx, r.Client, existingSecret, access)
-		if err != nil {
+		if err := r.updateExistingAccessSecretMetadata(ctx, existingSecret, access); err != nil {
 			errs = append(errs, err)
 			continue
 		}
@@ -650,7 +649,7 @@ func (r *BucketAccessReconciler) reserveAccessSecrets(
 }
 
 // Create a new BucketAccess access Secret without setting data fields.
-func (r *BucketAccessReconciler) createNewBoundAccessSecret(
+func (r *BucketAccessReconciler) createNewOwnedAccessSecret(
 	ctx context.Context, client client.Client,
 	secretName string, owningAccess *cosiapi.BucketAccess,
 ) (*corev1.Secret, error) {
@@ -661,10 +660,13 @@ func (r *BucketAccessReconciler) createNewBoundAccessSecret(
 		},
 	}
 
-	err := r.setAccessSecretRequiredFields(s, owningAccess)
+	// Controller reference identifies the Secret as being controlled exclusively by the BucketAccess
+	err := ctrlutil.SetControllerReference(owningAccess, s, r.Scheme, ctrlutil.WithBlockOwnerDeletion(true))
 	if err != nil {
 		return nil, err
 	}
+
+	setAccessSecretRequiredMetadata(s)
 
 	err = client.Create(ctx, s)
 	if err != nil {
@@ -674,45 +676,33 @@ func (r *BucketAccessReconciler) createNewBoundAccessSecret(
 	return s, nil
 }
 
-// Update an existing BucketAccess access Secret without setting data fields.
-func (r *BucketAccessReconciler) bindExistingAccessSecret(
-	ctx context.Context, client client.Client,
-	existingSecret *corev1.Secret, owningAccess *cosiapi.BucketAccess,
+// Update an existing BucketAccess access Secret metadata to ensure it matches latest expectations.
+// For example, add the protection finalizer if it is removed.
+func (r *BucketAccessReconciler) updateExistingAccessSecretMetadata(
+	ctx context.Context,
+	secret *corev1.Secret,
+	owningAccess *cosiapi.BucketAccess,
 ) error {
-	err := r.setAccessSecretRequiredFields(existingSecret, owningAccess)
-	if err != nil {
-		return err
+	if !metav1.IsControlledBy(secret, owningAccess) {
+		// Do not modify Secrets aren't controlled by this BucketAccess
+		return cosierr.NonRetryableError(
+			fmt.Errorf("existing access Secret %q does not belong to BucketAccess", secret.Name))
 	}
 
-	err = client.Update(ctx, existingSecret)
-	if err != nil {
+	setAccessSecretRequiredMetadata(secret)
+
+	if err := r.Update(ctx, secret); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// Set required fields on a BucketAccess's access Secret including (but not limited to) binding the
-// Secret to the owning BucketAccess. Do not set the Secret's data fields.
-func (r *BucketAccessReconciler) setAccessSecretRequiredFields(
-	secret *corev1.Secret, owningAccess *cosiapi.BucketAccess,
-) error {
+// Set required metadata on a BucketAccess's access Secret.
+// Importantly (but not exclusively), ensure the protection finalizer is present.
+func setAccessSecretRequiredMetadata(secret *corev1.Secret) {
 	ctrlutil.AddFinalizer(secret, cosiapi.ProtectionFinalizer)
-
-	// Access Secrets are bound to a single BucketAccess by setting the BA as a controller owner
-	// reference on the Secret. By definition, only one controller owner reference is allowed, and
-	// if there is another, it's not safe for COSI to write to the Secret.
-	// This should allow other non-controller owner references the user might apply.
-	err := ctrlutil.SetControllerReference(owningAccess, secret, r.Scheme, ctrlutil.WithBlockOwnerDeletion(true))
-	if err != nil {
-		t := &ctrlutil.AlreadyOwnedError{}
-		if errors.As(err, &t) {
-			return cosierr.NonRetryableError(err)
-		}
-	}
 
 	// TODO: Consider using Secret type to help hint about COSI usage and the object protocol type?
 	secret.Type = corev1.SecretTypeOpaque
-
-	return nil
 }
