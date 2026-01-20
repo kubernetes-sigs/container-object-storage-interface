@@ -35,7 +35,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	objectstoragev1alpha2 "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
-	reconciler "sigs.k8s.io/container-object-storage-interface/sidecar/internal/reconciler"
+	reconciler "sigs.k8s.io/container-object-storage-interface/sidecar/pkg/reconciler"
 )
 
 var (
@@ -138,14 +138,14 @@ func main() {
 		logger.Error(err, "driver connection error")
 		os.Exit(1)
 	}
-	logger.Info("successfully connected to driver", "name", driverInfo.GetName())
+	logger.Info("successfully connected to driver", "name", driverInfo.Name)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "cosi-sidecar-leader-" + driverInfo.GetName(),
+		LeaderElectionID:       "cosi-sidecar-leader-" + driverInfo.Name,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

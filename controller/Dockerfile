@@ -15,8 +15,7 @@ COPY go.sum go.sum
 COPY vendor/ vendor/
 
 COPY internal/ internal/
-COPY controller/cmd/ controller/cmd/
-COPY controller/internal/ controller/internal/
+COPY controller/ controller/
 
 WORKDIR /buildroot/controller
 

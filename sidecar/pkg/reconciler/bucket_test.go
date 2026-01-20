@@ -36,7 +36,6 @@ import (
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cositest "sigs.k8s.io/container-object-storage-interface/internal/test"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
-	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/test"
 )
 
 func TestBucketReconciler_Reconcile(t *testing.T) {
@@ -62,7 +61,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 	t.Run("dynamic provisioning, happy path", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
 		var requestError error
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
@@ -80,12 +79,12 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -101,9 +100,9 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  rpcClient,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  rpcClient,
 			},
 		}
 
@@ -215,7 +214,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, bucket missing", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
@@ -233,12 +232,12 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -249,9 +248,9 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  rpcClient,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  rpcClient,
 			},
 		}
 
@@ -265,7 +264,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, driver name mismatch", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
@@ -283,12 +282,12 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -301,9 +300,9 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  rpcClient,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  rpcClient,
 			},
 		}
 
@@ -325,7 +324,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, proto not supported", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
@@ -343,12 +342,12 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -361,9 +360,9 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  rpcClient,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  rpcClient,
 			},
 		}
 
@@ -391,7 +390,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, provisioned bucket supports wrong proto", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				seenReq = append(seenReq, dcbr)
 				ret := &cosiproto.DriverCreateBucketResponse{
@@ -404,12 +403,12 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -425,9 +424,9 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  rpcClient,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  rpcClient,
 			},
 		}
 
@@ -469,7 +468,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	t.Run("valid driver and bucket, successful provision", func(t *testing.T) {
 		requestParams := map[string]string{} // record the params sent in the request to verify later
 
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				requestParams = dcbr.Parameters
 				ret := &cosiproto.DriverCreateBucketResponse{
@@ -487,20 +486,20 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  client,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -533,7 +532,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver and bucket, retryable provision error", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				if len(dcbr.Parameters) != 0 {
 					t.Errorf("expecting request parameters to be empty")
@@ -542,20 +541,20 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  client,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -574,26 +573,26 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver and bucket, non-retryable provision error", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{}, status.Error(codes.InvalidArgument, "fake invalid arg err")
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  client,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -612,7 +611,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, claim ref malformed", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
@@ -628,20 +627,20 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  client,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -660,7 +659,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, bucket ID missing", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "", // MISSING
@@ -676,20 +675,20 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  client,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -708,7 +707,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, proto response nil", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId:  "bc-qwerty",
@@ -717,20 +716,20 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  client,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -749,7 +748,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, empty S3 proto response", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
@@ -760,20 +759,20 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  client,
+				Name:               "cosi.s3.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -796,7 +795,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, empty Azure proto response", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
@@ -807,20 +806,20 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_AZURE},
-				provisionerClient:  client,
+				Name:               "cosi.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_AZURE},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -843,7 +842,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, empty GCS proto response", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
@@ -854,20 +853,20 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name:               "cosi.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_GCS},
-				provisionerClient:  client,
+				Name:               "cosi.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_GCS},
+				ProvisionerClient:  client,
 			},
 		}
 
@@ -890,7 +889,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 	})
 
 	t.Run("valid driver, empty S3+Azure proto response", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
 					BucketId: "bc-qwerty",
@@ -902,23 +901,23 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		client := cosiproto.NewProvisionerClient(conn)
 
 		r := BucketReconciler{
 			DriverInfo: DriverInfo{
-				name: "cosi.corp.net",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{
+				Name: "cosi.corp.net",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{
 					cosiproto.ObjectProtocol_S3,
 					cosiproto.ObjectProtocol_AZURE,
 				},
-				provisionerClient: client,
+				ProvisionerClient: client,
 			},
 		}
 
@@ -1010,21 +1009,21 @@ func Test_objectProtocolListFromApiList(t *testing.T) {
 
 func Test_validateDriverSupportsProtocols(t *testing.T) {
 	driverSupportsS3 := DriverInfo{
-		name: "cosi.s3.mycorp.net",
-		supportedProtocols: []cosiproto.ObjectProtocol_Type{
+		Name: "cosi.s3.mycorp.net",
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{
 			cosiproto.ObjectProtocol_S3,
 		},
 	}
 	driverSupportsS3andAzure := DriverInfo{
-		name: "cosi.azure-s3-meta.mycorp.net",
-		supportedProtocols: []cosiproto.ObjectProtocol_Type{
+		Name: "cosi.azure-s3-meta.mycorp.net",
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{
 			cosiproto.ObjectProtocol_S3,
 			cosiproto.ObjectProtocol_AZURE,
 		},
 	}
 	driverSupportsNothing := DriverInfo{
-		name:               "cosi.nil.mycorp.net",
-		supportedProtocols: []cosiproto.ObjectProtocol_Type{},
+		Name:               "cosi.nil.mycorp.net",
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{},
 	}
 
 	tests := []struct {

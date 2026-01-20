@@ -35,7 +35,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	objectstoragev1alpha2 "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
-	reconciler "sigs.k8s.io/container-object-storage-interface/controller/internal/reconciler"
+	reconciler "sigs.k8s.io/container-object-storage-interface/controller/pkg/reconciler"
 )
 
 var (

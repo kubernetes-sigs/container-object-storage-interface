@@ -33,20 +33,15 @@ import (
 
 // DriverInfo contains critical info about the paired driver that is needed by all reconcilers
 type DriverInfo struct {
-	name               string
-	supportedProtocols []cosiproto.ObjectProtocol_Type
+	Name               string
+	SupportedProtocols []cosiproto.ObjectProtocol_Type
 
-	provisionerClient cosiproto.ProvisionerClient
-}
-
-// GetName returns the name of the driver
-func (d *DriverInfo) GetName() string {
-	return d.name
+	ProvisionerClient cosiproto.ProvisionerClient
 }
 
 // SupportsProtocol returns true if the driver supports the given protocol.
 func (d *DriverInfo) SupportsProtocol(p cosiproto.ObjectProtocol_Type) bool {
-	for _, sp := range d.supportedProtocols {
+	for _, sp := range d.SupportedProtocols {
 		if sp == p {
 			return true
 		}
@@ -71,10 +66,10 @@ func ValidateAndSetDriverConnectionInfo(
 	}
 
 	di := &DriverInfo{
-		name:               driverReportedInfo.Name,
-		supportedProtocols: parsedProtocols,
+		Name:               driverReportedInfo.Name,
+		SupportedProtocols: parsedProtocols,
 
-		provisionerClient: cosiproto.NewProvisionerClient(conn),
+		ProvisionerClient: cosiproto.NewProvisionerClient(conn),
 	}
 	return di, nil
 }

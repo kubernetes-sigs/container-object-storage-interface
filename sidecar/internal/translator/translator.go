@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package reconciler
+package translator
 
 import (
 	"errors"
@@ -26,8 +26,8 @@ import (
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 )
 
-// validationConfig controls behavior of validation logic when translating bucket/credential info.
-type validationConfig struct {
+// ValidationConfig controls behavior of validation logic when translating bucket/credential info.
+type ValidationConfig struct {
 	// ExpectedProtocol the singular object protocol response that is expected.
 	// Any responses for other protocols other will result in a validation error.
 	ExpectedProtocol cosiapi.ObjectProtocol
@@ -38,9 +38,9 @@ type validationConfig struct {
 
 // TranslateBucketInfo translates all bucket info for all protocols from an RPC response.
 // If validation is configured (non-nil), only the expected protocol is allowed to have bucket info.
-func TranslateBucketInfoToApi(
+func BucketInfoToApi(
 	bi *cosiproto.ObjectProtocolAndBucketInfo,
-	validation *validationConfig,
+	validation *ValidationConfig,
 ) (
 	returnedProtos []cosiapi.ObjectProtocol,
 	allProtoBucketInfo map[string]string,
@@ -61,7 +61,7 @@ func TranslateBucketInfoToApi(
 	if err != nil {
 		errs = append(errs, fmt.Errorf("errors translating %s bucket info: %w", cosiapi.ObjectProtocolS3, err))
 	} else {
-		mergeApiInfoIntoStringMap(info, allProtoBucketInfo)
+		MergeApiInfoIntoStringMap(info, allProtoBucketInfo)
 	}
 
 	if bi.Azure != nil {
@@ -71,7 +71,7 @@ func TranslateBucketInfoToApi(
 	if err != nil {
 		errs = append(errs, fmt.Errorf("errors translating %s bucket info: %w", cosiapi.ObjectProtocolAzure, err))
 	} else {
-		mergeApiInfoIntoStringMap(info, allProtoBucketInfo)
+		MergeApiInfoIntoStringMap(info, allProtoBucketInfo)
 	}
 
 	if bi.Gcs != nil {
@@ -81,7 +81,7 @@ func TranslateBucketInfoToApi(
 	if err != nil {
 		errs = append(errs, fmt.Errorf("errors translating %s bucket info: %w", cosiapi.ObjectProtocolGcs, err))
 	} else {
-		mergeApiInfoIntoStringMap(info, allProtoBucketInfo)
+		MergeApiInfoIntoStringMap(info, allProtoBucketInfo)
 	}
 
 	if len(errs) > 0 {
@@ -92,9 +92,9 @@ func TranslateBucketInfoToApi(
 
 // TranslateCredentials translates all credential info for all protocols from an RPC response.
 // Validation must be configured, and only the expected protocol is allowed to have credentials.
-func TranslateCredentialsToApi(
+func CredentialsToApi(
 	ci *cosiproto.CredentialInfo,
-	validation validationConfig, // no pointer, validation required
+	validation ValidationConfig, // no pointer, validation required
 ) (
 	allProtoCredentials map[string]string,
 	err error,
@@ -110,21 +110,21 @@ func TranslateCredentialsToApi(
 	if err != nil {
 		errs = append(errs, fmt.Errorf("errors translating S3 bucket credentials: %w", err))
 	} else {
-		mergeApiInfoIntoStringMap(info, allProtoCredentials)
+		MergeApiInfoIntoStringMap(info, allProtoCredentials)
 	}
 
 	info, err = translate(protocol.AzureCredentialTranslator{}, ci.Azure, &validation)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("errors translating Azure bucket credentials: %w", err))
 	} else {
-		mergeApiInfoIntoStringMap(info, allProtoCredentials)
+		MergeApiInfoIntoStringMap(info, allProtoCredentials)
 	}
 
 	info, err = translate(protocol.GcsCredentialTranslator{}, ci.Gcs, &validation)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("errors translating GCS bucket credentials: %w", err))
 	} else {
-		mergeApiInfoIntoStringMap(info, allProtoCredentials)
+		MergeApiInfoIntoStringMap(info, allProtoCredentials)
 	}
 
 	if len(errs) > 0 {
@@ -136,7 +136,7 @@ func TranslateCredentialsToApi(
 func translate[RpcType any, ApiType comparable, T protocol.RpcApiTranslator[RpcType, ApiType]](
 	translator T,
 	rpcInfo RpcType,
-	validation *validationConfig,
+	validation *ValidationConfig,
 ) (
 	map[ApiType]string,
 	error,
@@ -178,19 +178,8 @@ func translate[RpcType any, ApiType comparable, T protocol.RpcApiTranslator[RpcT
 	return out, nil
 }
 
-func mergeApiInfoIntoStringMap[T cosiapi.BucketInfoVar | cosiapi.CredentialVar | string](
-	varKey map[T]string, target map[string]string,
-) {
-	if target == nil {
-		target = map[string]string{}
-	}
-	for k, v := range varKey {
-		target[string(k)] = v
-	}
-}
-
 // Translate COSI API authentication type to RPC authentication type.
-func authenticationTypeToRpc(a cosiapi.BucketAccessAuthenticationType) (cosiproto.AuthenticationType_Type, error) {
+func AuthenticationTypeToRpc(a cosiapi.BucketAccessAuthenticationType) (cosiproto.AuthenticationType_Type, error) {
 	switch a {
 	case cosiapi.BucketAccessAuthenticationTypeKey:
 		return cosiproto.AuthenticationType_KEY, nil
@@ -202,7 +191,7 @@ func authenticationTypeToRpc(a cosiapi.BucketAccessAuthenticationType) (cosiprot
 }
 
 // Translate COSI API access mode to RPC access mode.
-func accessModeToRpc(m cosiapi.BucketAccessMode) (cosiproto.AccessMode_Mode, error) {
+func AccessModeToRpc(m cosiapi.BucketAccessMode) (cosiproto.AccessMode_Mode, error) {
 	switch m {
 	case cosiapi.BucketAccessModeReadOnly:
 		return cosiproto.AccessMode_READ_ONLY, nil
@@ -212,5 +201,16 @@ func accessModeToRpc(m cosiapi.BucketAccessMode) (cosiproto.AccessMode_Mode, err
 		return cosiproto.AccessMode_WRITE_ONLY, nil
 	default:
 		return cosiproto.AccessMode_UNKNOWN, fmt.Errorf("unknown access mode %q", string(m))
+	}
+}
+
+func MergeApiInfoIntoStringMap[T cosiapi.BucketInfoVar | cosiapi.CredentialVar | string](
+	varKey map[T]string, target map[string]string,
+) {
+	if target == nil {
+		target = map[string]string{}
+	}
+	for k, v := range varKey {
+		target[string(k)] = v
 	}
 }

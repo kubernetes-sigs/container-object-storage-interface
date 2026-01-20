@@ -15,8 +15,7 @@ COPY go.sum go.sum
 COPY vendor/ vendor/
 
 COPY internal/ internal/
-COPY sidecar/cmd/ sidecar/cmd/
-COPY sidecar/internal/ sidecar/internal/
+COPY sidecar/ sidecar/
 
 WORKDIR /buildroot/sidecar
 
