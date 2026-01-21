@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
@@ -76,7 +75,9 @@ func TestBucketAccessReconcile(t *testing.T) {
 				"maxSize": "100Gi",
 				"maxIops": "10",
 			},
-			FeatureOptions: cosiapi.BucketAccessFeatureOptions{}, // base: no options
+			// by default, test the more complex multi-bucket cases
+			MultiBucketAccess: cosiapi.MultiBucketAccessMultipleBuckets,
+			// DisallowedBucketAccessModes: unset
 		},
 	}
 
@@ -475,7 +476,7 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, bucketaccessclass disallows multi-bucket access", func(t *testing.T) {
 		class := baseClass.DeepCopy()
-		class.Spec.FeatureOptions.DisallowMultiBucketAccess = ptr.To(true)
+		class.Spec.MultiBucketAccess = cosiapi.MultiBucketAccessSingleBucket
 
 		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
@@ -532,7 +533,7 @@ func TestBucketAccessReconcile(t *testing.T) {
 		}
 
 		class := baseClass.DeepCopy()
-		class.Spec.FeatureOptions.DisallowMultiBucketAccess = ptr.To(true)
+		class.Spec.MultiBucketAccess = cosiapi.MultiBucketAccessSingleBucket
 
 		bootstrapped := cositest.MustBootstrap(t,
 			access,
@@ -595,7 +596,7 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 	t.Run("dynamic provisioning, bucketaccessclass disallows write modes", func(t *testing.T) {
 		class := baseClass.DeepCopy()
-		class.Spec.FeatureOptions.DisallowedBucketAccessModes = []cosiapi.BucketAccessMode{
+		class.Spec.DisallowedBucketAccessModes = []cosiapi.BucketAccessMode{
 			cosiapi.BucketAccessModeReadWrite,
 			cosiapi.BucketAccessModeWriteOnly,
 		}
@@ -717,7 +718,7 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 		{"key auth, disallow nothing",
 			&cosiapi.BucketAccessClassSpec{
 				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
-				FeatureOptions:     cosiapi.BucketAccessFeatureOptions{},
+				MultiBucketAccess:  cosiapi.MultiBucketAccessMultipleBuckets,
 			},
 			&cosiapi.BucketAccessSpec{
 				BucketClaims: []cosiapi.BucketClaimAccess{
@@ -736,12 +737,31 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 			},
 			false,
 		},
+		{"key auth, default disallow multi-bucket",
+			&cosiapi.BucketAccessClassSpec{
+				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
+			},
+			&cosiapi.BucketAccessSpec{
+				BucketClaims: []cosiapi.BucketClaimAccess{
+					{
+						BucketClaimName:  "rw",
+						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessSecretName: "rw",
+					},
+					{
+						BucketClaimName:  "ro",
+						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessSecretName: "ro",
+					},
+				},
+				ServiceAccountName: "",
+			},
+			true,
+		},
 		{"key auth, disallow multi-bucket",
 			&cosiapi.BucketAccessClassSpec{
 				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
-				FeatureOptions: cosiapi.BucketAccessFeatureOptions{
-					DisallowMultiBucketAccess: ptr.To(true),
-				},
+				MultiBucketAccess:  cosiapi.MultiBucketAccessSingleBucket,
 			},
 			&cosiapi.BucketAccessSpec{
 				BucketClaims: []cosiapi.BucketClaimAccess{
@@ -763,11 +783,10 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 		{"key auth, disallow write modes",
 			&cosiapi.BucketAccessClassSpec{
 				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
-				FeatureOptions: cosiapi.BucketAccessFeatureOptions{
-					DisallowedBucketAccessModes: []cosiapi.BucketAccessMode{
-						cosiapi.BucketAccessModeReadWrite,
-						cosiapi.BucketAccessModeWriteOnly,
-					},
+				MultiBucketAccess:  cosiapi.MultiBucketAccessMultipleBuckets,
+				DisallowedBucketAccessModes: []cosiapi.BucketAccessMode{
+					cosiapi.BucketAccessModeReadWrite,
+					cosiapi.BucketAccessModeWriteOnly,
 				},
 			},
 			&cosiapi.BucketAccessSpec{
@@ -790,6 +809,7 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 		{"serviceaccount auth, sa given",
 			&cosiapi.BucketAccessClassSpec{
 				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeServiceAccount,
+				MultiBucketAccess:  cosiapi.MultiBucketAccessMultipleBuckets,
 			},
 			&cosiapi.BucketAccessSpec{
 				BucketClaims: []cosiapi.BucketClaimAccess{
@@ -811,6 +831,7 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 		{"serviceaccount auth, no sa",
 			&cosiapi.BucketAccessClassSpec{
 				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeServiceAccount,
+				MultiBucketAccess:  cosiapi.MultiBucketAccessMultipleBuckets,
 			},
 			&cosiapi.BucketAccessSpec{
 				BucketClaims: []cosiapi.BucketClaimAccess{
@@ -829,12 +850,31 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 			},
 			true,
 		},
+		{"serviceaccount auth, default disallow multi-bucket",
+			&cosiapi.BucketAccessClassSpec{
+				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeServiceAccount,
+			},
+			&cosiapi.BucketAccessSpec{
+				BucketClaims: []cosiapi.BucketClaimAccess{
+					{
+						BucketClaimName:  "rw",
+						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessSecretName: "rw",
+					},
+					{
+						BucketClaimName:  "ro",
+						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessSecretName: "ro",
+					},
+				},
+				ServiceAccountName: "my-sa",
+			},
+			true,
+		},
 		{"serviceaccount auth, disallow multi-bucket",
 			&cosiapi.BucketAccessClassSpec{
 				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeServiceAccount,
-				FeatureOptions: cosiapi.BucketAccessFeatureOptions{
-					DisallowMultiBucketAccess: ptr.To(true),
-				},
+				MultiBucketAccess:  cosiapi.MultiBucketAccessSingleBucket,
 			},
 			&cosiapi.BucketAccessSpec{
 				BucketClaims: []cosiapi.BucketClaimAccess{

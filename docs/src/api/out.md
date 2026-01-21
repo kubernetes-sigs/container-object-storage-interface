@@ -156,25 +156,8 @@ _Appears in:_
 | `driverName` _string_ | driverName is the name of the driver that fulfills requests for this BucketAccessClass.<br />See driver documentation to determine the correct value to set.<br />Must be 63 characters or less, beginning and ending with an alphanumeric character<br />([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between. |  | MaxLength: 63 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9]([a-zA-Z0-9\-\.]\{0,61\}[a-zA-Z0-9])?$` <br /> |
 | `authenticationType` _[BucketAccessAuthenticationType](#bucketaccessauthenticationtype)_ | authenticationType specifies which authentication mechanism is used bucket access.<br />See driver documentation to determine which values are supported.<br />Possible values:<br /> - Key: The driver should generate a protocol-appropriate access key that clients can use to<br />   authenticate to the backend object store.<br /> - ServiceAccount: The driver should configure the system such that Pods using the given<br />   ServiceAccount authenticate to the backend object store automatically. |  | Enum: [Key ServiceAccount] <br /> |
 | `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this BucketAccessClass.<br />See driver documentation to determine supported parameters and their effects.<br />A maximum of 512 parameters are allowed. |  | MaxProperties: 512 <br />MinProperties: 1 <br /> |
-| `featureOptions` _[BucketAccessFeatureOptions](#bucketaccessfeatureoptions)_ | featureOptions can be used to adjust various COSI access provisioning behaviors.<br />If specified, at least one option must be set. |  | MinProperties: 1 <br /> |
-
-
-#### BucketAccessFeatureOptions
-
-
-
-BucketAccessFeatureOptions defines various COSI access provisioning behaviors.
-
-_Validation:_
-- MinProperties: 1
-
-_Appears in:_
-- [BucketAccessClassSpec](#bucketaccessclassspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
 | `disallowedBucketAccessModes` _[BucketAccessMode](#bucketaccessmode) array_ | disallowedBucketAccessModes is a list of disallowed Read/Write access modes. A BucketAccess<br />using this class will not be allowed to request access to a BucketClaim with any access mode<br />listed here.<br />This is particularly useful for administrators to restrict access to a statically-provisioned<br />bucket that is managed outside the BucketAccess Namespace or Kubernetes cluster.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
-| `disallowMultiBucketAccess` _boolean_ | disallowMultiBucketAccess disables the ability for a BucketAccess to reference multiple<br />BucketClaims when set. |  |  |
+| `multiBucketAccess` _[MultiBucketAccess](#multibucketaccess)_ | multiBucketAccess specifies whether a BucketAccess using this class can reference multiple<br />BucketClaims. When omitted, this means no opinion, and COSI will choose a reasonable default,<br />which is subject to change over time.<br />Possible values:<br /> - SingleBucket: (default) A BucketAccess may reference only a single BucketClaim.<br /> - MultipleBuckets: A BucketAccess may reference multiple (1 or more) BucketClaims. |  | Enum: [SingleBucket MultipleBuckets] <br /> |
 
 
 #### BucketAccessList
@@ -207,7 +190,7 @@ _Validation:_
 - Enum: [ReadWrite ReadOnly WriteOnly]
 
 _Appears in:_
-- [BucketAccessFeatureOptions](#bucketaccessfeatureoptions)
+- [BucketAccessClassSpec](#bucketaccessclassspec)
 - [BucketClaimAccess](#bucketclaimaccess)
 
 | Field | Description |
@@ -541,6 +524,24 @@ _Appears in:_
 
 
 
+
+
+#### MultiBucketAccess
+
+_Underlying type:_ _string_
+
+MultiBucketAccess specifies whether a BucketAccess can reference multiple BucketClaims.
+
+_Validation:_
+- Enum: [SingleBucket MultipleBuckets]
+
+_Appears in:_
+- [BucketAccessClassSpec](#bucketaccessclassspec)
+
+| Field | Description |
+| --- | --- |
+| `SingleBucket` | MultiBucketAccessSingleBucket indicates that a BucketAccess can reference only a single<br />BucketClaim.<br /> |
+| `MultipleBuckets` | MultiBucketAccessMultipleBuckets indicates that a BucketAccess can reference multiple<br />(1 or more) BucketClaims.<br /> |
 
 
 #### ObjectProtocol
