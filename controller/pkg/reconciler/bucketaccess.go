@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
-	objectstoragev1alpha2 "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
@@ -106,7 +105,7 @@ func (r *BucketAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // SetupWithManager sets up the controller with the Manager.
 func (r *BucketAccessReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&objectstoragev1alpha2.BucketAccess{}).
+		For(&cosiapi.BucketAccess{}).
 		Named("bucketaccess").
 		WithEventFilter(
 			ctrlpredicate.And(
@@ -209,7 +208,8 @@ func (r *BucketAccessReconciler) reconcile(
 	blockers := cannotAccessBucketClaims(claimsByName, access.Spec)
 	if len(blockers) > 0 {
 		logger.Error(nil, "access cannot be provisioned for one or more BucketClaims", "blockers", blockers)
-		return cosierr.NonRetryableError(fmt.Errorf("access cannot be provisioned for one or more BucketClaims: %v", blockers))
+		return cosierr.NonRetryableError(
+			fmt.Errorf("access cannot be provisioned for one or more BucketClaims: %v", blockers))
 	}
 
 	waitlist := waitingOnBucketClaims(claimsByName)
@@ -320,7 +320,8 @@ func markAllBucketClaimsAsAccessed(
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("failed to mark one or more BucketClaims as having a BucketAccess reference: %w", errors.Join(errs...))
+		return fmt.Errorf("failed to mark one or more BucketClaims as having a BucketAccess reference: %w",
+			errors.Join(errs...))
 	}
 
 	return nil

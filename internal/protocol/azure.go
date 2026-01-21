@@ -113,7 +113,7 @@ func (AzureCredentialTranslator) ApiToRpc(vars map[cosiapi.CredentialVar]string)
 func (AzureCredentialTranslator) Validate(
 	vars map[cosiapi.CredentialVar]string, authType cosiapi.BucketAccessAuthenticationType,
 ) error {
-	//credentials are only required when authentication type is "Key"
+	// credentials are only required when authentication type is "Key"
 	if authType != cosiapi.BucketAccessAuthenticationTypeKey {
 		return nil
 	}
