@@ -17,22 +17,19 @@ limitations under the License.
 package reconciler
 
 import (
-	"context"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
+	cositest "sigs.k8s.io/container-object-storage-interface/internal/test"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -133,39 +130,25 @@ func TestBucketAccessReconcile(t *testing.T) {
 		Name:      baseReadOnlyClaim.Name,
 	}
 
-	ctx := context.Background()
-	nolog := logr.Discard()
-	scheme := runtime.NewScheme()
-	err := cosiapi.AddToScheme(scheme)
-	require.NoError(t, err)
-
-	newClient := func(withObj ...client.Object) client.Client {
-		return fake.NewClientBuilder().
-			WithScheme(scheme).
-			WithObjects(withObj...).
-			WithStatusSubresource(withObj...). // assume all starting objects have status
-			Build()
-	}
-
 	t.Run("dynamic provisioning, happy path", func(t *testing.T) {
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
 			baseClass.DeepCopy(),
 			baseReadWriteClaim.DeepCopy(),
 			baseReadOnlyClaim.DeepCopy(),
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -201,58 +184,58 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.True(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.Contains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		t.Log("run Reconcile() a second time to ensure nothing is modified")
 
 		// using the same client and stuff from before
-		res, err = r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		secondAccess := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, secondAccess)
+		err = r.Get(ctx, accessNsName, secondAccess)
 		require.NoError(t, err)
 		assert.Equal(t, access, secondAccess)
 
 		crw2 := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw2)
+		err = r.Get(ctx, readWriteClaimNsName, crw2)
 		require.NoError(t, err)
 		assert.Equal(t, crw, crw2)
 
 		cro2 := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro2)
+		err = r.Get(ctx, readOnlyClaimNsName, cro2)
 		require.NoError(t, err)
 		assert.Equal(t, cro, cro2)
 	})
 
 	t.Run("dynamic provisioning, a bucketclaim doesn't exist", func(t *testing.T) {
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
 			baseClass.DeepCopy(),
 			baseReadWriteClaim.DeepCopy(),
 			// readonly-bucket claim doesn't exist
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -273,7 +256,7 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})
@@ -282,25 +265,25 @@ func TestBucketAccessReconcile(t *testing.T) {
 		rwc := baseReadWriteClaim.DeepCopy()
 		rwc.Status = cosiapi.BucketClaimStatus{}
 
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
 			baseClass.DeepCopy(),
 			rwc,
 			baseReadOnlyClaim.DeepCopy(),
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -321,12 +304,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.Contains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})
@@ -338,25 +321,25 @@ func TestBucketAccessReconcile(t *testing.T) {
 		roc := baseReadOnlyClaim.DeepCopy()
 		roc.DeletionTimestamp = &meta.Time{Time: time.Now()}
 
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
 			baseClass.DeepCopy(),
 			rwc,
 			roc,
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -377,13 +360,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		// being deleted, but still needs to be marked
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.Contains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})
@@ -392,25 +375,25 @@ func TestBucketAccessReconcile(t *testing.T) {
 		roc := baseReadOnlyClaim.DeepCopy()
 		roc.Status.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}
 
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
 			baseClass.DeepCopy(),
 			baseReadWriteClaim.DeepCopy(),
 			roc,
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -430,37 +413,37 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		// being deleted, but still needs to be marked
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.Contains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})
 
 	t.Run("dynamic provisioning, bucketaccessclass doesn't exist", func(t *testing.T) {
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
 			// class doesn't exist
 			baseReadWriteClaim.DeepCopy(),
 			baseReadOnlyClaim.DeepCopy(),
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -480,12 +463,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.Contains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})
@@ -494,25 +477,25 @@ func TestBucketAccessReconcile(t *testing.T) {
 		class := baseClass.DeepCopy()
 		class.Spec.FeatureOptions.DisallowMultiBucketAccess = ptr.To(true)
 
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
 			class,
 			baseReadWriteClaim.DeepCopy(),
 			baseReadOnlyClaim.DeepCopy(),
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -532,12 +515,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.Contains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})
@@ -551,24 +534,24 @@ func TestBucketAccessReconcile(t *testing.T) {
 		class := baseClass.DeepCopy()
 		class.Spec.FeatureOptions.DisallowMultiBucketAccess = ptr.To(true)
 
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			access,
 			class,
 			baseReadWriteClaim.DeepCopy(),
 			baseReadOnlyClaim.DeepCopy(),
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		access = &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -600,12 +583,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.True(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.NotContains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation) // not referenced
 	})
@@ -617,25 +600,25 @@ func TestBucketAccessReconcile(t *testing.T) {
 			cosiapi.BucketAccessModeWriteOnly,
 		}
 
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
 			class,
 			baseReadWriteClaim.DeepCopy(),
 			baseReadOnlyClaim.DeepCopy(),
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -656,12 +639,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.Contains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.Contains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})
@@ -674,25 +657,25 @@ func TestBucketAccessReconcile(t *testing.T) {
 			baseAccess.DeepCopy().Spec.BucketClaims[0],
 		}
 
-		c := newClient(
+		bootstrapped := cositest.MustBootstrap(t,
 			access,
 			baseClass.DeepCopy(),
 			baseReadWriteClaim.DeepCopy(),
 			baseReadOnlyClaim.DeepCopy(),
 		)
 		r := BucketAccessReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 		}
-		nctx := logr.NewContext(ctx, nolog)
+		ctx := bootstrapped.ContextWithLogger
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access = &cosiapi.BucketAccess{}
-		err = c.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, accessNsName, access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -712,12 +695,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.False(t, initialized)
 
 		crw := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readWriteClaimNsName, crw)
+		err = r.Get(ctx, readWriteClaimNsName, crw)
 		require.NoError(t, err)
 		assert.NotContains(t, crw.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 
 		cro := &cosiapi.BucketClaim{}
-		err = c.Get(ctx, readOnlyClaimNsName, cro)
+		err = r.Get(ctx, readOnlyClaimNsName, cro)
 		require.NoError(t, err)
 		assert.NotContains(t, cro.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})

@@ -28,15 +28,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
+	cositest "sigs.k8s.io/container-object-storage-interface/internal/test"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/test"
 )
@@ -61,21 +59,6 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 	bucketNsName := types.NamespacedName{Name: "bc-qwerty"}
 
-	ctx := context.Background()
-	// ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
-	// nolog := ctrl.Log.WithName("test-bucket-reconcile")
-	nolog := logr.Discard()
-	scheme := runtime.NewScheme()
-	err := cosiapi.AddToScheme(scheme)
-	require.NoError(t, err)
-
-	newClient := func(withObj ...client.Object) client.Client {
-		return fake.NewClientBuilder().
-			WithScheme(scheme).
-			WithObjects(withObj...).
-			WithStatusSubresource(withObj...). // assume all starting objects have status
-			Build()
-	}
 	t.Run("dynamic provisioning, happy path", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverCreateBucketRequest{}
 		var requestError error
@@ -111,20 +94,20 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 		b.Spec.Parameters = map[string]string{
 			"maxSize": "10Gi",
 		}
-		c := newClient(b)
+		bootstrapped := cositest.MustBootstrap(t, b)
+		ctx := bootstrapped.ContextWithLogger
 
 		r := BucketReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
 				name:               "cosi.s3.corp.net",
 				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
 				provisionerClient:  rpcClient,
 			},
 		}
-		nctx := logr.NewContext(ctx, nolog)
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -162,7 +145,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 		t.Log("run Reconcile() a second time to ensure nothing is modified")
 
 		seenReq = []*cosiproto.DriverCreateBucketRequest{} // empty the seen rpc requests
-		res, err = r.Reconcile(nctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -183,7 +166,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 		seenReq = []*cosiproto.DriverCreateBucketRequest{} // empty the seen rpc requests
 		requestError = fmt.Errorf("fake rpc error")
-		res, err = r.Reconcile(nctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
@@ -212,7 +195,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 		seenReq = []*cosiproto.DriverCreateBucketRequest{} // empty the seen rpc requests
 		requestError = nil
-		res, err = r.Reconcile(nctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -259,20 +242,20 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
-		c := newClient()
+		bootstrapped := cositest.MustBootstrap(t) // no bucket
+		ctx := bootstrapped.ContextWithLogger
 
 		r := BucketReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
 				name:               "cosi.s3.corp.net",
 				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
 				provisionerClient:  rpcClient,
 			},
 		}
-		nctx := logr.NewContext(ctx, nolog)
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -311,20 +294,20 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 		b := baseBucket.DeepCopy()
 		b.Spec.DriverName = "cosi.NOMATCH.corp.net"
-		c := newClient(b)
+		bootstrapped := cositest.MustBootstrap(t, b)
+		ctx := bootstrapped.ContextWithLogger
 
 		r := BucketReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
 				name:               "cosi.s3.corp.net",
 				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
 				provisionerClient:  rpcClient,
 			},
 		}
-		nctx := logr.NewContext(ctx, nolog)
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -371,20 +354,20 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 		b := baseBucket.DeepCopy()
 		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}
-		c := newClient(b)
+		bootstrapped := cositest.MustBootstrap(t, b)
+		ctx := bootstrapped.ContextWithLogger
 
 		r := BucketReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
 				name:               "cosi.s3.corp.net",
 				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
 				provisionerClient:  rpcClient,
 			},
 		}
-		nctx := logr.NewContext(ctx, nolog)
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
@@ -435,20 +418,20 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 		b.Spec.Parameters = map[string]string{
 			"maxSize": "10Gi",
 		}
-		c := newClient(b)
+		bootstrapped := cositest.MustBootstrap(t, b)
+		ctx := bootstrapped.ContextWithLogger
 
 		r := BucketReconciler{
-			Client: c,
-			Scheme: scheme,
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
 			DriverInfo: DriverInfo{
 				name:               "cosi.s3.corp.net",
 				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
 				provisionerClient:  rpcClient,
 			},
 		}
-		nctx := logr.NewContext(ctx, nolog)
 
-		res, err := r.Reconcile(nctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
