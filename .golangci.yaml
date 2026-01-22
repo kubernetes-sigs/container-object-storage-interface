@@ -33,16 +33,11 @@ linters:
   exclusions:
     generated: lax
     rules:
-      - linters:
-          - lll
-        path: apis/*
-      - linters:
-          - dupl
-          - lll
-        path: internal/*
-      - linters:
-          - goconst
-        path: _test.go
+      - path: _test.go
+        linters:
+          - goconst # tests often avoid constants for readability
+          - dupl # duplication is usually intended in tests
+          - lll # long lines usually acceptable in tests
 
 formatters:
   enable:

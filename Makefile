@@ -56,9 +56,9 @@ export
 all: prebuild build ## Build all container images, plus their prerequisites (faster with 'make -j')
 
 .PHONY: lint
-lint: golangci-lint.client golangci-lint.controller golangci-lint.sidecar kubeapi-lint spell-lint dockerfiles-lint ## Run all linters (suggest `make -k`)
-golangci-lint.%: golangci-lint
-	cd $* && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml --new
+lint: golangci-lint kubeapi-lint spell-lint dockerfiles-lint ## Run all linters (suggest `make -k`)
+golangci-lint: golangci-lint
+	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml
 kubeapi-lint: kube-api-linter
 	cd client/apis && $(KUBEAPI_LINT) run --config $(CURDIR)/client/.kubeapilint.yaml
 spell-lint:
@@ -67,9 +67,9 @@ dockerfiles-lint:
 	hack/tools/lint-dockerfiles.sh $(HADOLINT_VERSION)
 
 .PHONY: lint-fix
-lint-fix: golangci-lint-fix.client golangci-lint-fix.controller golangci-lint-fix.sidecar ## Run all linters and perform fixes where possible (suggest `make -k`)
-golangci-lint-fix.%: golangci-lint
-	cd $* && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml --new --fix
+lint-fix: golangci-lint-fix ## Run all linters and perform fixes where possible (suggest `make -k`)
+golangci-lint-fix: golangci-lint
+	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml --fix
 
 .PHONY: test
 test: .test.proto vet .test.go ## Run all unit tests including vet and fmt
