@@ -37,7 +37,7 @@ import (
 // startServerFunc() starts the bootstrapped server. It should usually run in a goroutine.
 //
 // tmpSockUri is the temporary unix socket URI (unix://<path>/cosi.sock) needed by clients.
-func Server(fakeIdentity cosiproto.IdentityServer, fakeProvisioner cosiproto.ProvisionerServer) (
+func RpcServer(fakeIdentity cosiproto.IdentityServer, fakeProvisioner cosiproto.ProvisionerServer) (
 	cleanupFunc func(),
 	startServerFunc func(),
 	tmpSockUri string,
@@ -85,8 +85,8 @@ func Server(fakeIdentity cosiproto.IdentityServer, fakeProvisioner cosiproto.Pro
 	return cleanupFunc, startServerFunc, tmpSockUri, nil
 }
 
-// ClientConn creates a simple RPC client connection for unit testing.
-func ClientConn(tmpSockUri string) (*grpc.ClientConn, error) {
+// RpcClientConn creates a simple RPC client connection for unit testing.
+func RpcClientConn(tmpSockUri string) (*grpc.ClientConn, error) {
 	return grpc.NewClient(tmpSockUri,
 		// nothing fancy for unit tests
 		grpc.WithTransportCredentials(insecure.NewCredentials()),

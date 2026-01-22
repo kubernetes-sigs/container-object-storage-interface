@@ -39,6 +39,7 @@ import (
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 	"sigs.k8s.io/container-object-storage-interface/internal/protocol"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
+	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/translator"
 )
 
 // BucketReconciler reconciles a Bucket object
@@ -55,7 +56,7 @@ type BucketReconciler struct {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := ctrl.LoggerFrom(ctx, "driverName", r.DriverInfo.name)
+	logger := ctrl.LoggerFrom(ctx, "driverName", r.DriverInfo.Name)
 
 	bucket := &cosiapi.Bucket{}
 	if err := r.Get(ctx, req.NamespacedName, bucket); err != nil {
@@ -110,7 +111,7 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&cosiapi.Bucket{}).
 		WithEventFilter(
 			ctrlpredicate.And(
-				driverNameMatchesPredicate(r.DriverInfo.name), // only opt in to reconciles with matching driver name
+				driverNameMatchesPredicate(r.DriverInfo.Name), // only opt in to reconciles with matching driver name
 				ctrlpredicate.Or(
 					// this is the primary bucket controller and should reconcile ALL Create/Delete/Generic events
 					cosipredicate.AnyCreate(),
@@ -127,7 +128,7 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket) error {
-	if bucket.Spec.DriverName != r.DriverInfo.name {
+	if bucket.Spec.DriverName != r.DriverInfo.Name {
 		// keep this log to help debug any issues that might arise with predicate logic
 		logger.Info("not reconciling bucket with non-matching driver name %q", bucket.Spec.DriverName)
 		return nil
@@ -255,7 +256,7 @@ func (r *BucketReconciler) dynamicProvision(
 			fmt.Errorf("all bucketClaimRef fields must be set for dynamic provisioning: %#v", cr))
 	}
 
-	resp, err := r.DriverInfo.provisionerClient.DriverCreateBucket(ctx,
+	resp, err := r.DriverInfo.ProvisionerClient.DriverCreateBucket(ctx,
 		&cosiproto.DriverCreateBucketRequest{
 			Name:       dynamic.bucketName,
 			Protocols:  dynamic.requiredProtos,
@@ -282,8 +283,8 @@ func (r *BucketReconciler) dynamicProvision(
 		return nil, cosierr.NonRetryableError(fmt.Errorf("created bucket protocol response missing"))
 	}
 
-	var noValidation *validationConfig = nil
-	supportedProtos, allBucketInfo, err := TranslateBucketInfoToApi(protoResp, noValidation)
+	var noValidation *translator.ValidationConfig = nil
+	supportedProtos, allBucketInfo, err := translator.BucketInfoToApi(protoResp, noValidation)
 	if err != nil {
 		logger.Error(nil, "errors translating bucket info")
 		return nil, cosierr.NonRetryableError(err)
@@ -330,7 +331,7 @@ func validateDriverSupportsProtocols(driver DriverInfo, required []*cosiproto.Ob
 	}
 
 	if len(unsupportedProtos) > 0 {
-		return fmt.Errorf("driver %q does not support protocols: %v", driver.name, unsupportedProtos)
+		return fmt.Errorf("driver %q does not support protocols: %v", driver.Name, unsupportedProtos)
 	}
 	return nil
 }

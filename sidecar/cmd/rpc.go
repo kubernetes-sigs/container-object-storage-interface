@@ -26,8 +26,9 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
-	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/reconciler"
+	"sigs.k8s.io/container-object-storage-interface/sidecar/pkg/reconciler"
 )
 
 var (

@@ -34,7 +34,6 @@ import (
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	cositest "sigs.k8s.io/container-object-storage-interface/internal/test"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
-	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/test"
 )
 
 func TestBucketAccessReconciler_Reconcile(t *testing.T) {
@@ -146,9 +145,9 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			Client: api,
 			Scheme: api.Scheme(),
 			DriverInfo: DriverInfo{
-				name:               "cosi.s3.internal",
-				supportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				provisionerClient:  proto,
+				Name:               "cosi.s3.internal",
+				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+				ProvisionerClient:  proto,
 			},
 		}
 	}
@@ -193,7 +192,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverGrantBucketAccessRequest{}
 		var requestError error
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				seenReq = append(seenReq, dgbar)
 				ret := newBaseGrantResponse(dgbar.AccountName)
@@ -201,12 +200,12 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -378,18 +377,18 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 	t.Run("secret already exists with incompatible owner", func(t *testing.T) {
 		testIncompatibleOwner := func(t *testing.T, owner *metav1.OwnerReference) {
-			fakeServer := test.FakeProvisionerServer{
+			fakeServer := cositest.FakeProvisionerServer{
 				GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 					panic("should not be called")
 				},
 			}
 
-			cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+			cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 			defer cleanup()
 			require.NoError(t, err)
 			go serve()
 
-			conn, err := test.ClientConn(tmpSock)
+			conn, err := cositest.RpcClientConn(tmpSock)
 			require.NoError(t, err)
 			rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -467,18 +466,18 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("repeated secret name in spec.bucketClaims", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				panic("should not be called")
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -525,18 +524,18 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("status.accessedBuckets doesn't match spec.bucketClaims", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				panic("should not be called")
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -575,18 +574,18 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("a bucket has deleting annotation", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				panic("should not be called")
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -627,18 +626,18 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("a bucket does not exist", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				panic("should not be called")
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -680,18 +679,18 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 	// driver name mismatch
 	t.Run("driver name mismatch", func(t *testing.T) {
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				panic("should not be called")
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -703,7 +702,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		ctx := bootstrapped.ContextWithLogger
 
 		r := newReconciler(bootstrapped.Client, rpcClient)
-		r.DriverInfo.name = "wrong.name"
+		r.DriverInfo.Name = "wrong.name"
 
 		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.NoError(t, err)
@@ -858,18 +857,18 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		}
 
 		var requestReturn *cosiproto.DriverGrantBucketAccessResponse
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				return requestReturn, nil
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -923,7 +922,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	t.Run("azure protocol and serviceaccount auth", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverGrantBucketAccessRequest{}
 		var requestError error
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				seenReq = append(seenReq, dgbar)
 				ret := &cosiproto.DriverGrantBucketAccessResponse{
@@ -956,12 +955,12 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -979,7 +978,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		ctx := bootstrapped.ContextWithLogger
 
 		r := newReconciler(bootstrapped.Client, rpcClient)
-		r.DriverInfo.supportedProtocols = []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_AZURE}
+		r.DriverInfo.SupportedProtocols = []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_AZURE}
 
 		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
 		assert.NoError(t, err)
@@ -1034,7 +1033,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	t.Run("GCS protocol", func(t *testing.T) {
 		seenReq := []*cosiproto.DriverGrantBucketAccessRequest{}
 		var requestError error
-		fakeServer := test.FakeProvisionerServer{
+		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				seenReq = append(seenReq, dgbar)
 				ret := &cosiproto.DriverGrantBucketAccessResponse{
@@ -1072,12 +1071,12 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		cleanup, serve, tmpSock, err := test.Server(nil, &fakeServer)
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
 		defer cleanup()
 		require.NoError(t, err)
 		go serve()
 
-		conn, err := test.ClientConn(tmpSock)
+		conn, err := cositest.RpcClientConn(tmpSock)
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
@@ -1094,7 +1093,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		r := newReconciler(bootstrapped.Client, rpcClient)
 
 		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
-		r.DriverInfo.supportedProtocols = append(r.DriverInfo.supportedProtocols, cosiproto.ObjectProtocol_GCS)
+		r.DriverInfo.SupportedProtocols = append(r.DriverInfo.SupportedProtocols, cosiproto.ObjectProtocol_GCS)
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 

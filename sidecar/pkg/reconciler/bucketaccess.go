@@ -43,6 +43,7 @@ import (
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 	"sigs.k8s.io/container-object-storage-interface/internal/protocol"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
+	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/translator"
 )
 
 // BucketAccessReconciler reconciles a BucketAccess object
@@ -59,7 +60,7 @@ type BucketAccessReconciler struct {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *BucketAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := ctrl.LoggerFrom(ctx, "driverName", r.DriverInfo.name)
+	logger := ctrl.LoggerFrom(ctx, "driverName", r.DriverInfo.Name)
 
 	access := &cosiapi.BucketAccess{}
 	if err := r.Get(ctx, req.NamespacedName, access); err != nil {
@@ -116,7 +117,7 @@ func (r *BucketAccessReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&cosiapi.BucketAccess{}).
 		WithEventFilter(
 			ctrlpredicate.And(
-				driverNameMatchesPredicate(r.DriverInfo.name), // only opt in to reconciles with matching driver name
+				driverNameMatchesPredicate(r.DriverInfo.Name), // only opt in to reconciles with matching driver name
 				ctrlpredicate.Or(
 					// when managed by sidecar, we should reconcile ALL Create/Delete/Generic events
 					cosipredicate.AnyCreate(),
@@ -134,7 +135,7 @@ func (r *BucketAccessReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *BucketAccessReconciler) reconcile(
 	ctx context.Context, logger logr.Logger, access *cosiapi.BucketAccess,
 ) error {
-	if access.Status.DriverName != r.DriverInfo.name {
+	if access.Status.DriverName != r.DriverInfo.Name {
 		// keep this log to help debug any issues that might arise with predicate logic
 		logger.Info("not reconciling bucketaccess with non-matching driver name", "driverName", access.Status.DriverName)
 		return nil
@@ -197,7 +198,7 @@ func (r *BucketAccessReconciler) reconcile(
 		return fmt.Errorf("failed to build internal representation of access configuration: %w", err)
 	}
 
-	resp, err := r.DriverInfo.provisionerClient.DriverGrantBucketAccess(ctx,
+	resp, err := r.DriverInfo.ProvisionerClient.DriverGrantBucketAccess(ctx,
 		&cosiproto.DriverGrantBucketAccessRequest{
 			AccountName:        internalCfg.AccountName,
 			Protocol:           &cosiproto.ObjectProtocol{Type: internalCfg.Protocol},
@@ -221,7 +222,7 @@ func (r *BucketAccessReconciler) reconcile(
 		return cosierr.NonRetryableError(err)
 	}
 
-	validation := validationConfig{
+	validation := translator.ValidationConfig{
 		ExpectedProtocol:   access.Spec.Protocol,
 		AuthenticationType: access.Status.AuthenticationType,
 	}
@@ -285,7 +286,7 @@ func newInternalAccessConfig(
 		return nil, cosierr.NonRetryableError(err)
 	}
 
-	authType, err := authenticationTypeToRpc(access.Status.AuthenticationType)
+	authType, err := translator.AuthenticationTypeToRpc(access.Status.AuthenticationType)
 	if err != nil {
 		return nil, cosierr.NonRetryableError(err)
 	}
@@ -355,7 +356,7 @@ func generateInternalAccessedBucketConfigs(
 			continue
 		}
 
-		rpcMode, err := accessModeToRpc(claimRef.AccessMode)
+		rpcMode, err := translator.AccessModeToRpc(claimRef.AccessMode)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to parse access mode for BucketClaim %q", claimRef.BucketClaimName))
 			continue
@@ -407,7 +408,7 @@ type grantedAccessApiDetails struct {
 // Translate an RPC grant-access response to internal API-domain details.
 func translateDriverGrantBucketAccessResponseToApi(
 	resp *cosiproto.DriverGrantBucketAccessResponse,
-	validation *validationConfig,
+	validation *translator.ValidationConfig,
 ) (*grantedAccessApiDetails, error) {
 	errs := []error{}
 
@@ -415,7 +416,7 @@ func translateDriverGrantBucketAccessResponseToApi(
 		errs = append(errs, fmt.Errorf("missing account ID"))
 	}
 
-	credInfo, err := TranslateCredentialsToApi(resp.Credentials, *validation)
+	credInfo, err := translator.CredentialsToApi(resp.Credentials, *validation)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("shared credentials are invalid: %w", err))
 	}
@@ -428,7 +429,7 @@ func translateDriverGrantBucketAccessResponseToApi(
 			continue
 		}
 
-		_, info, err := TranslateBucketInfoToApi(accessBktInfo.BucketInfo, validation)
+		_, info, err := translator.BucketInfoToApi(accessBktInfo.BucketInfo, validation)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid bucket info at index %d: %w", i, err))
 			continue
@@ -498,8 +499,8 @@ func (r *BucketAccessReconciler) updateSecretsWithGrantedInfo(
 		}
 
 		data := map[string]string{}
-		mergeApiInfoIntoStringMap(granted.SharedCredentialInfo, data)
-		mergeApiInfoIntoStringMap(bucketInfo, data)
+		translator.MergeApiInfoIntoStringMap(granted.SharedCredentialInfo, data)
+		translator.MergeApiInfoIntoStringMap(bucketInfo, data)
 		sec.StringData = data
 
 		if err := r.Update(ctx, sec); err != nil {

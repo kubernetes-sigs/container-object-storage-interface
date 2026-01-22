@@ -215,8 +215,7 @@ func TestValidateAndSetDriverConnectionInfo(t *testing.T) {
 		}
 		driverInfo, err := ValidateAndSetDriverConnectionInfo(response, conn)
 		assert.NoError(t, err)
-		assert.Equal(t, "seven.of.nine", driverInfo.name)
-		assert.Equal(t, "seven.of.nine", driverInfo.GetName())
-		assert.Equal(t, []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3}, driverInfo.supportedProtocols)
+		assert.Equal(t, "seven.of.nine", driverInfo.Name)
+		assert.Equal(t, []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3}, driverInfo.SupportedProtocols)
 	})
 }

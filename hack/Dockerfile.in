@@ -13,8 +13,7 @@ COPY go.sum go.sum
 COPY vendor/ vendor/
 
 COPY internal/ internal/
-COPY {{COMPONENT}}/cmd/ {{COMPONENT}}/cmd/
-COPY {{COMPONENT}}/internal/ {{COMPONENT}}/internal/
+COPY {{COMPONENT}}/ {{COMPONENT}}/
 
 WORKDIR /buildroot/{{COMPONENT}}
 
