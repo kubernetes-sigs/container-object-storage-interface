@@ -36,6 +36,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `bucketName` _string_ | bucketName is the name of a Bucket the access should have permissions for.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
+| `bucketID` _string_ | bucketID is the unique identifier for the backend bucket known to the driver for which<br />this access should have permissions.<br />Must be at most 2048 characters and consist only of alphanumeric characters ([a-z0-9A-Z]),<br />dashes (-), dots (.), underscores (_), and forward slash (/). |  | MaxLength: 2048 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9/._-]+$` <br /> |
 | `bucketClaimName` _string_ | bucketClaimName must match a BucketClaimAccess's BucketClaimName from the spec.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 
 

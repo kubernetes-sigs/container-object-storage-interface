@@ -215,6 +215,16 @@ type AccessedBucket struct {
 	// +kubebuilder:validation:XValidation:message="name must be a valid resource name",rule="!format.dns1123Subdomain().validate(self).hasValue()"
 	BucketName string `json:"bucketName,omitempty"`
 
+	// bucketID is the unique identifier for the backend bucket known to the driver for which
+	// this access should have permissions.
+	// Must be at most 2048 characters and consist only of alphanumeric characters ([a-z0-9A-Z]),
+	// dashes (-), dots (.), underscores (_), and forward slash (/).
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9/._-]+$`
+	BucketID string `json:"bucketID,omitempty"`
+
 	// bucketClaimName must match a BucketClaimAccess's BucketClaimName from the spec.
 	// Must be a valid Kubernetes resource name: at most 253 characters, consisting only of
 	// lower-case alphanumeric characters, hyphens, and periods, starting and ending with an

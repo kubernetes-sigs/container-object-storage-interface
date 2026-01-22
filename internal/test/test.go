@@ -25,6 +25,8 @@ import (
 	"github.com/go-logr/logr/testr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -70,4 +72,109 @@ func MustBootstrap(t *testing.T, initialClientObjects ...client.Object) *Depende
 		Client:            client,
 		Logger:            logger,
 	}
+}
+
+// NsName returns the NamespacedName for the given object.
+func NsName(o client.Object) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: o.GetNamespace(),
+		Name:      o.GetName(),
+	}
+}
+
+// BucketNsName returns the NamespacedName for the Bucket bound to the given BucketClaim.
+func BucketNsName(claim *cosiapi.BucketClaim) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "",
+		Name:      claim.Status.BoundBucketName,
+	}
+}
+
+// SecretNsName returns the NamespacedName for the Secret defined in the given BucketAccess
+// selected from the access's bucketClaims by index.
+func SecretNsName(access *cosiapi.BucketAccess, claimIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: access.Namespace,
+		Name:      access.Spec.BucketClaims[claimIndex].AccessSecretName,
+	}
+}
+
+// ObjectMetaWithUID returns ObjectMeta with the given namespace and name, and a deterministic UID
+// suitable for unit testing.
+func ObjectMetaWithUID(namespace, name string) ctrl.ObjectMeta {
+	return ctrl.ObjectMeta{
+		Namespace: namespace,
+		Name:      name,
+		// not a real UID, but is deterministic and fine for unit testing
+		UID: types.UID(namespace + "-" + name),
+	}
+}
+
+// OpinionatedBucketClass returns a BucketClass with opinionated, working defaults for unit tests.
+// It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
+func OpinionatedBucketClass(identifier string) *cosiapi.BucketClass {
+	return &cosiapi.BucketClass{
+		ObjectMeta: ctrl.ObjectMeta{
+			Name: "opinionated-" + identifier,
+		},
+		Spec: cosiapi.BucketClassSpec{
+			DriverName:     identifier + ".cosi.test",
+			DeletionPolicy: cosiapi.BucketDeletionPolicyDelete,
+		},
+	}
+}
+
+// OpinionatedBucketClaim returns a BucketClaim with opinionated, working defaults for unit tests.
+// It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
+// nolint:lll // long line is fine for test code
+func OpinionatedBucketClaim(namespace, name, className string, protocols ...cosiapi.ObjectProtocol) *cosiapi.BucketClaim {
+	return &cosiapi.BucketClaim{
+		ObjectMeta: ObjectMetaWithUID(namespace, name),
+		Spec: cosiapi.BucketClaimSpec{
+			BucketClassName: className,
+			Protocols:       protocols,
+		},
+	}
+}
+
+// OpinionatedS3BucketClass returns a BucketClass configured for an opinionated S3 driver.
+// It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
+func OpinionatedS3BucketClass() *cosiapi.BucketClass {
+	return OpinionatedBucketClass("s3")
+}
+
+// OpinionatedS3BucketClaim returns an BucketClaim configured to use the opinionated S3 BucketClass.
+// It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
+func OpinionatedS3BucketClaim(namespace, name string) *cosiapi.BucketClaim {
+	return OpinionatedBucketClaim(namespace, name, OpinionatedS3BucketClass().Name, cosiapi.ObjectProtocolS3)
+}
+
+// OpinionatedGcsBucketClass returns a BucketClass configured for an opinionated GCS driver.
+// It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
+func OpinionatedGcsBucketClass() *cosiapi.BucketClass {
+	return OpinionatedBucketClass("gcs")
+}
+
+// OpinionatedGcsBucketClaim returns an BucketClaim configured to use the opinionated GCS BucketClass.
+// It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
+func OpinionatedGcsBucketClaim(namespace, name string) *cosiapi.BucketClaim {
+	return OpinionatedBucketClaim(namespace, name, OpinionatedGcsBucketClass().Name, cosiapi.ObjectProtocolGcs)
+}
+
+// OpinionatedAzureBucketClass returns a BucketClass configured for an opinionated Azure driver.
+func OpinionatedAzureBucketClass() *cosiapi.BucketClass {
+	return OpinionatedBucketClass("azure")
+}
+
+// OpinionatedAzureBucketClaim returns an BucketClaim configured to use the opinionated Azure BucketClass.
+// It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
+func OpinionatedAzureBucketClaim(namespace, name string) *cosiapi.BucketClaim {
+	return OpinionatedBucketClaim(namespace, name, OpinionatedAzureBucketClass().Name, cosiapi.ObjectProtocolAzure)
 }
