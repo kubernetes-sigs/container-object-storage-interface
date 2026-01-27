@@ -161,18 +161,6 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 		}
 	}
 
-	if claim.Status.BoundBucketName == "" {
-		logger.Info("binding BucketClaim to Bucket")
-		if claim.Status.ReadyToUse == nil {
-			claim.Status.ReadyToUse = ptr.To(false)
-		}
-		claim.Status.BoundBucketName = bucketName
-		if err := r.Status().Update(ctx, claim); err != nil {
-			logger.Error(err, "failed to bind BucketClaim to Bucket")
-			return fmt.Errorf("failed to bind BucketClaim to Bucket: %w", err)
-		}
-	}
-
 	bucket := &cosiapi.Bucket{}
 	bucketNsName := types.NamespacedName{
 		Name:      bucketName,
@@ -184,6 +172,16 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 			return err
 		}
 
+		if claim.Status.BoundBucketName != "" {
+			// Recreating the intermediate bucket could lead to data loss
+			// because it may have different StorageClass configurations
+			logger.Error(nil, "BucketClaim is bound to a Bucket that no longer exists")
+			return cosierr.NonRetryableError(fmt.Errorf(
+				"unrecoverable degradation: BucketClaim is bound to Bucket %q that no longer exists",
+				claim.Status.BoundBucketName))
+		}
+
+		// Claim is not bound yet, this is normal initial provisioning.
 		logger.Info("creating intermediate Bucket")
 		bucket, err = createIntermediateBucket(ctx, logger, r.Client, claim, bucketName)
 		if err != nil {
@@ -201,6 +199,19 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 
 		logger.Error(nil, "dynamic Bucket is malformed") // internal bug
 		return cosierr.NonRetryableError(fmt.Errorf("dynamic Bucket is malformed: %w", err))
+	}
+
+	// Now that Bucket exists, bind the BucketClaim to it (if not already bound).
+	if claim.Status.BoundBucketName == "" {
+		logger.Info("binding BucketClaim to Bucket")
+		if claim.Status.ReadyToUse == nil {
+			claim.Status.ReadyToUse = ptr.To(false)
+		}
+		claim.Status.BoundBucketName = bucketName
+		if err := r.Status().Update(ctx, claim); err != nil {
+			logger.Error(err, "failed to bind BucketClaim to Bucket")
+			return fmt.Errorf("failed to bind BucketClaim to Bucket: %w", err)
+		}
 	}
 
 	if bucket.Status.BucketID == "" {
@@ -336,13 +347,6 @@ func generateIntermediateBucket(
 
 func bucketIsBoundToClaim(bucket *cosiapi.Bucket, claim *cosiapi.BucketClaim) (bool, error) {
 	errs := []error{}
-
-	if claim.Status.BoundBucketName != bucket.Name {
-		// bucket is gotten by name, so this should never happen
-		//nolint:staticcheck // ST1005: okay to capitalize resource kind
-		errs = append(errs, fmt.Errorf("BucketClaim bound bucket name %q does not match Bucket name %q",
-			claim.Status.BoundBucketName, bucket.Name))
-	}
 
 	claimRef := bucket.Spec.BucketClaimRef
 

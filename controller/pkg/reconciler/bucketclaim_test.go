@@ -412,7 +412,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := claim.Status
-		assert.Equal(t, "bc-qwerty", status.BoundBucketName)
+		assert.Empty(t, status.BoundBucketName)
 		assert.Equal(t, false, *status.ReadyToUse)
 		assert.Empty(t, status.Protocols)
 		serr := status.Error
@@ -454,6 +454,53 @@ func TestBucketClaimReconcile(t *testing.T) {
 		err = r.Get(ctx, types.NamespacedName{Name: "bc-qwerty"}, bucket)
 		assert.Error(t, err)
 		assert.True(t, kerrors.IsNotFound(err))
+	})
+
+	t.Run("dynamic provisioning, bound claim with missing bucket (issue #229)", func(t *testing.T) {
+		// This test validates the fix for issue #229:
+		// When a BucketClaim is already bound but its Bucket is missing (force-deleted),
+		// the controller should raise an error instead of auto-recreating the Bucket.
+		// Auto-recreation would provision a new empty cloud bucket, orphaning the
+		// original bucket with user data.
+
+		boundClaim := baseClaim.DeepCopy()
+		boundClaim.Status.BoundBucketName = "bc-qwerty" // Already bound to a bucket
+		boundClaim.Status.ReadyToUse = ptr.To(true)     // Was previously working
+		boundClaim.Status.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
+
+		bootstrapped := cositest.MustBootstrap(t,
+			boundClaim,
+			baseClass.DeepCopy(),
+			// Note: NO Bucket resource exists (simulates force-delete)
+		)
+		r := BucketClaimReconciler{
+			Client: bootstrapped.Client,
+			Scheme: bootstrapped.Client.Scheme(),
+		}
+		ctx := bootstrapped.ContextWithLogger
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: claimNsName})
+
+		// Should get a NonRetryableError requiring manual intervention
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+		assert.ErrorContains(t, err, "unrecoverable degradation")
+		assert.ErrorContains(t, err, "no longer exists")
+		assert.Empty(t, res)
+
+		// Verify the Bucket was NOT auto-recreated
+		bucket := &cosiapi.Bucket{}
+		err = r.Get(ctx, types.NamespacedName{Name: "bc-qwerty"}, bucket)
+		assert.Error(t, err)
+		assert.True(t, kerrors.IsNotFound(err))
+
+		// Claim status should reflect the error
+		claim := &cosiapi.BucketClaim{}
+		err = r.Get(ctx, claimNsName, claim)
+		require.NoError(t, err)
+		assert.Equal(t, "bc-qwerty", claim.Status.BoundBucketName) // Still bound to missing bucket
+		require.NotNil(t, claim.Status.Error)
+		assert.Contains(t, *claim.Status.Error.Message, "unrecoverable degradation")
 	})
 
 	// TODO: deletion (dynamic and static, Retain/Delete)
