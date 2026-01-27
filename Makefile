@@ -56,7 +56,7 @@ export
 all: prebuild build ## Build all container images, plus their prerequisites (faster with 'make -j')
 
 .PHONY: lint
-lint: golangci-lint kubeapi-lint spell-lint dockerfiles-lint ## Run all linters (suggest `make -k`)
+lint: golangci-lint kubeapi-lint spell-lint eof-newline-lint dockerfiles-lint ## Run all linters (suggest `make -k`)
 golangci-lint: golangci-lint
 	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml
 kubeapi-lint: kube-api-linter
@@ -65,6 +65,8 @@ spell-lint:
 	git ls-files | grep -v -e CHANGELOG -e go.mod -e go.sum -e vendor | xargs $(SPELL_LINT) -i "Creater,creater,ect" -error -o stderr
 dockerfiles-lint:
 	hack/tools/lint-dockerfiles.sh $(HADOLINT_VERSION)
+eof-newline-lint:
+	hack/lint-eof-newline.sh
 
 .PHONY: lint-fix
 lint-fix: golangci-lint-fix ## Run all linters and perform fixes where possible (suggest `make -k`)
