@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -61,11 +60,6 @@ func TestBucketAccessReconcile(t *testing.T) {
 		},
 	}
 
-	accessNsName := types.NamespacedName{
-		Namespace: baseAccess.Namespace,
-		Name:      baseAccess.Name,
-	}
-
 	// valid base class used by subests
 	baseClass := cosiapi.BucketAccessClass{
 		ObjectMeta: meta.ObjectMeta{
@@ -84,7 +78,7 @@ func TestBucketAccessReconcile(t *testing.T) {
 		},
 	}
 
-	// first valid bucketclaim referenced by above valid access
+	// valid bucketclaims referenced by above valid access
 	baseReadWriteClaim := cositest.OpinionatedS3BucketClaim("my-ns", "readwrite-bucket")
 	baseReadOnlyClaim := cositest.OpinionatedS3BucketClaim("my-ns", "readonly-bucket")
 
@@ -122,12 +116,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 		}
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -177,12 +171,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 		t.Log("run Reconcile() a second time to ensure nothing is modified")
 
 		// using the same client and stuff from before
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		secondAccess := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, secondAccess)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), secondAccess)
 		require.NoError(t, err)
 		assert.Equal(t, access, secondAccess)
 
@@ -224,13 +218,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 		}
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -286,13 +280,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 		}
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -356,13 +350,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 		}
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -432,13 +426,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Client: bootstrapped.Client,
 			Scheme: bootstrapped.Client.Scheme(),
 		}
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -485,13 +479,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Scheme: bootstrapped.Client.Scheme(),
 		}
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -540,13 +534,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Scheme: bootstrapped.Client.Scheme(),
 		}
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -619,12 +613,12 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Scheme: bootstrapped.Client.Scheme(),
 		}
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		access = &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -690,13 +684,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Scheme: bootstrapped.Client.Scheme(),
 		}
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status
@@ -751,13 +745,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 			Scheme: bootstrapped.Client.Scheme(),
 		}
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access = &cosiapi.BucketAccess{}
-		err = r.Get(ctx, accessNsName, access)
+		err = r.Get(ctx, cositest.NsName(&baseAccess), access)
 		require.NoError(t, err)
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		status := access.Status

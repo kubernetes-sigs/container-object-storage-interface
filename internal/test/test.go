@@ -90,6 +90,26 @@ func BucketNsName(claim *cosiapi.BucketClaim) types.NamespacedName {
 	}
 }
 
+// SecretNsName returns the NamespacedName for the Secret defined in the given BucketAccess
+// selected from the access's bucketClaims by index.
+func SecretNsName(access *cosiapi.BucketAccess, claimIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: access.Namespace,
+		Name:      access.Spec.BucketClaims[claimIndex].AccessSecretName,
+	}
+}
+
+// ObjectMetaWithUID returns ObjectMeta with the given namespace and name, and a deterministic UID
+// suitable for unit testing.
+func ObjectMetaWithUID(namespace, name string) ctrl.ObjectMeta {
+	return ctrl.ObjectMeta{
+		Namespace: namespace,
+		Name:      name,
+		// not a real UID, but is deterministic and fine for unit testing
+		UID: types.UID(namespace + "-" + name),
+	}
+}
+
 // OpinionatedBucketClass returns a BucketClass with opinionated, working defaults for unit tests.
 // It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
 // prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
@@ -110,12 +130,7 @@ func OpinionatedBucketClass(identifier string) *cosiapi.BucketClass {
 // prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
 func OpinionatedBucketClaim(namespace, name, className string, protocols ...cosiapi.ObjectProtocol) *cosiapi.BucketClaim {
 	return &cosiapi.BucketClaim{
-		ObjectMeta: ctrl.ObjectMeta{
-			Namespace: namespace,
-			Name:      name,
-			// not a real UID, but is deterministic and fine for unit testing
-			UID: types.UID(namespace + "-" + name),
-		},
+		ObjectMeta: ObjectMetaWithUID(namespace, name),
 		Spec: cosiapi.BucketClaimSpec{
 			BucketClassName: className,
 			Protocols:       protocols,
