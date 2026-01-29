@@ -178,8 +178,7 @@ func (r *BucketAccessReconciler) reconcile(
 		}
 	}
 
-	bucketsByName, err := getAndValidateAllAccessedBuckets(ctx, r.Client, access)
-	if err != nil {
+	if err := getAndValidateAllAccessedBuckets(ctx, r.Client, access); err != nil {
 		logger.Error(err, "failed to validate accessed Buckets for BucketAccess")
 		return err
 	}
@@ -192,7 +191,7 @@ func (r *BucketAccessReconciler) reconcile(
 		return err
 	}
 
-	internalCfg, err := newInternalAccessConfig(access, bucketsByName, secretsByName)
+	internalCfg, err := newInternalAccessConfig(access, secretsByName)
 	if err != nil {
 		logger.Error(err, "failed to build internal representation of access configuration")
 		return fmt.Errorf("failed to build internal representation of access configuration: %w", err)
@@ -276,7 +275,6 @@ type bucketAccessConfig struct {
 // Parse the access, and generate a new internal access config struct for follow-up.
 func newInternalAccessConfig(
 	access *cosiapi.BucketAccess,
-	bucketsByName map[string]*cosiapi.Bucket,
 	secretsByName map[string]*corev1.Secret,
 ) (*internalAccessConfig, error) {
 	acctName := "ba-" + string(access.UID) // DO NOT CHANGE
@@ -297,7 +295,7 @@ func newInternalAccessConfig(
 		svcAcct = access.Spec.ServiceAccountName
 	}
 
-	accessConfigsByBucketId, err := generateInternalAccessedBucketConfigs(access, bucketsByName)
+	accessConfigsByBucketId, err := generateInternalAccessedBucketConfigs(access)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +308,6 @@ func newInternalAccessConfig(
 		Parameters:         access.Status.Parameters,
 
 		AccessConfigsByBucketId: accessConfigsByBucketId,
-		BucketsByName:           bucketsByName,
 		SecretsByName:           secretsByName,
 	}
 	return d, nil
@@ -322,37 +319,21 @@ func newInternalAccessConfig(
 // repeatedly. This is less for efficiency and more for ease of coding.
 func generateInternalAccessedBucketConfigs(
 	access *cosiapi.BucketAccess,
-	bucketsByName map[string]*cosiapi.Bucket,
 ) (accessConfigsByBucketId map[string]bucketAccessConfig, err error) {
 	errs := []error{}
 
-	bucketNamesByClaimName := make(map[string]string, len(access.Status.AccessedBuckets))
+	bucketIdsByClaimName := make(map[string]string, len(access.Status.AccessedBuckets))
 	for _, ab := range access.Status.AccessedBuckets {
-		bucketNamesByClaimName[ab.BucketClaimName] = ab.BucketName
+		bucketIdsByClaimName[ab.BucketClaimName] = ab.BucketID
 	}
 
 	accessConfigsByBucketId = make(map[string]bucketAccessConfig, len(access.Spec.BucketClaims))
 	for _, claimRef := range access.Spec.BucketClaims {
 		claimName := claimRef.BucketClaimName
-		bucketName, ok := bucketNamesByClaimName[claimName]
+		bucketID, ok := bucketIdsByClaimName[claimName]
 		if !ok {
 			// Should not happen as long as COSI Controller created status.accessedBuckets correctly.
 			errs = append(errs, fmt.Errorf("could not map BucketClaim %q to any accessed Bucket", claimName))
-			continue
-		}
-
-		bucket, ok := bucketsByName[bucketName]
-		if !ok {
-			// Should not happen except internal bugs in this controller.
-			errs = append(errs, fmt.Errorf("could not find Bucket %q by name internally", bucketName))
-			continue
-		}
-
-		id := bucket.Status.BucketID
-		if id == "" {
-			// Already checked for this, but double check.
-			//nolint:staticcheck // ST1005: okay to capitalize resource kind
-			errs = append(errs, fmt.Errorf("Bucket %q has no bucketID", bucketName))
 			continue
 		}
 
@@ -367,7 +348,7 @@ func generateInternalAccessedBucketConfigs(
 			AccessSecretName: claimRef.AccessSecretName,
 		}
 
-		accessConfigsByBucketId[id] = cfg
+		accessConfigsByBucketId[bucketID] = cfg
 	}
 
 	if len(errs) > 0 {
@@ -519,9 +500,8 @@ func (r *BucketAccessReconciler) updateSecretsWithGrantedInfo(
 // Validate that all gotten buckets are ready for access.
 func getAndValidateAllAccessedBuckets(
 	ctx context.Context, client client.Client, access *cosiapi.BucketAccess,
-) (bucketsByName map[string]*cosiapi.Bucket, err error) {
+) error {
 	errs := []error{}
-	bucketsByName = map[string]*cosiapi.Bucket{}
 
 	for _, ab := range access.Status.AccessedBuckets {
 		nsName := types.NamespacedName{
@@ -542,28 +522,20 @@ func getAndValidateAllAccessedBuckets(
 			continue
 		}
 
-		if err := validateBucketIsReadyForAccess(bkt); err != nil {
+		if err := validateBucketIsReadyForAccess(bkt, ab.BucketID); err != nil {
 			errs = append(errs, cosierr.NonRetryableError(err))
 			continue
 		}
-
-		bucketsByName[bkt.Name] = bkt
 	}
 
 	if len(errs) > 0 {
-		outErr := fmt.Errorf("failed to get accessed Buckets: %w", errors.Join(errs...))
-		return nil, outErr
+		return fmt.Errorf("failed to get accessed Buckets: %w", errors.Join(errs...))
 	}
 
-	if len(bucketsByName) != len(access.Status.AccessedBuckets) {
-		// Should never happen, but double check to avoid propagating internal errors.
-		return nil, fmt.Errorf("did not get one or more accessed Buckets, but no errors observed")
-	}
-
-	return bucketsByName, nil
+	return nil
 }
 
-func validateBucketIsReadyForAccess(b *cosiapi.Bucket) error {
+func validateBucketIsReadyForAccess(b *cosiapi.Bucket, expectedBucketID string) error {
 	errs := []error{}
 
 	if _, ok := b.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation]; ok {
@@ -581,8 +553,11 @@ func validateBucketIsReadyForAccess(b *cosiapi.Bucket) error {
 		errs = append(errs, fmt.Errorf("Bucket %q has no bucketID", b.Name))
 	}
 
-	// TODO: Controller has already verified that the Bucket supports the requested protocol.
-	// Do we need/want to check that again?
+	if b.Status.BucketID != expectedBucketID {
+		//nolint:staticcheck // ST1005: okay to capitalize resource kind
+		errs = append(errs, fmt.Errorf("Bucket %q ID %q does not match expected ID %q",
+			b.Name, b.Status.BucketID, expectedBucketID))
+	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("cannot generate access for one or more Buckets: %w", errors.Join(errs...))
