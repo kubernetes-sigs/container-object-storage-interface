@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package reconciler
+package reconciler_test
 
 import (
 	"context"
@@ -24,8 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,7 +33,10 @@ import (
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	cositest "sigs.k8s.io/container-object-storage-interface/internal/test"
+	controllertest "sigs.k8s.io/container-object-storage-interface/internal/test/controller"
+	sidecartest "sigs.k8s.io/container-object-storage-interface/internal/test/sidecar"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
+	sidecar "sigs.k8s.io/container-object-storage-interface/sidecar/pkg/reconciler"
 )
 
 func TestBucketAccessReconciler_Reconcile(t *testing.T) {
@@ -62,89 +65,35 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			Protocol:              cosiapi.ObjectProtocolS3,
 			ServiceAccountName:    "my-app-sa",
 		},
-		Status: cosiapi.BucketAccessStatus{
-			ReadyToUse: ptr.To(false), // Controller should have set this false already
-			AccessedBuckets: []cosiapi.AccessedBucket{
-				{
-					BucketName:      "bc-qwerty",
-					BucketClaimName: "readwrite-bucket",
-				},
-				{
-					BucketName:      "bc-asdfgh",
-					BucketClaimName: "readonly-bucket",
-				},
-			},
+	}
+
+	// valid base class used by subests
+	baseClass := cosiapi.BucketAccessClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "s3-class",
+		},
+		Spec: cosiapi.BucketAccessClassSpec{
 			DriverName:         "cosi.s3.internal",
 			AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
 			Parameters: map[string]string{
 				"maxSize": "100Gi",
 				"maxIops": "10",
 			},
+			// by default, test the more complex multi-bucket cases
+			MultiBucketAccess: cosiapi.MultiBucketAccessMultipleBuckets,
+			// DisallowedBucketAccessModes: unset
 		},
 	}
 
-	accessNsName := types.NamespacedName{
-		Namespace: baseAccess.Namespace,
-		Name:      baseAccess.Name,
-	}
+	// valid bucketclaims referenced by above valid access
+	baseReadWriteClaim := cositest.OpinionatedS3BucketClaim("my-ns", "readwrite-bucket")
+	baseReadOnlyClaim := cositest.OpinionatedS3BucketClaim("my-ns", "readonly-bucket")
 
-	readWriteSecretNsName := types.NamespacedName{
-		Namespace: baseAccess.Namespace,
-		Name:      baseAccess.Spec.BucketClaims[0].AccessSecretName,
-	}
-
-	readOnlySecretNsName := types.NamespacedName{
-		Namespace: baseAccess.Namespace,
-		Name:      baseAccess.Spec.BucketClaims[1].AccessSecretName,
-	}
-
-	// first valid bucket referenced by above valid access
-	baseReadWriteBucket := cosiapi.Bucket{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:       "bc-qwerty",
-			Finalizers: []string{cosiapi.ProtectionFinalizer},
-		},
-		Spec: cosiapi.BucketSpec{
-			DriverName:     "cosi.s3.internal",
-			DeletionPolicy: cosiapi.BucketDeletionPolicyDelete,
-			BucketClaimRef: cosiapi.BucketClaimReference{
-				Name:      "readwrite-bucket",
-				Namespace: baseAccess.Namespace,
-				UID:       "qwerty",
-			},
-		},
-		Status: cosiapi.BucketStatus{
-			ReadyToUse: ptr.To(true),
-			BucketID:   "cosi-bc-qwerty",
-		},
-	}
-
-	// second valid bucket referenced by above valid access
-	baseReadOnlyBucket := cosiapi.Bucket{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:       "bc-asdfgh",
-			Finalizers: []string{cosiapi.ProtectionFinalizer},
-		},
-		Spec: cosiapi.BucketSpec{
-			DriverName:     "cosi.s3.internal",
-			DeletionPolicy: cosiapi.BucketDeletionPolicyDelete,
-			BucketClaimRef: cosiapi.BucketClaimReference{
-				Name:      "readonly-bucket",
-				Namespace: baseAccess.Namespace,
-				UID:       "asdfgh",
-			},
-		},
-		Status: cosiapi.BucketStatus{
-			ReadyToUse: ptr.To(true),
-			BucketID:   "cosi-bc-asdfgh",
-		},
-	}
-
-	newReconciler := func(api client.Client, proto cosiproto.ProvisionerClient) BucketAccessReconciler {
-		return BucketAccessReconciler{
+	newReconciler := func(api client.Client, proto cosiproto.ProvisionerClient) sidecar.BucketAccessReconciler {
+		return sidecar.BucketAccessReconciler{
 			Client: api,
 			Scheme: api.Scheme(),
-			DriverInfo: DriverInfo{
+			DriverInfo: sidecar.DriverInfo{
 				Name:               "cosi.s3.internal",
 				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
 				ProvisionerClient:  proto,
@@ -164,9 +113,11 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			},
 			Buckets: []*cosiproto.DriverGrantBucketAccessResponse_BucketInfo{
 				{
-					BucketId: "cosi-bc-qwerty",
+					BucketId: "cosi-bc-my-ns-readwrite-bucket",
 					BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
 						S3: &cosiproto.S3BucketInfo{
+							// normally, S3 BucketID would probably be based on the rwBucketId, but
+							// we want something static for unit tests
 							BucketId:        "corp-cosi-bc-qwerty",
 							Endpoint:        "s3.corp.net",
 							Region:          "us-east-1",
@@ -175,9 +126,11 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 					},
 				},
 				{
-					BucketId: "cosi-bc-asdfgh",
+					BucketId: "cosi-bc-my-ns-readonly-bucket",
 					BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
 						S3: &cosiproto.S3BucketInfo{
+							// normally, S3 BucketID would probably be based on the rwBucketId, but
+							// we want something static for unit tests
 							BucketId:        "corp-cosi-bc-asdfgh",
 							Endpoint:        "s3.corp.net",
 							Region:          "us-east-1",
@@ -187,6 +140,42 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				},
 			},
 		}
+	}
+
+	// Each test needs to have BucketClaims and Buckets set up using Controller and Sidecar logic.
+	// Each test also needs the BucketAccess to be initialized with Controller logic.
+	// This is a lot of boilerplate that makes tests harder to read.
+	reconcileBucketClaimsAndAccessInitialization := func(t *testing.T, bootstrapped *cositest.Dependencies) (
+		rwBucket *cosiapi.Bucket,
+		roBucket *cosiapi.Bucket,
+		initAccess *cosiapi.BucketAccess,
+	) {
+		// reconcile BucketClaims to create intermediate Buckets
+		rwClaim, err := controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(baseReadWriteClaim))
+		require.NoError(t, err)
+		roClaim, err := controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(baseReadOnlyClaim))
+		require.NoError(t, err)
+
+		// reconcile intermediate Buckets
+		rwBucket, err = sidecartest.ReconcileOpinionatedS3Bucket(t, bootstrapped, cositest.BucketNsName(rwClaim))
+		require.NoError(t, err)
+		roBucket, err = sidecartest.ReconcileOpinionatedS3Bucket(t, bootstrapped, cositest.BucketNsName(roClaim))
+		require.NoError(t, err)
+
+		// reconcile BucketClaims to mirror finished status from Buckets
+		rwClaim, err = controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(baseReadWriteClaim))
+		require.NoError(t, err)
+		require.True(t, *rwClaim.Status.ReadyToUse)
+		roClaim, err = controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(baseReadOnlyClaim))
+		require.NoError(t, err)
+		require.True(t, *roClaim.Status.ReadyToUse)
+
+		// initialize the BucketAccess using the COSI Controller logic
+		initAccess, err = controllertest.ReconcileBucketAccess(t, bootstrapped, cositest.NsName(&baseAccess))
+		require.NoError(t, err)
+		require.NotEmpty(t, initAccess.Status.AccessedBuckets)
+
+		return rwBucket, roBucket, initAccess
 	}
 
 	t.Run("happy path", func(t *testing.T) {
@@ -211,14 +200,18 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
-			baseReadWriteBucket.DeepCopy(),
-			baseReadOnlyBucket.DeepCopy(),
+			baseClass.DeepCopy(),
+			baseReadWriteClaim.DeepCopy(),
+			baseReadOnlyClaim.DeepCopy(),
+			cositest.OpinionatedS3BucketClass(),
 		)
 		ctx := bootstrapped.ContextWithLogger
 
+		rwBucket, roBucket, initAccess := reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
 		r := newReconciler(bootstrapped.Client, rpcClient)
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -238,32 +231,36 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		)
 		require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
 		assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-			BucketId:   "cosi-bc-qwerty",
+			BucketId:   rwBucket.Status.BucketID,
 			AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
 		}))
 		assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-			BucketId:   "cosi-bc-asdfgh",
+			BucketId:   roBucket.Status.BucketID,
 			AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
 		}))
 
 		access := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, access))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), access))
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
-		assert.Equal(t, baseAccess.Spec, access.Spec) // spec should not change
+		assert.Equal(t, baseAccess.Spec, access.Spec) // spec should not change from base
 		assert.True(t, *access.Status.ReadyToUse)
 		assert.Nil(t, access.Status.Error)
 		assert.Equal(t, "cosi-ba-zxcvbn", access.Status.AccountID)
-		assert.Equal(t, baseAccess.Status.AccessedBuckets, access.Status.AccessedBuckets)
-		assert.Equal(t, baseAccess.Status.AuthenticationType, access.Status.AuthenticationType)
-		assert.Equal(t, baseAccess.Status.DriverName, access.Status.DriverName)
-		assert.Equal(t, baseAccess.Status.Parameters, access.Status.Parameters)
+		// should not modify what the Controller initialized
+		assert.Equal(t, initAccess.Status.AccessedBuckets, access.Status.AccessedBuckets)
+		assert.Equal(t, initAccess.Status.AuthenticationType, access.Status.AuthenticationType)
+		assert.Equal(t, initAccess.Status.DriverName, access.Status.DriverName)
+		assert.Equal(t, initAccess.Status.Parameters, access.Status.Parameters)
 
 		// ensure secrets are present with info
 		rws := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readWriteSecretNsName, rws))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 0), rws))
 
 		ros := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readOnlySecretNsName, ros))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 1), ros))
+
+		t.Logf("RWS: %#v\n", rws)
+		t.Logf("ROS: %#v\n", ros)
 
 		for _, s := range []*corev1.Secret{rws, ros} {
 			assert.Contains(t, s.GetFinalizers(), cosiapi.ProtectionFinalizer)
@@ -279,7 +276,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		seenReq = []*cosiproto.DriverGrantBucketAccessRequest{} // empty the seen rpc requests
 		requestError = nil
 
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -289,16 +286,16 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		// access doesn't change
 		secondAccess := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, secondAccess))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), secondAccess))
 		assert.Equal(t, access.Finalizers, secondAccess.Finalizers)
 		assert.Equal(t, access.Spec, secondAccess.Spec)
 		assert.Equal(t, access.Status, secondAccess.Status)
 
 		// secrets don't change
 		secondRws := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readWriteSecretNsName, secondRws))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 0), secondRws))
 		secondRos := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readOnlySecretNsName, secondRos))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 1), secondRos))
 		assert.Equal(t, rws.StringData, secondRws.StringData)
 		assert.Equal(t, ros.StringData, secondRos.StringData)
 
@@ -307,7 +304,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		seenReq = []*cosiproto.DriverGrantBucketAccessRequest{} // empty the seen rpc requests
 		requestError = fmt.Errorf("fake rpc error")
 
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
@@ -318,7 +315,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		// access has error but otherwise doesn't change
 		thirdAccess := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, thirdAccess))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), thirdAccess))
 		assert.Equal(t, access.Finalizers, thirdAccess.Finalizers)
 		assert.Equal(t, access.Spec, thirdAccess.Spec)
 		require.NotNil(t, thirdAccess.Status.Error)
@@ -333,9 +330,9 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		// secrets don't change
 		thirdRws := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readWriteSecretNsName, thirdRws))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 0), thirdRws))
 		thirdRos := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readOnlySecretNsName, thirdRos))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 1), thirdRos))
 		assert.Equal(t, rws.StringData, thirdRws.StringData)
 		assert.Equal(t, ros.StringData, thirdRos.StringData)
 
@@ -348,21 +345,21 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			return ret, nil
 		}
 
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		fourthAccess := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, fourthAccess))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), fourthAccess))
 		assert.Equal(t, access.Finalizers, fourthAccess.Finalizers)
 		assert.Equal(t, access.Spec, fourthAccess.Spec)
 		assert.Equal(t, access.Status, fourthAccess.Status) // error is cleared
 
 		// secrets change their access key ID only
 		fourthRws := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readWriteSecretNsName, fourthRws))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 0), fourthRws))
 		fourthRos := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readOnlySecretNsName, fourthRos))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 1), fourthRos))
 		assert.Equal(t, "rotatedsharedaccesskey", fourthRws.StringData[string(cosiapi.CredentialVar_S3_AccessKeyId)])
 		assert.Equal(t, "rotatedsharedaccesskey", fourthRos.StringData[string(cosiapi.CredentialVar_S3_AccessKeyId)])
 		{ // other secret data stays the same
@@ -407,23 +404,27 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 			bootstrapped := cositest.MustBootstrap(t,
 				baseAccess.DeepCopy(),
-				baseReadWriteBucket.DeepCopy(),
-				baseReadOnlyBucket.DeepCopy(),
+				baseClass.DeepCopy(),
+				baseReadWriteClaim.DeepCopy(),
+				baseReadOnlyClaim.DeepCopy(),
+				cositest.OpinionatedS3BucketClass(),
 				preExistingSecret,
 			)
 			ctx := bootstrapped.ContextWithLogger
 
+			_, _, initAccess := reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
 			r := newReconciler(bootstrapped.Client, rpcClient)
 
-			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 			assert.Error(t, err)
 			assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 			assert.Empty(t, res)
 
 			access := &cosiapi.BucketAccess{}
-			require.NoError(t, r.Get(ctx, accessNsName, access))
-			assert.Equal(t, access.Finalizers, access.Finalizers)
-			assert.Equal(t, access.Spec, access.Spec)
+			require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), access))
+			assert.Equal(t, initAccess.Finalizers, access.Finalizers)
+			assert.Equal(t, baseAccess.Spec, access.Spec)
 			require.NotNil(t, access.Status.Error)
 			assert.NotNil(t, access.Status.Error.Time)
 			assert.NotNil(t, access.Status.Error.Message)
@@ -431,17 +432,17 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{ // non-error fields stay the same
 				accessNoError := access.DeepCopy()
 				accessNoError.Status.Error = nil
-				assert.Equal(t, baseAccess.Status, accessNoError.Status)
+				assert.Equal(t, initAccess.Status, accessNoError.Status)
 			}
 
 			// pre-existing secret that was already owned hasn't been touched
 			rws := &corev1.Secret{}
-			require.NoError(t, r.Get(ctx, readWriteSecretNsName, rws))
+			require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 0), rws))
 			assert.Equal(t, preExistingSecret, rws)
 
 			// other secret has been reserved successfully
 			ros := &corev1.Secret{}
-			require.NoError(t, r.Get(ctx, readOnlySecretNsName, ros))
+			require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 1), ros))
 			assert.Contains(t, ros.GetFinalizers(), cosiapi.ProtectionFinalizer)
 			require.Len(t, ros.OwnerReferences, 1)
 			assert.Equal(t, "zxcvbn", string(ros.OwnerReferences[0].UID))
@@ -482,41 +483,45 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
 		accessWithRepeatedSecret := baseAccess.DeepCopy()
-		accessWithRepeatedSecret.Spec.BucketClaims[0].AccessSecretName = readWriteSecretNsName.Name
-		accessWithRepeatedSecret.Spec.BucketClaims[1].AccessSecretName = readWriteSecretNsName.Name
+		accessWithRepeatedSecret.Spec.BucketClaims[0].AccessSecretName = cositest.SecretNsName(&baseAccess, 0).Name
+		accessWithRepeatedSecret.Spec.BucketClaims[1].AccessSecretName = cositest.SecretNsName(&baseAccess, 0).Name
 
 		bootstrapped := cositest.MustBootstrap(t,
 			accessWithRepeatedSecret,
-			baseReadWriteBucket.DeepCopy(),
-			baseReadOnlyBucket.DeepCopy(),
+			baseClass.DeepCopy(),
+			baseReadWriteClaim.DeepCopy(),
+			baseReadOnlyClaim.DeepCopy(),
+			cositest.OpinionatedS3BucketClass(),
 		)
 		ctx := bootstrapped.ContextWithLogger
 
+		_, _, initAccess := reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
 		r := newReconciler(bootstrapped.Client, rpcClient)
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, access))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), access))
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		assert.Equal(t, accessWithRepeatedSecret.Spec, access.Spec)
 		require.NotNil(t, access.Status.Error)
 		assert.NotNil(t, access.Status.Error.Time)
 		assert.NotNil(t, access.Status.Error.Message)
 		assert.Contains(t, *access.Status.Error.Message, "same accessSecretName")
-		assert.Contains(t, *access.Status.Error.Message, readWriteSecretNsName.Name)
+		assert.Contains(t, *access.Status.Error.Message, cositest.SecretNsName(&baseAccess, 0).Name)
 		{ // non-error fields stay the same
 			accessNoError := access.DeepCopy()
 			accessNoError.Status.Error = nil
-			assert.Equal(t, accessWithRepeatedSecret.Status, accessNoError.Status)
+			assert.Equal(t, initAccess.Status, accessNoError.Status)
 		}
 
 		// first secret has been reserved successfully
 		rws := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readWriteSecretNsName, rws))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&baseAccess, 0), rws))
 		assert.Contains(t, rws.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		require.Len(t, rws.OwnerReferences, 1)
 		assert.Equal(t, "zxcvbn", string(rws.OwnerReferences[0].UID))
@@ -539,25 +544,32 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
-		malformedAccess := baseAccess.DeepCopy()
-		malformedAccess.Spec.BucketClaims[0].BucketClaimName = "something-different"
-
 		bootstrapped := cositest.MustBootstrap(t,
-			malformedAccess,
-			baseReadWriteBucket.DeepCopy(),
-			baseReadOnlyBucket.DeepCopy(),
+			baseAccess.DeepCopy(),
+			baseClass.DeepCopy(),
+			baseReadWriteClaim.DeepCopy(),
+			baseReadOnlyClaim.DeepCopy(),
+			cositest.OpinionatedS3BucketClass(),
 		)
 		ctx := bootstrapped.ContextWithLogger
 
+		_, _, initAccess := reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
+		// make status.accessedBuckets not match spec.bucketClaims
+		// e.g., what if COSI Controller has a bug
+		malformedAccess := initAccess.DeepCopy()
+		malformedAccess.Spec.BucketClaims[0].BucketClaimName = "something-different"
+		require.NoError(t, bootstrapped.Client.Update(ctx, malformedAccess))
+
 		r := newReconciler(bootstrapped.Client, rpcClient)
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, access))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), access))
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		assert.Equal(t, malformedAccess.Spec, access.Spec)
 		require.NotNil(t, access.Status.Error)
@@ -589,27 +601,33 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
-		deletingBucket := baseReadWriteBucket.DeepCopy()
-		deletingBucket.Annotations = map[string]string{
-			cosiapi.BucketClaimBeingDeletedAnnotation: "",
-		}
-
 		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
-			deletingBucket,
-			baseReadOnlyBucket.DeepCopy(),
+			baseClass.DeepCopy(),
+			baseReadWriteClaim.DeepCopy(),
+			baseReadOnlyClaim.DeepCopy(),
+			cositest.OpinionatedS3BucketClass(),
 		)
 		ctx := bootstrapped.ContextWithLogger
 
+		rwBucket, _, initAccess := reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
+		// BucketClaim controller doesn't know how to do deletion to Buckets yet, so simulate Bucket deletion annotation here
+		deletingBucket := rwBucket.DeepCopy()
+		deletingBucket.Annotations = map[string]string{
+			cosiapi.BucketClaimBeingDeletedAnnotation: "",
+		}
+		require.NoError(t, bootstrapped.Client.Update(ctx, deletingBucket))
+
 		r := newReconciler(bootstrapped.Client, rpcClient)
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, access))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), access))
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		assert.Equal(t, baseAccess.Spec, access.Spec)
 		require.NotNil(t, access.Status.Error)
@@ -619,7 +637,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		{ // non-error fields stay the same
 			accessNoError := access.DeepCopy()
 			accessNoError.Status.Error = nil
-			assert.Equal(t, baseAccess.Status, accessNoError.Status)
+			assert.Equal(t, initAccess.Status, accessNoError.Status)
 		}
 
 		// don't care if secrets exist or not
@@ -641,43 +659,49 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
-		deletingBucket := baseReadWriteBucket.DeepCopy()
-		deletingBucket.Annotations = map[string]string{
-			cosiapi.BucketClaimBeingDeletedAnnotation: "",
-		}
-
 		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
-			baseReadWriteBucket.DeepCopy(),
-			// baseReadOnlyBucket does not exist
+			baseClass.DeepCopy(),
+			baseReadWriteClaim.DeepCopy(),
+			baseReadOnlyClaim.DeepCopy(),
+			cositest.OpinionatedS3BucketClass(),
 		)
 		ctx := bootstrapped.ContextWithLogger
 
+		_, roBucket, initAccess := reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
+		// delete one Bucket to simulate non-existence
+		deletedBucket := roBucket.DeepCopy()
+		deletedBucket.Finalizers = nil
+		require.NoError(t, bootstrapped.Client.Update(ctx, deletedBucket)) // remove finalizer
+		require.NoError(t, bootstrapped.Client.Delete(ctx, deletedBucket))
+		err = bootstrapped.Client.Get(ctx, cositest.NsName(deletedBucket), deletedBucket)
+		require.True(t, kerrors.IsNotFound(err)) // make sure it's gone from the client
+
 		r := newReconciler(bootstrapped.Client, rpcClient)
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, access))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), access))
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		assert.Equal(t, baseAccess.Spec, access.Spec)
 		require.NotNil(t, access.Status.Error)
 		assert.NotNil(t, access.Status.Error.Time)
 		assert.NotNil(t, access.Status.Error.Message)
-		assert.Contains(t, *access.Status.Error.Message, baseReadOnlyBucket.Name)
+		assert.Contains(t, *access.Status.Error.Message, roBucket.Name)
 		{ // non-error fields stay the same
 			accessNoError := access.DeepCopy()
 			accessNoError.Status.Error = nil
-			assert.Equal(t, baseAccess.Status, accessNoError.Status)
+			assert.Equal(t, initAccess.Status, accessNoError.Status)
 		}
 
 		// don't care if secrets exist or not
 	})
 
-	// driver name mismatch
 	t.Run("driver name mismatch", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
@@ -696,23 +720,33 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		bootstrapped := cositest.MustBootstrap(t,
 			baseAccess.DeepCopy(),
-			baseReadWriteBucket.DeepCopy(),
-			baseReadOnlyBucket.DeepCopy(),
+			baseClass.DeepCopy(),
+			baseReadWriteClaim.DeepCopy(),
+			baseReadOnlyClaim.DeepCopy(),
+			cositest.OpinionatedS3BucketClass(),
 		)
 		ctx := bootstrapped.ContextWithLogger
+
+		_, _, initAccess := reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
+		// remove finalizer from access to determine if reconcile runs (added back) or is skipped (remains removed)
+		noFinalizer := &cosiapi.BucketAccess{}
+		require.NoError(t, bootstrapped.Client.Get(ctx, cositest.NsName(&baseAccess), noFinalizer))
+		noFinalizer.Finalizers = nil
+		require.NoError(t, bootstrapped.Client.Update(ctx, noFinalizer))
 
 		r := newReconciler(bootstrapped.Client, rpcClient)
 		r.DriverInfo.Name = "wrong.name"
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		access := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, access))
-		assert.NotContains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
+		require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), access))
+		assert.NotContains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer) // should skip reconcile
 		assert.Equal(t, baseAccess.Spec, access.Spec)
-		assert.Equal(t, baseAccess.Status, access.Status)
+		assert.Equal(t, initAccess.Status, access.Status)
 
 		// don't care if secrets exist or not
 	})
@@ -878,20 +912,24 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 				bootstrapped := cositest.MustBootstrap(t,
 					baseAccess.DeepCopy(),
-					baseReadWriteBucket.DeepCopy(),
-					baseReadOnlyBucket.DeepCopy(),
+					baseClass.DeepCopy(),
+					baseReadWriteClaim.DeepCopy(),
+					baseReadOnlyClaim.DeepCopy(),
+					cositest.OpinionatedS3BucketClass(),
 				)
 				ctx := bootstrapped.ContextWithLogger
 
+				_, _, initAccess := reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
 				r := newReconciler(bootstrapped.Client, rpcClient)
 
-				res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+				res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 				assert.Empty(t, res)
 
 				access := &cosiapi.BucketAccess{}
-				require.NoError(t, r.Get(ctx, accessNsName, access))
+				require.NoError(t, r.Get(ctx, cositest.NsName(&baseAccess), access))
 				assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 				assert.Equal(t, baseAccess.Spec, access.Spec)
 				require.NotNil(t, access.Status.Error)
@@ -902,14 +940,14 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				{ // non-error fields stay the same
 					accessNoError := access.DeepCopy()
 					accessNoError.Status.Error = nil
-					assert.Equal(t, baseAccess.Status, accessNoError.Status)
+					assert.Equal(t, initAccess.Status, accessNoError.Status)
 				}
 
 				// secrets should have been created to claim them, but not updated with data
 				rws := &corev1.Secret{}
-				require.NoError(t, r.Get(ctx, readWriteSecretNsName, rws))
+				require.NoError(t, r.Get(ctx, cositest.SecretNsName(initAccess, 0), rws))
 				ros := &corev1.Secret{}
-				require.NoError(t, r.Get(ctx, readOnlySecretNsName, ros))
+				require.NoError(t, r.Get(ctx, cositest.SecretNsName(initAccess, 1), ros))
 				for _, s := range []*corev1.Secret{rws, ros} {
 					assert.Contains(t, s.GetFinalizers(), cosiapi.ProtectionFinalizer)
 					require.Len(t, s.OwnerReferences, 1)
@@ -934,7 +972,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 					},
 					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_BucketInfo{
 						{
-							BucketId: "cosi-bc-qwerty",
+							BucketId: "cosi-bc-my-ns-readwrite-bucket",
 							BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
 								Azure: &cosiproto.AzureBucketInfo{
 									StorageAccount: "outputaccount",
@@ -942,7 +980,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 							},
 						},
 						{
-							BucketId: "cosi-bc-asdfgh",
+							BucketId: "cosi-bc-my-ns-readonly-bucket",
 							BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
 								Azure: &cosiproto.AzureBucketInfo{
 									StorageAccount: "inputaccount",
@@ -964,23 +1002,72 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
-		azureAccess := baseAccess.DeepCopy()
-		azureAccess.Spec.Protocol = cosiapi.ObjectProtocolAzure
-		azureAccess.Spec.ServiceAccountName = "azure-sa"
-		azureAccess.Status.AuthenticationType = cosiapi.BucketAccessAuthenticationTypeServiceAccount
-		azureAccess.Status.Parameters = map[string]string{}
+		azureAccess := cosiapi.BucketAccess{
+			ObjectMeta: baseAccess.DeepCopy().ObjectMeta,
+			Spec: cosiapi.BucketAccessSpec{
+				Protocol:              cosiapi.ObjectProtocolAzure,
+				BucketAccessClassName: "azure-class",
+				ServiceAccountName:    "azure-sa",
+				BucketClaims:          baseAccess.DeepCopy().Spec.BucketClaims,
+			},
+		}
+
+		azureClass := cosiapi.BucketAccessClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "azure-class",
+			},
+			Spec: cosiapi.BucketAccessClassSpec{
+				DriverName:         cositest.OpinionatedAzureBucketClass().Spec.DriverName,
+				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeServiceAccount,
+				MultiBucketAccess:  cosiapi.MultiBucketAccessMultipleBuckets,
+			},
+		}
+
+		azureRwClaim := cositest.OpinionatedAzureBucketClaim("my-ns", "readwrite-bucket")
+		azureRoClaim := cositest.OpinionatedAzureBucketClaim("my-ns", "readonly-bucket")
 
 		bootstrapped := cositest.MustBootstrap(t,
-			azureAccess,
-			baseReadWriteBucket.DeepCopy(),
-			baseReadOnlyBucket.DeepCopy(),
+			azureAccess.DeepCopy(),
+			azureClass.DeepCopy(),
+			azureRwClaim.DeepCopy(),
+			azureRoClaim.DeepCopy(),
+			cositest.OpinionatedAzureBucketClass(),
 		)
 		ctx := bootstrapped.ContextWithLogger
 
-		r := newReconciler(bootstrapped.Client, rpcClient)
-		r.DriverInfo.SupportedProtocols = []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_AZURE}
+		// reconcile BucketClaims to create intermediate Buckets
+		rwClaim, err := controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(azureRwClaim))
+		require.NoError(t, err)
+		roClaim, err := controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(azureRoClaim))
+		require.NoError(t, err)
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
+		// reconcile intermediate Buckets
+		rwBucket, err := sidecartest.ReconcileOpinionatedAzureBucket(t, bootstrapped, cositest.BucketNsName(rwClaim))
+		require.NoError(t, err)
+		roBucket, err := sidecartest.ReconcileOpinionatedAzureBucket(t, bootstrapped, cositest.BucketNsName(roClaim))
+		require.NoError(t, err)
+
+		// reconcile BucketClaims to mirror finished status from Buckets
+		rwClaim, err = controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(azureRwClaim))
+		require.NoError(t, err)
+		require.True(t, *rwClaim.Status.ReadyToUse)
+		roClaim, err = controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(azureRoClaim))
+		require.NoError(t, err)
+		require.True(t, *roClaim.Status.ReadyToUse)
+
+		// initialize the BucketAccess using the COSI Controller logic
+		initAccess, err := controllertest.ReconcileBucketAccess(t, bootstrapped, cositest.NsName(&azureAccess))
+		require.NoError(t, err)
+		require.NotEmpty(t, initAccess.Status.AccessedBuckets)
+
+		r := newReconciler(bootstrapped.Client, rpcClient)
+		r.DriverInfo = sidecar.DriverInfo{
+			Name:               cositest.OpinionatedAzureBucketClass().Spec.DriverName,
+			SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_AZURE},
+			ProvisionerClient:  rpcClient,
+		}
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&azureAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -994,32 +1081,32 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		assert.Empty(t, req.Parameters)
 		require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
 		assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-			BucketId:   "cosi-bc-qwerty",
+			BucketId:   rwBucket.Status.BucketID,
 			AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
 		}))
 		assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-			BucketId:   "cosi-bc-asdfgh",
+			BucketId:   roBucket.Status.BucketID,
 			AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
 		}))
 
 		access := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, access))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&azureAccess), access))
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		assert.Equal(t, azureAccess.Spec, access.Spec) // spec should not change
 		assert.True(t, *access.Status.ReadyToUse)
 		assert.Nil(t, access.Status.Error)
 		assert.Equal(t, "cosi-ba-zxcvbn", access.Status.AccountID)
-		assert.Equal(t, azureAccess.Status.AccessedBuckets, access.Status.AccessedBuckets)
-		assert.Equal(t, azureAccess.Status.AuthenticationType, access.Status.AuthenticationType)
-		assert.Equal(t, azureAccess.Status.DriverName, access.Status.DriverName)
+		assert.Equal(t, initAccess.Status.AccessedBuckets, access.Status.AccessedBuckets)
+		assert.Equal(t, initAccess.Status.AuthenticationType, access.Status.AuthenticationType)
+		assert.Equal(t, initAccess.Status.DriverName, access.Status.DriverName)
 		assert.Empty(t, access.Status.Parameters)
 
 		// ensure secrets are present with info
 		rws := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readWriteSecretNsName, rws))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&azureAccess, 0), rws))
 
 		ros := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readOnlySecretNsName, ros))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&azureAccess, 1), ros))
 
 		for _, s := range []*corev1.Secret{rws, ros} {
 			assert.Contains(t, s.GetFinalizers(), cosiapi.ProtectionFinalizer)
@@ -1048,7 +1135,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 					},
 					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_BucketInfo{
 						{
-							BucketId: "cosi-bc-qwerty",
+							BucketId: "cosi-bc-my-ns-readwrite-bucket",
 							BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
 								Gcs: &cosiproto.GcsBucketInfo{
 									ProjectId:  "projectid",
@@ -1057,7 +1144,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 							},
 						},
 						{
-							BucketId: "cosi-bc-asdfgh",
+							BucketId: "cosi-bc-my-ns-readonly-bucket",
 							BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
 								Gcs: &cosiproto.GcsBucketInfo{
 									ProjectId:  "projectid",
@@ -1080,20 +1167,78 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		require.NoError(t, err)
 		rpcClient := cosiproto.NewProvisionerClient(conn)
 
-		gcsAccess := baseAccess.DeepCopy()
-		gcsAccess.Spec.Protocol = cosiapi.ObjectProtocolGcs
+		gcsAccess := cosiapi.BucketAccess{
+			ObjectMeta: baseAccess.DeepCopy().ObjectMeta,
+			Spec: cosiapi.BucketAccessSpec{
+				Protocol:              cosiapi.ObjectProtocolGcs,
+				BucketAccessClassName: "gcs-class",
+				BucketClaims:          baseAccess.DeepCopy().Spec.BucketClaims,
+			},
+		}
+
+		gcsClass := cosiapi.BucketAccessClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "gcs-class",
+			},
+			Spec: cosiapi.BucketAccessClassSpec{
+				DriverName:         cositest.OpinionatedGcsBucketClass().Spec.DriverName,
+				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
+				MultiBucketAccess:  cosiapi.MultiBucketAccessMultipleBuckets,
+				Parameters: map[string]string{
+					"maxSize": "100Gi",
+					"maxIops": "10",
+				},
+			},
+		}
+
+		gcsRwClaim := cositest.OpinionatedGcsBucketClaim("my-ns", "readwrite-bucket")
+		gcsRoClaim := cositest.OpinionatedGcsBucketClaim("my-ns", "readonly-bucket")
 
 		bootstrapped := cositest.MustBootstrap(t,
-			gcsAccess,
-			baseReadWriteBucket.DeepCopy(),
-			baseReadOnlyBucket.DeepCopy(),
+			gcsAccess.DeepCopy(),
+			gcsClass.DeepCopy(),
+			gcsRwClaim.DeepCopy(),
+			gcsRoClaim.DeepCopy(),
+			cositest.OpinionatedGcsBucketClass(),
 		)
 		ctx := bootstrapped.ContextWithLogger
 
-		r := newReconciler(bootstrapped.Client, rpcClient)
+		// reconcile BucketClaims to create intermediate Buckets
+		rwClaim, err := controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(gcsRwClaim))
+		require.NoError(t, err)
+		roClaim, err := controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(gcsRoClaim))
+		require.NoError(t, err)
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: accessNsName})
-		r.DriverInfo.SupportedProtocols = append(r.DriverInfo.SupportedProtocols, cosiproto.ObjectProtocol_GCS)
+		// reconcile intermediate Buckets
+		rwBucket, err := sidecartest.ReconcileOpinionatedGcsBucket(t, bootstrapped, cositest.BucketNsName(rwClaim))
+		require.NoError(t, err)
+		roBucket, err := sidecartest.ReconcileOpinionatedGcsBucket(t, bootstrapped, cositest.BucketNsName(roClaim))
+		require.NoError(t, err)
+
+		// reconcile BucketClaims to mirror finished status from Buckets
+		rwClaim, err = controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(gcsRwClaim))
+		require.NoError(t, err)
+		require.True(t, *rwClaim.Status.ReadyToUse)
+		roClaim, err = controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(gcsRoClaim))
+		require.NoError(t, err)
+		require.True(t, *roClaim.Status.ReadyToUse)
+
+		// initialize the BucketAccess using the COSI Controller logic
+		initAccess, err := controllertest.ReconcileBucketAccess(t, bootstrapped, cositest.NsName(&gcsAccess))
+		require.NoError(t, err)
+		require.NotEmpty(t, initAccess.Status.AccessedBuckets)
+
+		r := newReconciler(bootstrapped.Client, rpcClient)
+		r.DriverInfo = sidecar.DriverInfo{
+			Name: cositest.OpinionatedGcsBucketClass().Spec.DriverName,
+			SupportedProtocols: []cosiproto.ObjectProtocol_Type{
+				cosiproto.ObjectProtocol_S3,
+				cosiproto.ObjectProtocol_GCS,
+			},
+			ProvisionerClient: rpcClient,
+		}
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&gcsAccess)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
@@ -1113,32 +1258,32 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		)
 		require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
 		assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-			BucketId:   "cosi-bc-qwerty",
+			BucketId:   rwBucket.Status.BucketID,
 			AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
 		}))
 		assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-			BucketId:   "cosi-bc-asdfgh",
+			BucketId:   roBucket.Status.BucketID,
 			AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
 		}))
 
 		access := &cosiapi.BucketAccess{}
-		require.NoError(t, r.Get(ctx, accessNsName, access))
+		require.NoError(t, r.Get(ctx, cositest.NsName(&gcsAccess), access))
 		assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		assert.Equal(t, gcsAccess.Spec, access.Spec) // spec should not change
 		assert.True(t, *access.Status.ReadyToUse)
 		assert.Nil(t, access.Status.Error)
 		assert.Equal(t, "cosi-ba-zxcvbn", access.Status.AccountID)
-		assert.Equal(t, gcsAccess.Status.AccessedBuckets, access.Status.AccessedBuckets)
-		assert.Equal(t, gcsAccess.Status.AuthenticationType, access.Status.AuthenticationType)
-		assert.Equal(t, gcsAccess.Status.DriverName, access.Status.DriverName)
-		assert.Equal(t, gcsAccess.Status.Parameters, access.Status.Parameters)
+		assert.Equal(t, initAccess.Status.AccessedBuckets, access.Status.AccessedBuckets)
+		assert.Equal(t, initAccess.Status.AuthenticationType, access.Status.AuthenticationType)
+		assert.Equal(t, initAccess.Status.DriverName, access.Status.DriverName)
+		assert.Equal(t, initAccess.Status.Parameters, access.Status.Parameters)
 
 		// ensure secrets are present with info
 		rws := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readWriteSecretNsName, rws))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&gcsAccess, 0), rws))
 
 		ros := &corev1.Secret{}
-		require.NoError(t, r.Get(ctx, readOnlySecretNsName, ros))
+		require.NoError(t, r.Get(ctx, cositest.SecretNsName(&gcsAccess, 1), ros))
 
 		for _, s := range []*corev1.Secret{rws, ros} {
 			assert.Contains(t, s.GetFinalizers(), cosiapi.ProtectionFinalizer)

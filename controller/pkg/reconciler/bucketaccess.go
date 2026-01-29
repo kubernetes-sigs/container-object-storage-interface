@@ -182,6 +182,15 @@ func (r *BucketAccessReconciler) reconcile(
 		return err
 	}
 
+	// HARD STOP IF ALREADY INITIALIZED
+	// There may be cases where it is important to reprocess a BucketAccess to resolve a bug or
+	// repair BucketClaim access marking, but the full initialization SHOULD NOT be repeated to
+	// avoid changing status fields that directly affect the Sidecar's RPC call parameters.
+	if len(access.Status.AccessedBuckets) > 0 {
+		logger.Info("reprocessed a BucketAccess that is already initialized")
+		return nil
+	}
+
 	class := &cosiapi.BucketAccessClass{}
 	classNsName := types.NamespacedName{
 		Name:      access.Spec.BucketAccessClassName,
@@ -200,9 +209,15 @@ func (r *BucketAccessReconciler) reconcile(
 		return err
 	}
 
-	if err := validateAccessAgainstClass(&class.Spec, &access.Spec); err != nil {
-		logger.Error(err, "BucketAccess failed featureOptions validation")
+	if err := ValidateAccessAgainstClass(&class.Spec, &access.Spec); err != nil {
+		logger.Error(err, "invalid spec against BucketAccessClass requirements")
 		return cosierr.NonRetryableError(err)
+	}
+
+	bucketsByClaimName, err := getBucketsForClaims(ctx, r.Client, claimsByName)
+	if err != nil {
+		logger.Error(err, "failed to get Buckets for referenced BucketClaims")
+		return err
 	}
 
 	blockers := cannotAccessBucketClaims(claimsByName, access.Spec)
@@ -212,7 +227,7 @@ func (r *BucketAccessReconciler) reconcile(
 			fmt.Errorf("access cannot be provisioned for one or more BucketClaims: %v", blockers))
 	}
 
-	waitlist := waitingOnBucketClaims(claimsByName)
+	waitlist := waitingOnBucketClaims(claimsByName, bucketsByClaimName)
 	if len(waitlist) > 0 {
 		logger.Error(nil, "waiting for prerequisites before provisioning access", "waitlist", waitlist)
 		// TODO: for now, return an error and allow the controller to exponential backoff until we
@@ -221,7 +236,7 @@ func (r *BucketAccessReconciler) reconcile(
 		return fmt.Errorf("waiting for prerequisites before provisioning access: %v", waitlist)
 	}
 
-	accessedBuckets, err := generateAccessedBuckets(access.Spec.BucketClaims, claimsByName)
+	accessedBuckets, err := compileAccessedBuckets(access.Spec.BucketClaims, bucketsByClaimName)
 	if err != nil {
 		logger.Error(err, "waiting for BucketClaims to finish provisioning")
 		return fmt.Errorf("waiting for BucketClaims to finish provisioning: %w", err)
@@ -328,7 +343,7 @@ func markAllBucketClaimsAsAccessed(
 }
 
 // Return an error if the BucketAccess doesn't meet BucketAccessClass requirements.
-func validateAccessAgainstClass(
+func ValidateAccessAgainstClass(
 	class *cosiapi.BucketAccessClassSpec,
 	access *cosiapi.BucketAccessSpec,
 ) error {
@@ -356,6 +371,61 @@ func validateAccessAgainstClass(
 		return fmt.Errorf("one or more features are disallowed by the BucketAccessClass: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// Get all Buckets from the referenced BucketClaims.
+// If any BucketClaims don't have a bound Bucket, assume the Bucket hasn't been created YET;
+// mark them nil in the resulting map without treating it as an error.
+// When no error is returned, the output map MUST have an entry for every given BucketClaim.
+func getBucketsForClaims(
+	ctx context.Context,
+	client client.Client,
+	claimsByName map[string]*cosiapi.BucketClaim,
+) (map[string]*cosiapi.Bucket, error) {
+	bucketsByClaimName := make(map[string]*cosiapi.Bucket, len(claimsByName))
+	errs := []error{}
+
+	for claimName, claim := range claimsByName {
+		if claim == nil {
+			// BucketClaim doesn't exist (yet), so can't have a Bucket
+			bucketsByClaimName[claimName] = nil
+			continue
+		}
+		if claim.Status.BoundBucketName == "" {
+			// BucketClaim's Bucket hasn't been created (yet)
+			bucketsByClaimName[claimName] = nil
+			continue
+		}
+
+		bucket := cosiapi.Bucket{}
+		nsName := types.NamespacedName{
+			Namespace: "",
+			Name:      claim.Status.BoundBucketName,
+		}
+		if err := client.Get(ctx, nsName, &bucket); err != nil {
+			if kerrors.IsNotFound(err) {
+				errs = append(errs, cosierr.NonRetryableError(
+					fmt.Errorf("unrecoverable degradation: Bucket %q for BucketClaim %q has gone missing: %w",
+						claim.Status.BoundBucketName, claimName, err)))
+				continue
+			}
+			errs = append(errs, err) // should resolve after exponential backoff
+			continue
+		}
+
+		bucketsByClaimName[claimName] = &bucket
+	}
+
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("could not get one or more Buckets: %w", errors.Join(errs...))
+	}
+
+	if len(bucketsByClaimName) != len(claimsByName) {
+		// Should never happen, but double check because the 1:1 requirement is critical.
+		return nil, fmt.Errorf("did not get one or more Buckets, but no errors observed")
+	}
+
+	return bucketsByClaimName, nil
 }
 
 // Ensure that all BucketClaims can request the access to be provisioned without known errors.
@@ -388,55 +458,96 @@ func cannotAccessBucketClaims(
 
 // Ensure that all BucketClaims are provisioned enough to continue with access initialization.
 // Return a list of messages that explain what needs to be waited on.
-func waitingOnBucketClaims(claimsByName map[string]*cosiapi.BucketClaim) []string {
+func waitingOnBucketClaims(
+	claimsByName map[string]*cosiapi.BucketClaim,
+	bucketsByClaimName map[string]*cosiapi.Bucket,
+) []string {
 	waitMsgs := []string{}
-	for name, claim := range claimsByName {
+	for claimName, claim := range claimsByName {
 		if claim == nil {
-			waitMsgs = append(waitMsgs, fmt.Sprintf("BucketClaim %q does not (yet?) exist", name))
+			// Could be a typo in a BucketClaim reference, or the BucketClaim might not exist yet.
+			waitMsgs = append(waitMsgs, fmt.Sprintf("waiting for BucketClaim %q to exist", claimName))
 			continue
 		}
-		if claim.Status.BoundBucketName == "" || len(claim.Status.Protocols) == 0 {
-			waitMsgs = append(waitMsgs, fmt.Sprintf("BucketClaim %q is still provisioning", name))
+
+		// For static provisioning, this could indicate a misconfiguration somewhere.
+		if claim.Status.BoundBucketName == "" {
+			waitMsgs = append(waitMsgs, fmt.Sprintf("waiting for BucketClaim %q to be bound to a Bucket", claimName))
+			continue
+		}
+
+		bucket, ok := bucketsByClaimName[claimName]
+		if !ok {
+			// Should never happen because getBucketsForClaims() guarantees 1:1 mapping
+			waitMsgs = append(waitMsgs, fmt.Sprintf("internal error: missing Bucket %q for BucketClaim %q",
+				claim.Status.BoundBucketName, claimName))
+			continue
+		}
+
+		if bucket == nil {
+			// Should never trigger because getBucketsForClaims() treats missing Buckets as errors,
+			// but check for nil here to avoid any chance of nil pointer dereference below.
+			waitMsgs = append(waitMsgs, fmt.Sprintf("waiting for Bucket %q for BucketClaim %q to exist",
+				claim.Status.BoundBucketName, claimName))
+			continue
+		}
+
+		// BucketIDs are a requirement for status.accessedBuckets, so ensure all Buckets have one.
+		if bucket.Status.BucketID == "" {
+			waitMsgs = append(waitMsgs,
+				fmt.Sprintf("waiting for Bucket %q for BucketClaim %q to finish provisioning",
+					claim.Status.BoundBucketName, claimName))
+			continue
+		}
+
+		// The real thing we are waiting on is for the BucketClaim to be provisioned.
+		// Beyond assumption/type checking, the checks above provide more detailed feedback to help
+		// users debug issues more easily.
+		if !ptr.Deref(claim.Status.ReadyToUse, false) {
+			waitMsgs = append(waitMsgs, fmt.Sprintf("waiting for BucketClaim %q to finish provisioning Bucket %q",
+				claimName, claim.Status.BoundBucketName))
 			continue
 		}
 	}
 	return waitMsgs
 }
 
-// Generate the accessedBuckets status list for the BucketAccess.
-func generateAccessedBuckets(
+// Compile the accessedBuckets status list for the BucketAccess.
+func compileAccessedBuckets(
 	claimAccesses []cosiapi.BucketClaimAccess,
-	claimsByName map[string]*cosiapi.BucketClaim,
+	bucketsByClaimName map[string]*cosiapi.Bucket,
 ) (
 	[]cosiapi.AccessedBucket,
 	error,
 ) {
 	accessedBuckets := make([]cosiapi.AccessedBucket, len(claimAccesses))
-	unbound := []string{}
+	missingIds := []string{}
 
 	// It will be helpful for human readability if the ordering of AccessedBuckets in the status
 	// matches the ordering of BucketClaims in the spec.
 	for i, ref := range claimAccesses {
-		claim, ok := claimsByName[ref.BucketClaimName]
-		if !ok || claim == nil {
+		bucket, ok := bucketsByClaimName[ref.BucketClaimName]
+		if !ok || bucket == nil {
 			// Unexpected during runtime because getAllBucketClaims() requires that all input
 			// BucketAccessClaims must be represented in the claimsByName map.
-			return nil, fmt.Errorf("missing expected BucketClaim internally %q", ref.BucketClaimName)
+			return nil, fmt.Errorf("internal error: missing Bucket for BucketClaim %q", ref.BucketClaimName)
 		}
 
-		if claim.Status.BoundBucketName == "" {
-			unbound = append(unbound, ref.BucketClaimName)
+		if bucket.Status.BucketID == "" {
+			missingIds = append(missingIds, ref.BucketClaimName)
 			continue
 		}
 
 		accessedBuckets[i] = cosiapi.AccessedBucket{
-			BucketName:      claim.Status.BoundBucketName,
-			BucketClaimName: claim.GetName(),
+			BucketName:      bucket.Name,
+			BucketID:        bucket.Status.BucketID,
+			BucketClaimName: ref.BucketClaimName,
 		}
 	}
 
-	if len(unbound) > 0 {
-		return nil, fmt.Errorf("one or more BucketClaims are still unbound to a Bucket: %v", unbound)
+	if len(missingIds) > 0 {
+		// Should never happen because waitingOnBucketClaims() checks for this condition.
+		return nil, fmt.Errorf("one or more Buckets are missing IDs: %v", missingIds)
 	}
 
 	return accessedBuckets, nil
