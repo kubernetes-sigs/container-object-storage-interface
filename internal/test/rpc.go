@@ -98,12 +98,15 @@ func RpcClientConn(tmpSockUri string) (*grpc.ClientConn, error) {
 }
 
 // FakeProvisionerServer implements COSI provisioner server with call stubs for use in unit tests.
+// To ensure unit tests properly set expectations, the base FakeProvisionerServer panics if any RPC
+// is called without a corresponding function set.
 // nolint:lll // don't care about the long lines here
 type FakeProvisionerServer struct {
 	cosiproto.UnimplementedProvisionerServer
 
-	CreateBucketFunc      func(context.Context, *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error)
-	GrantBucketAccessFunc func(context.Context, *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error)
+	CreateBucketFunc       func(context.Context, *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error)
+	GrantBucketAccessFunc  func(context.Context, *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error)
+	RevokeBucketAccessFunc func(context.Context, *cosiproto.DriverRevokeBucketAccessRequest) (*cosiproto.DriverRevokeBucketAccessResponse, error)
 }
 
 func (s *FakeProvisionerServer) DriverCreateBucket(
@@ -112,7 +115,8 @@ func (s *FakeProvisionerServer) DriverCreateBucket(
 	if s.CreateBucketFunc != nil {
 		return s.CreateBucketFunc(ctx, req)
 	}
-	return s.UnimplementedProvisionerServer.DriverCreateBucket(ctx, req)
+	// unit tests must set an expectation if they expect the call to be made
+	panic("DriverCreateBucketFunc not implemented in FakeProvisionerServer")
 }
 
 func (s *FakeProvisionerServer) DriverGrantBucketAccess(
@@ -121,5 +125,16 @@ func (s *FakeProvisionerServer) DriverGrantBucketAccess(
 	if s.GrantBucketAccessFunc != nil {
 		return s.GrantBucketAccessFunc(ctx, req)
 	}
-	return s.UnimplementedProvisionerServer.DriverGrantBucketAccess(ctx, req)
+	// unit tests must set an expectation if they expect the call to be made
+	panic("DriverGrantBucketAccessFunc not implemented in FakeProvisionerServer")
+}
+
+func (s *FakeProvisionerServer) DriverRevokeBucketAccess(
+	ctx context.Context, req *cosiproto.DriverRevokeBucketAccessRequest,
+) (*cosiproto.DriverRevokeBucketAccessResponse, error) {
+	if s.RevokeBucketAccessFunc != nil {
+		return s.RevokeBucketAccessFunc(ctx, req)
+	}
+	// unit tests must set an expectation if they expect the call to be made
+	panic("DriverRevokeBucketAccessFunc not implemented in FakeProvisionerServer")
 }
