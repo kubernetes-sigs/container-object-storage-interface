@@ -179,6 +179,19 @@ spec:
                       x-kubernetes-validations:
                       - message: name must be a valid resource name
                         rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                    bucketID:
+                      description: |-
+                        bucketID is the unique identifier for the backend bucket known to the driver for which
+                        this access should have permissions.
+                        Must be at most 2048 characters and consist only of alphanumeric characters ([a-z0-9A-Z]),
+                        dashes (-), dots (.), underscores (_), and forward slash (/).
+                      maxLength: 2048
+                      minLength: 1
+                      pattern: ^[a-zA-Z0-9/._-]+$
+                      type: string
+                      x-kubernetes-validations:
+                      - message: boundBucketName is immutable once set
+                        rule: self == oldSelf
                     bucketName:
                       description: |-
                         bucketName is the name of a Bucket the access should have permissions for.
