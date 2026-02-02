@@ -56,13 +56,11 @@ export
 all: prebuild build ## Build all container images, plus their prerequisites (faster with 'make -j')
 
 .PHONY: lint
-lint: golangci-lint kubeapi-lint spell-lint eof-newline-lint dockerfiles-lint ## Run all linters (suggest `make -k`)
+lint: golangci-lint kubeapi-lint eof-newline-lint dockerfiles-lint ## Run all linters (suggest `make -k`)
 golangci-lint: golangci-lint
 	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml
 kubeapi-lint: kube-api-linter
 	cd client/apis && $(KUBEAPI_LINT) run --config $(CURDIR)/client/.kubeapilint.yaml
-spell-lint:
-	git ls-files | grep -v -e CHANGELOG -e go.mod -e go.sum -e vendor | xargs $(SPELL_LINT) -i "Creater,creater,ect" -error -o stderr
 dockerfiles-lint:
 	hack/tools/lint-dockerfiles.sh $(HADOLINT_VERSION)
 eof-newline-lint:
@@ -74,7 +72,7 @@ golangci-lint-fix: golangci-lint
 	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml --fix
 
 .PHONY: test
-test: .test.proto vet .test.go ## Run all unit tests including vet and fmt
+test: .test.proto .test.go ## Run all unit tests including fmt
 .test.go: fmt
 	go test -v -cover ./...
 .PHONY: .test.proto
@@ -130,10 +128,6 @@ codegen.proto:
 .PHONY: fmt
 fmt:
 	go fmt ./...
-
-.PHONY: vet
-vet:
-	go vet ./...
 
 .PHONY: docs
 docs: generate crd-ref-docs mdbook ## Build docs
@@ -197,7 +191,6 @@ KIND           ?= $(TOOLBIN)/kind
 KUBEAPI_LINT   ?= $(TOOLBIN)/golangci-lint-kube-api-linter
 KUSTOMIZE      ?= $(TOOLBIN)/kustomize
 MDBOOK         ?= $(TOOLBIN)/mdbook
-SPELL_LINT     ?= $(TOOLBIN)/spell-lint
 
 # Tool Versions
 CHAINSAW_VERSION         ?= v0.2.12
@@ -209,7 +202,6 @@ KIND_VERSION             ?= v0.27.0
 KUBEAPI_LINT_VERSION     ?= v0.0.0-20260105171240-d42ba1d7b50c
 KUSTOMIZE_VERSION        ?= v5.6.0
 MDBOOK_VERSION           ?= v0.4.47
-SPELL_LINT_VERSION       ?= v0.6.0
 HADOLINT_VERSION         ?= v2.12.0
 
 .PHONY: chainsaw
@@ -256,11 +248,6 @@ $(KUSTOMIZE)-$(KUSTOMIZE_VERSION): $(TOOLBIN)
 mdbook: $(MDBOOK)-$(MDBOOK_VERSION)
 $(MDBOOK)-$(MDBOOK_VERSION): $(TOOLBIN)
 	./hack/tools/install-mdbook.sh $(MDBOOK) $(MDBOOK_VERSION)
-
-.PHONY: spell-lint
-spell-lint: $(SPELL_LINT)-$(SPELL_LINT_VERSION)
-$(SPELL_LINT)-$(SPELL_LINT_VERSION): $(TOOLBIN)
-	./hack/tools/install-misspell-lint.sh $(TOOLBIN) $(SPELL_LINT) $(SPELL_LINT_VERSION)
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
