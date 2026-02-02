@@ -17,6 +17,7 @@ limitations under the License.
 package reconciler
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -503,6 +504,345 @@ func TestBucketClaimReconcile(t *testing.T) {
 		assert.Contains(t, *claim.Status.Error.Message, "unrecoverable degradation")
 	})
 
+	t.Run("static provisioning", func(t *testing.T) {
+		const staticBucketName = "static-bucket"
+		staticClaim := baseClaim.DeepCopy()
+		staticClaim.Spec.ExistingBucketName = staticBucketName
+		// clearing BucketClassName so the claim is unambiguously static-only and we don't
+		// accidentally depend on a BucketClass (static path never uses it, admin adds the details to the Bucket directly/manually).
+		staticClaim.Spec.BucketClassName = ""
+
+		makeStaticBucket := func(ref cosiapi.BucketClaimReference) *cosiapi.Bucket {
+			return &cosiapi.Bucket{
+				ObjectMeta: meta.ObjectMeta{Name: staticBucketName},
+				Spec: cosiapi.BucketSpec{
+					DriverName:     "some-driver",
+					DeletionPolicy: cosiapi.BucketDeletionPolicyRetain,
+					BucketClaimRef: ref,
+				},
+			}
+		}
+
+		// asserts that the bucket for dynamic provisioning was not created
+		assertDynamicBucketNotCreated := func(t *testing.T, ctx context.Context, r *BucketClaimReconciler) {
+			dynamicBucket := &cosiapi.Bucket{}
+			err := r.Get(ctx, types.NamespacedName{Name: "bc-qwerty"}, dynamicBucket)
+			assert.Error(t, err)
+			assert.True(t, kerrors.IsNotFound(err))
+		}
+
+		staticHappyPathTest := func(t *testing.T, presetUID bool) (
+			bootstrappedDeps *cositest.Dependencies,
+			bootstrappedReconciler *BucketClaimReconciler,
+			gotClaim *cosiapi.BucketClaim,
+			gotBucket *cosiapi.Bucket,
+		) {
+			ref := cosiapi.BucketClaimReference{
+				Namespace: staticClaim.Namespace,
+				Name:      staticClaim.Name,
+				UID:       "", // admin left UID unset (controller will set it during binding)
+			}
+			if presetUID {
+				// admin already set ref UID to match claim UID
+				ref.UID = staticClaim.UID
+			}
+			bucket := makeStaticBucket(ref)
+			bootstrapped := cositest.MustBootstrap(t,
+				staticClaim.DeepCopy(),
+				bucket,
+			)
+			r := &BucketClaimReconciler{
+				Client: bootstrapped.Client,
+				Scheme: bootstrapped.Client.Scheme(),
+			}
+			ctx := bootstrapped.ContextWithLogger
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: claimNsName})
+			assert.Error(t, err)
+			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.Empty(t, res)
+
+			claim := &cosiapi.BucketClaim{}
+			err = r.Get(ctx, claimNsName, claim)
+			require.NoError(t, err)
+			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			assert.Equal(t, staticBucketName, claim.Status.BoundBucketName)
+			assert.Equal(t, false, *claim.Status.ReadyToUse)
+			assert.Empty(t, claim.Status.Protocols)
+			// claim status should record waiting state
+			require.NotNil(t, claim.Status.Error)
+			assert.Contains(t, *claim.Status.Error.Message, "waiting for Bucket to be provisioned")
+
+			gotBucket = &cosiapi.Bucket{}
+			err = r.Get(ctx, types.NamespacedName{Name: staticBucketName}, gotBucket)
+			require.NoError(t, err)
+			// Bucket claim ref UID must match claim UID
+			// set either by controller or by admin
+			assert.Equal(t, staticClaim.UID, gotBucket.Spec.BucketClaimRef.UID)
+
+			assertDynamicBucketNotCreated(t, ctx, r)
+
+			return bootstrapped, r, claim, gotBucket
+		}
+
+		t.Run("bucket initialization", func(t *testing.T) {
+			t.Run("bucket created before claim", func(t *testing.T) {
+				staticHappyPathTest(t, false) // ref UID unset
+			})
+
+			t.Run("bucket created after claim", func(t *testing.T) {
+				staticHappyPathTest(t, true) // ref UID preset
+			})
+
+			t.Run("subsequent reconcile no change", func(t *testing.T) {
+				bootstrapped, r, firstClaim, firstBucket := staticHappyPathTest(t, false)
+				ctx := bootstrapped.ContextWithLogger
+
+				res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: claimNsName})
+				assert.Error(t, err)
+				assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+				assert.Empty(t, res)
+
+				secondClaim := &cosiapi.BucketClaim{}
+				err = r.Get(ctx, claimNsName, secondClaim)
+				require.NoError(t, err)
+				assert.Equal(t, firstClaim.Finalizers, secondClaim.Finalizers)
+				assert.Equal(t, firstClaim.Spec, secondClaim.Spec)
+				assert.Equal(t, firstClaim.Status, secondClaim.Status)
+
+				secondBucket := &cosiapi.Bucket{}
+				err = r.Get(ctx, types.NamespacedName{Name: staticBucketName}, secondBucket)
+				require.NoError(t, err)
+				assert.Equal(t, firstBucket, secondBucket)
+
+				assertDynamicBucketNotCreated(t, ctx, r)
+			})
+		})
+
+		t.Run("bucket completion", func(t *testing.T) {
+			t.Run("bucket finished", func(t *testing.T) {
+				bootstrapped, r, firstClaim, bucket := staticHappyPathTest(t, false)
+				ctx := bootstrapped.ContextWithLogger
+
+				// TODO: Use the Sidecar's reconciler.BucketReconciler{}.Reconcile
+				// to make the Bucket ready instead of manually updating bucket status here.
+				bucket.Status.BucketID = "existing-bucket-id"
+				bucket.Status.ReadyToUse = ptr.To(true)
+				bucket.Status.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
+				err := r.Status().Update(ctx, bucket)
+				require.NoError(t, err)
+
+				res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: claimNsName})
+				assert.NoError(t, err)
+				assert.Empty(t, res)
+
+				secondClaim := &cosiapi.BucketClaim{}
+				err = r.Get(ctx, claimNsName, secondClaim)
+				require.NoError(t, err)
+				assert.Equal(t, firstClaim.Finalizers, secondClaim.Finalizers)
+				assert.Equal(t, firstClaim.Spec, secondClaim.Spec)
+				assert.Equal(t, staticBucketName, secondClaim.Status.BoundBucketName)
+				assert.True(t, *secondClaim.Status.ReadyToUse)
+				assert.Equal(t, bucket.Status.Protocols, secondClaim.Status.Protocols)
+				assert.Nil(t, secondClaim.Status.Error)
+
+				secondBucket := &cosiapi.Bucket{}
+				err = r.Get(ctx, types.NamespacedName{Name: staticBucketName}, secondBucket)
+				require.NoError(t, err)
+				assert.Equal(t, bucket, secondBucket)
+
+				assertDynamicBucketNotCreated(t, ctx, r)
+			})
+
+			t.Run("bucket failed", func(t *testing.T) {
+				bootstrapped, r, firstClaim, bucket := staticHappyPathTest(t, false)
+				ctx := bootstrapped.ContextWithLogger
+
+				// TODO: Use the Sidecar's reconciler.BucketReconciler{}.Reconcile
+				// to make the Bucket failed instead of manually updating bucket status here.
+				bucket.Status.ReadyToUse = ptr.To(false)
+				bucket.Status.Error = cosiapi.NewTimestampedError(time.Now(), "fake error")
+				err := r.Status().Update(ctx, bucket)
+				require.NoError(t, err)
+
+				res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: claimNsName})
+				assert.Error(t, err)
+				assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+				assert.Empty(t, res)
+
+				secondClaim := &cosiapi.BucketClaim{}
+				err = r.Get(ctx, claimNsName, secondClaim)
+				require.NoError(t, err)
+				assert.Equal(t, firstClaim.Finalizers, secondClaim.Finalizers)
+				assert.Equal(t, firstClaim.Spec, secondClaim.Spec)
+				assert.Equal(t, firstClaim.Status, secondClaim.Status)
+
+				secondBucket := &cosiapi.Bucket{}
+				err = r.Get(ctx, types.NamespacedName{Name: staticBucketName}, secondBucket)
+				require.NoError(t, err)
+				assert.Equal(t, bucket, secondBucket)
+
+				assertDynamicBucketNotCreated(t, ctx, r)
+			})
+		})
+
+		t.Run("bucket does not exist, retrying with error", func(t *testing.T) {
+			bootstrapped := cositest.MustBootstrap(t,
+				staticClaim.DeepCopy(),
+			)
+			r := &BucketClaimReconciler{
+				Client: bootstrapped.Client,
+				Scheme: bootstrapped.Client.Scheme(),
+			}
+			ctx := bootstrapped.ContextWithLogger
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: claimNsName})
+			assert.Error(t, err)
+			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.ErrorContains(t, err, "waiting for statically-provisioned Bucket")
+			assert.ErrorContains(t, err, staticBucketName)
+			assert.Empty(t, res)
+
+			claim := &cosiapi.BucketClaim{}
+			err = r.Get(ctx, claimNsName, claim)
+			require.NoError(t, err)
+			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			assert.Equal(t, staticClaim.Spec, claim.Spec)
+			require.NotNil(t, claim.Status.Error)
+			assert.NotNil(t, claim.Status.Error.Time)
+			assert.NotNil(t, claim.Status.Error.Message)
+			assert.Contains(t, *claim.Status.Error.Message, "waiting for statically-provisioned Bucket")
+			assert.Contains(t, *claim.Status.Error.Message, staticBucketName)
+			assert.False(t, ptr.Deref(claim.Status.ReadyToUse, true))
+			assert.Empty(t, claim.Status.BoundBucketName)
+			assert.Empty(t, claim.Status.Protocols)
+
+			assertDynamicBucketNotCreated(t, ctx, r)
+		})
+
+		t.Run("bucket bucketClaimRef mismatch, error without retry", func(t *testing.T) {
+			type bucketClaimRefMismatchTest struct {
+				testName      string
+				bucketRef     cosiapi.BucketClaimReference
+				errorContains []string
+			}
+			tests := []bucketClaimRefMismatchTest{
+				{
+					"namespace mismatch",
+					cosiapi.BucketClaimReference{
+						Namespace: "other-namespace",
+						Name:      staticClaim.Name,
+						UID:       "",
+					},
+					[]string{"namespace", "other-namespace"},
+				},
+				{
+					"name mismatch",
+					cosiapi.BucketClaimReference{
+						Namespace: staticClaim.Namespace,
+						Name:      "other-claim-name",
+						UID:       "",
+					},
+					[]string{"name", "other-claim-name"},
+				},
+				{
+					"UID mismatch", // already bound to different claim
+					cosiapi.BucketClaimReference{
+						Namespace: staticClaim.Namespace,
+						Name:      staticClaim.Name,
+						UID:       types.UID("other-uid"),
+					},
+					[]string{"Bucket claim ref UID", "other-uid"},
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.testName, func(t *testing.T) {
+					bucket := makeStaticBucket(tt.bucketRef)
+					bootstrapped := cositest.MustBootstrap(t,
+						staticClaim.DeepCopy(),
+						bucket,
+					)
+					r := &BucketClaimReconciler{
+						Client: bootstrapped.Client,
+						Scheme: bootstrapped.Client.Scheme(),
+					}
+					ctx := bootstrapped.ContextWithLogger
+
+					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: claimNsName})
+					assert.Error(t, err)
+					assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+					for _, s := range tt.errorContains {
+						assert.ErrorContains(t, err, s)
+					}
+					assert.Empty(t, res)
+
+					claim := &cosiapi.BucketClaim{}
+					err = r.Get(ctx, claimNsName, claim)
+					require.NoError(t, err)
+					assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+					assert.Equal(t, staticClaim.Spec, claim.Spec)
+					require.NotNil(t, claim.Status.Error)
+					assert.NotNil(t, claim.Status.Error.Time)
+					assert.NotNil(t, claim.Status.Error.Message)
+					for _, s := range tt.errorContains {
+						assert.Contains(t, *claim.Status.Error.Message, s)
+					}
+					assert.False(t, ptr.Deref(claim.Status.ReadyToUse, true))
+					assert.Empty(t, claim.Status.BoundBucketName)
+					assert.Empty(t, claim.Status.Protocols)
+
+					secondBucket := &cosiapi.Bucket{}
+					err = r.Get(ctx, types.NamespacedName{Name: staticBucketName}, secondBucket)
+					require.NoError(t, err)
+					assert.Equal(t, bucket, secondBucket)
+
+					assertDynamicBucketNotCreated(t, ctx, r)
+				})
+			}
+		})
+
+		t.Run("bound claim with missing bucket, error without retry", func(t *testing.T) {
+			boundClaim := staticClaim.DeepCopy()
+			boundClaim.Status.BoundBucketName = staticBucketName
+			boundClaim.Status.ReadyToUse = ptr.To(true)
+			// No Bucket resource (e.g: force-deleted)
+			bootstrapped := cositest.MustBootstrap(t,
+				boundClaim,
+			)
+			r := &BucketClaimReconciler{
+				Client: bootstrapped.Client,
+				Scheme: bootstrapped.Client.Scheme(),
+			}
+			ctx := bootstrapped.ContextWithLogger
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: claimNsName})
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.ErrorContains(t, err, "unrecoverable degradation")
+			assert.ErrorContains(t, err, "no longer exists")
+			assert.Empty(t, res)
+
+			claim := &cosiapi.BucketClaim{}
+			err = r.Get(ctx, claimNsName, claim)
+			require.NoError(t, err)
+			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			assert.Equal(t, boundClaim.Spec, claim.Spec)
+			require.NotNil(t, claim.Status.Error)
+			assert.NotNil(t, claim.Status.Error.Time)
+			assert.NotNil(t, claim.Status.Error.Message)
+			assert.Contains(t, *claim.Status.Error.Message, "unrecoverable degradation")
+			assert.Contains(t, *claim.Status.Error.Message, "no longer exists")
+			assert.Equal(t, staticBucketName, claim.Status.BoundBucketName)
+			assert.Empty(t, claim.Status.Protocols)
+
+			// Bucket should not exist
+			bucket := &cosiapi.Bucket{}
+			err = r.Get(ctx, types.NamespacedName{Name: staticBucketName}, bucket)
+			assert.True(t, kerrors.IsNotFound(err))
+
+			assertDynamicBucketNotCreated(t, ctx, r)
+		})
+	})
+
 	// TODO: deletion (dynamic and static, Retain/Delete)
-	// TODO: static provisioning
 }
