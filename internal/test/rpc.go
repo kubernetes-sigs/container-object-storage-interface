@@ -103,6 +103,7 @@ type FakeProvisionerServer struct {
 	cosiproto.UnimplementedProvisionerServer
 
 	CreateBucketFunc      func(context.Context, *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error)
+	GetExistingBucketFunc func(context.Context, *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error)
 	GrantBucketAccessFunc func(context.Context, *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error)
 }
 
@@ -113,6 +114,15 @@ func (s *FakeProvisionerServer) DriverCreateBucket(
 		return s.CreateBucketFunc(ctx, req)
 	}
 	return s.UnimplementedProvisionerServer.DriverCreateBucket(ctx, req)
+}
+
+func (s *FakeProvisionerServer) DriverGetExistingBucket(
+	ctx context.Context, req *cosiproto.DriverGetExistingBucketRequest,
+) (*cosiproto.DriverGetExistingBucketResponse, error) {
+	if s.GetExistingBucketFunc != nil {
+		return s.GetExistingBucketFunc(ctx, req)
+	}
+	return s.UnimplementedProvisionerServer.DriverGetExistingBucket(ctx, req)
 }
 
 func (s *FakeProvisionerServer) DriverGrantBucketAccess(
