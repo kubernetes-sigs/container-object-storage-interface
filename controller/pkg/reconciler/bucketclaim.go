@@ -48,6 +48,7 @@ type BucketClaimReconciler struct {
 // +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=bucketclaims,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=bucketclaims/status,verbs=get;update
 // +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=bucketclaims/finalizers,verbs=update
+// +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=buckets,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -133,9 +134,7 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 
 	logger = logger.WithValues("bucketName", bucketName)
 
-	if claim.Spec.ExistingBucketName != "" {
-		return cosierr.NonRetryableError(fmt.Errorf("static provisioning is not yet supported")) // TODO
-	}
+	isStaticProvisioning := claim.Spec.ExistingBucketName != ""
 
 	if !claim.GetDeletionTimestamp().IsZero() {
 		logger.V(1).Info("beginning BucketClaim deletion cleanup")
@@ -181,7 +180,13 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 				claim.Status.BoundBucketName))
 		}
 
-		// Claim is not bound yet, this is normal initial provisioning.
+		if isStaticProvisioning {
+			// Bucket not created yet, retry
+			logger.Info("waiting for statically-provisioned Bucket to exist")
+			return fmt.Errorf("waiting for statically-provisioned Bucket %q to exist", bucketName)
+		}
+
+		// Claim is not bound yet, this is normal dynamic provisioning.
 		logger.Info("creating intermediate Bucket")
 		bucket, err = createIntermediateBucket(ctx, logger, r.Client, claim, bucketName)
 		if err != nil {
@@ -195,10 +200,14 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 		return cosierr.NonRetryableError(err)
 	}
 	if !isBound {
-		// TODO: static provisioning case: update bucket with UID of this claim
-
-		logger.Error(nil, "dynamic Bucket is malformed") // internal bug
-		return cosierr.NonRetryableError(fmt.Errorf("dynamic Bucket is malformed: %w", err))
+		if isStaticProvisioning {
+			if err := ensureStaticBucketBound(ctx, logger, r.Client, bucket, claim.UID); err != nil {
+				return err
+			}
+		} else {
+			logger.Error(nil, "dynamic Bucket is malformed")
+			return cosierr.NonRetryableError(fmt.Errorf("dynamic Bucket is malformed: %w", err))
+		}
 	}
 
 	// Now that Bucket exists, bind the BucketClaim to it (if not already bound).
@@ -379,4 +388,38 @@ func bucketIsBoundToClaim(bucket *cosiapi.Bucket, claim *cosiapi.BucketClaim) (b
 		return false, fmt.Errorf("bound Bucket does not match BucketClaim: %w", errors.Join(errs...))
 	}
 	return true, nil
+}
+
+func ensureStaticBucketBound(
+	ctx context.Context,
+	logger logr.Logger,
+	client client.Client,
+	bucket *cosiapi.Bucket,
+	claimUID types.UID,
+) error {
+	claimRef := &bucket.Spec.BucketClaimRef
+
+	// already bound to this BucketClaim
+	if claimRef.UID == claimUID {
+		return nil
+	}
+
+	// means the Bucket was once bound to a different BucketClaim
+	// COSI explicitly (for data integrity and security) does not allow re-binding Buckets
+	if claimRef.UID != "" && claimRef.UID != claimUID {
+		logger.Error(nil, "Bucket claim ref UID does not match BucketClaim UID")
+		//nolint:staticcheck // ST1005: okay to capitalize resource kind
+		return cosierr.NonRetryableError(fmt.Errorf(
+			"Bucket claim ref UID %q does not match BucketClaim UID %q",
+			claimRef.UID, claimUID))
+	}
+
+	// safe to bind the Bucket to this BucketClaim
+	logger.Info("binding statically-provisioned Bucket to BucketClaim UID %q", claimUID)
+	bucket.Spec.BucketClaimRef.UID = claimUID
+	if err := client.Update(ctx, bucket); err != nil {
+		logger.Error(err, "failed to set bucketClaimRef.UID on Bucket")
+		return fmt.Errorf("failed to set bucketClaimRef.UID on Bucket: %w", err)
+	}
+	return nil
 }
