@@ -56,7 +56,7 @@ export
 all: prebuild build ## Build all container images, plus their prerequisites (faster with 'make -j')
 
 .PHONY: lint
-lint: golangci-lint kubeapi-lint eof-newline-lint dockerfiles-lint ## Run all linters (suggest `make -k`)
+lint: golangci-lint kubeapi-lint eof-newline-lint dockerfiles-lint shell-lint ## Run all linters (suggest `make -k`)
 golangci-lint: golangci-lint
 	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml
 kubeapi-lint: kube-api-linter
@@ -65,6 +65,10 @@ dockerfiles-lint:
 	hack/tools/lint-dockerfiles.sh $(HADOLINT_VERSION)
 eof-newline-lint:
 	hack/lint-eof-newline.sh
+
+.PHONY: shell-lint
+shell-lint: shellcheck
+	$(SHELLCHECK) $(shell git ls-files -- '*.sh' ':(exclude)vendor/*')
 
 .PHONY: lint-fix
 lint-fix: golangci-lint-fix ## Run all linters and perform fixes where possible (suggest `make -k`)
@@ -191,6 +195,7 @@ KIND           ?= $(TOOLBIN)/kind
 KUBEAPI_LINT   ?= $(TOOLBIN)/golangci-lint-kube-api-linter
 KUSTOMIZE      ?= $(TOOLBIN)/kustomize
 MDBOOK         ?= $(TOOLBIN)/mdbook
+SHELLCHECK     ?= $(TOOLBIN)/shellcheck
 
 # Tool Versions
 CHAINSAW_VERSION         ?= v0.2.12
@@ -203,6 +208,7 @@ KUBEAPI_LINT_VERSION     ?= v0.0.0-20260105171240-d42ba1d7b50c
 KUSTOMIZE_VERSION        ?= v5.6.0
 MDBOOK_VERSION           ?= v0.4.47
 HADOLINT_VERSION         ?= v2.12.0
+SHELLCHECK_VERSION       ?= v0.11.0
 
 .PHONY: chainsaw
 chainsaw: $(CHAINSAW)-$(CHAINSAW_VERSION)
@@ -248,6 +254,11 @@ $(KUSTOMIZE)-$(KUSTOMIZE_VERSION): $(TOOLBIN)
 mdbook: $(MDBOOK)-$(MDBOOK_VERSION)
 $(MDBOOK)-$(MDBOOK_VERSION): $(TOOLBIN)
 	./hack/tools/install-mdbook.sh $(MDBOOK) $(MDBOOK_VERSION)
+
+.PHONY: shellcheck
+shellcheck: $(SHELLCHECK)-$(SHELLCHECK_VERSION)
+$(SHELLCHECK)-$(SHELLCHECK_VERSION): $(TOOLBIN)
+	./hack/tools/install-shellcheck.sh $(SHELLCHECK) $(SHELLCHECK_VERSION)
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
