@@ -23,7 +23,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
+	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -74,6 +76,13 @@ func MustBootstrap(t *testing.T, initialClientObjects ...client.Object) *Depende
 	}
 }
 
+// AssertResourceDoesNotExist asserts that the given resource does not exist in the Dependencies's client.
+func (d *Dependencies) AssertResourceDoesNotExist(t *testing.T, key types.NamespacedName, obj client.Object) {
+	t.Helper()
+	err := d.Client.Get(d.ContextWithLogger, key, obj)
+	assert.True(t, kerrors.IsNotFound(err), "resource %T %v should not exist:\n%#v", obj, key, obj)
+}
+
 // NsName returns the NamespacedName for the given object.
 func NsName(o client.Object) types.NamespacedName {
 	return types.NamespacedName{
@@ -84,9 +93,13 @@ func NsName(o client.Object) types.NamespacedName {
 
 // BucketNsName returns the NamespacedName for the Bucket bound to the given BucketClaim.
 func BucketNsName(claim *cosiapi.BucketClaim) types.NamespacedName {
+	name := claim.Status.BoundBucketName
+	if claim.Status.BoundBucketName == "" {
+		name = "bc-" + string(claim.UID)
+	}
 	return types.NamespacedName{
 		Namespace: "",
-		Name:      claim.Status.BoundBucketName,
+		Name:      name,
 	}
 }
 
