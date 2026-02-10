@@ -18,6 +18,7 @@ package test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 
@@ -78,6 +79,9 @@ func RpcServer(fakeIdentity cosiproto.IdentityServer, fakeProvisioner cosiproto.
 	startServerFunc = func() {
 		err = server.Serve(listener)
 		if err != nil {
+			if errors.Is(err, grpc.ErrServerStopped) {
+				return // goroutine didn't run before unit test stopped
+			}
 			panic(err) // only panics if the server doesn't stop via cleanupFunc()
 		}
 	}
