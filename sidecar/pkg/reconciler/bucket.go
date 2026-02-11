@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -159,16 +160,14 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 		return cosierr.NonRetryableError(err)
 	}
 
-	isStaticProvisioning := false
-	if bucket.Spec.ExistingBucketID != "" {
-		// isStaticProvisioning = true
-		// logger = logger.WithValues("provisioningStrategy", "static")
-		return cosierr.NonRetryableError(fmt.Errorf("static provisioning is not yet supported")) // TODO
+	isStaticProvisioning := bucket.Spec.ExistingBucketID != ""
+	if isStaticProvisioning {
+		logger = logger.WithValues("provisioningStrategy", "static")
 	} else {
 		logger = logger.WithValues("provisioningStrategy", "dynamic")
 	}
 
-	logger.V(1).Info("reconciling BucketClaim")
+	logger.V(1).Info("reconciling Bucket")
 
 	didAdd := ctrlutil.AddFinalizer(bucket, cosiapi.ProtectionFinalizer)
 	if didAdd {
@@ -180,7 +179,12 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 
 	var provisionedBucket *provisionedBucketDetails
 	if isStaticProvisioning {
-		logger.Error(err, "how did we get here?") // TODO: static
+		provisionedBucket, err = r.staticProvision(ctx, logger, staticProvisionParams{
+			existingBucketID: bucket.Spec.ExistingBucketID,
+			requiredProtos:   requiredProtos,
+			parameters:       bucket.Spec.Parameters,
+			claimRef:         bucket.Spec.BucketClaimRef,
+		})
 	} else {
 		provisionedBucket, err = r.dynamicProvision(ctx, logger, dynamicProvisionParams{
 			bucketName:     bucket.Name,
@@ -296,6 +300,73 @@ func (r *BucketReconciler) dynamicProvision(
 		allProtoBucketInfo: allBucketInfo,
 	}
 	return details, nil
+}
+
+// Parameters for static provisioning workflow.
+type staticProvisionParams struct {
+	existingBucketID string
+	requiredProtos   []*cosiproto.ObjectProtocol
+	parameters       map[string]string
+	claimRef         cosiapi.BucketClaimReference
+}
+
+// Run static provisioning workflow.
+func (r *BucketReconciler) staticProvision(
+	ctx context.Context,
+	logger logr.Logger,
+	static staticProvisionParams,
+) (*provisionedBucketDetails, error) {
+	ref := static.claimRef
+	if ref.Name == "" || ref.Namespace == "" {
+		logger.Error(nil, "bucketClaimRef namespace and name must be set for static provisioning", "bucketClaimRef", ref)
+		return nil, cosierr.NonRetryableError(
+			fmt.Errorf("bucketClaimRef namespace and name must be set for static provisioning: %#v", ref))
+	}
+
+	resp, err := r.DriverInfo.ProvisionerClient.DriverGetExistingBucket(ctx,
+		&cosiproto.DriverGetExistingBucketRequest{
+			ExistingBucketId: static.existingBucketID,
+			Protocols:        static.requiredProtos,
+			Parameters:       static.parameters,
+		},
+	)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			err = fmt.Errorf("waiting for backend bucket to exist: %w", err)
+			logger.Error(err, "DriverGetExistingBucket error")
+			return nil, err
+		}
+
+		logger.Error(err, "DriverGetExistingBucket error")
+		if rpcErrorIsRetryable(status.Code(err)) {
+			return nil, err
+		}
+		return nil, cosierr.NonRetryableError(err)
+	}
+
+	if resp.BucketId == "" {
+		logger.Error(nil, "existing bucket ID missing in response")
+		return nil, cosierr.NonRetryableError(fmt.Errorf("existing bucket ID missing in response"))
+	}
+
+	protoResp := resp.Protocols
+	if protoResp == nil {
+		logger.Error(nil, "existing bucket protocol response missing")
+		return nil, cosierr.NonRetryableError(fmt.Errorf("existing bucket protocol response missing"))
+	}
+
+	var noValidation *translator.ValidationConfig = nil
+	supportedProtos, allBucketInfo, err := translator.BucketInfoToApi(protoResp, noValidation)
+	if err != nil {
+		logger.Error(err, "errors translating existing bucket info")
+		return nil, cosierr.NonRetryableError(err)
+	}
+
+	return &provisionedBucketDetails{
+		bucketId:           resp.BucketId,
+		supportedProtos:    supportedProtos,
+		allProtoBucketInfo: allBucketInfo,
+	}, nil
 }
 
 // convert an API proto list into an RPC proto message list
