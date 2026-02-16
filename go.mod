@@ -11,9 +11,9 @@ require (
 	github.com/go-logr/logr v1.4.3
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.75.1
-	k8s.io/api v0.35.0
-	k8s.io/apimachinery v0.35.0
-	k8s.io/client-go v0.35.0
+	k8s.io/api v0.35.1
+	k8s.io/apimachinery v0.35.1
+	k8s.io/client-go v0.35.1
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 	sigs.k8s.io/container-object-storage-interface/client v0.0.0-20250925174816-5fce7c365e9c
 	sigs.k8s.io/container-object-storage-interface/proto v0.0.0-00010101000000-000000000000
