@@ -55,7 +55,7 @@ var (
 	}
 
 	// valid class compatible with dynamic claim above
-	baseClass = cosiapi.BucketClass{
+	baseBucketClass = cosiapi.BucketClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "s3-class",
 		},
@@ -101,7 +101,7 @@ var (
 	}
 )
 
-func getAllResources(
+func getClaimResources(
 	bootstrapped *cositest.Dependencies,
 ) (
 	claim *cosiapi.BucketClaim,
@@ -131,7 +131,7 @@ func getAllResources(
 	return claim, dynamicBucket, staticBucket
 }
 
-func reconcilerForClient(client client.Client) *controller.BucketClaimReconciler {
+func claimReconcilerForClient(client client.Client) *controller.BucketClaimReconciler {
 	return &controller.BucketClaimReconciler{
 		Client: client,
 		Scheme: client.Scheme(),
@@ -144,12 +144,9 @@ func dynamicInitializationTest(t *testing.T) (
 ) {
 	bootstrapped := cositest.MustBootstrap(t,
 		baseDynamicClaim.DeepCopy(),
-		baseClass.DeepCopy(),
+		baseBucketClass.DeepCopy(),
 	)
-	r := controller.BucketClaimReconciler{
-		Client: bootstrapped.Client,
-		Scheme: bootstrapped.Client.Scheme(),
-	}
+	r := claimReconcilerForClient(bootstrapped.Client)
 	ctx := bootstrapped.ContextWithLogger
 
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
@@ -158,7 +155,7 @@ func dynamicInitializationTest(t *testing.T) (
 	assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
 	assert.Empty(t, res)
 
-	claim, bucket, _ := getAllResources(bootstrapped)
+	claim, bucket, _ := getClaimResources(bootstrapped)
 
 	assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 	status := claim.Status
@@ -172,7 +169,7 @@ func dynamicInitializationTest(t *testing.T) (
 	// intermediate bucket generation is already thoroughly tested elsewhere
 	// just test a couple basic fields to ensure it's integrated
 	assert.NotContains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
-	assert.Equal(t, baseClass.Spec.DriverName, bucket.Spec.DriverName)
+	assert.Equal(t, baseBucketClass.Spec.DriverName, bucket.Spec.DriverName)
 	assert.Equal(t, baseDynamicClaim.Spec.Protocols, bucket.Spec.Protocols)
 	assert.Empty(t, bucket.Status)
 
@@ -196,10 +193,7 @@ func staticInitializationTest(
 		baseStaticClaim.DeepCopy(),
 		initBucket,
 	)
-	r := controller.BucketClaimReconciler{
-		Client: bootstrapped.Client,
-		Scheme: bootstrapped.Client.Scheme(),
-	}
+	r := claimReconcilerForClient(bootstrapped.Client)
 	ctx := bootstrapped.ContextWithLogger
 
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticClaim)})
@@ -208,7 +202,7 @@ func staticInitializationTest(
 	assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
 	assert.Empty(t, res)
 
-	claim, dynamicBucket, staticBucket := getAllResources(bootstrapped)
+	claim, dynamicBucket, staticBucket := getClaimResources(bootstrapped)
 
 	assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 	assert.Equal(t, "static-bucket", claim.Status.BoundBucketName)
@@ -249,7 +243,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 				name:            "dynamic provisioning",
 				testInitialFunc: dynamicInitializationTest,
 				getResourcesFunc: func(deps *cositest.Dependencies) (*cosiapi.BucketClaim, *cosiapi.Bucket) {
-					claim, bucket, _ := getAllResources(deps)
+					claim, bucket, _ := getClaimResources(deps)
 					return claim, bucket
 				},
 			},
@@ -259,7 +253,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					return staticInitializationTest(t, true)
 				},
 				getResourcesFunc: func(deps *cositest.Dependencies) (*cosiapi.BucketClaim, *cosiapi.Bucket) {
-					claim, _, bucket := getAllResources(deps)
+					claim, _, bucket := getClaimResources(deps)
 					return claim, bucket
 				},
 			},
@@ -269,7 +263,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					return staticInitializationTest(t, false)
 				},
 				getResourcesFunc: func(deps *cositest.Dependencies) (*cosiapi.BucketClaim, *cosiapi.Bucket) {
-					claim, _, bucket := getAllResources(deps)
+					claim, _, bucket := getClaimResources(deps)
 					return claim, bucket
 				},
 			},
@@ -281,7 +275,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 				t.Run("reconcile again", func(t *testing.T) {
 					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
 					ctx := bootstrapped.ContextWithLogger
-					r := reconcilerForClient(bootstrapped.Client)
+					r := claimReconcilerForClient(bootstrapped.Client)
 
 					initClaim, initBucket := test.getResourcesFunc(bootstrapped)
 
@@ -308,7 +302,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 				t.Run("completion after Bucket ready", func(t *testing.T) {
 					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
 					ctx := bootstrapped.ContextWithLogger
-					r := reconcilerForClient(bootstrapped.Client)
+					r := claimReconcilerForClient(bootstrapped.Client)
 
 					initClaim, initBucket := test.getResourcesFunc(bootstrapped)
 
@@ -340,7 +334,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 				t.Run("still waiting after Bucket error", func(t *testing.T) {
 					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
 					ctx := bootstrapped.ContextWithLogger
-					r := reconcilerForClient(bootstrapped.Client)
+					r := claimReconcilerForClient(bootstrapped.Client)
 
 					// make Bucket incompatible with Sidecar reconciler so it errors
 					_, errBucket := test.getResourcesFunc(bootstrapped)
@@ -379,7 +373,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 
 					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
 					ctx := bootstrapped.ContextWithLogger
-					r := reconcilerForClient(bootstrapped.Client)
+					r := claimReconcilerForClient(bootstrapped.Client)
 
 					initClaim, initBucket := test.getResourcesFunc(bootstrapped)
 					require.NoError(t, r.Delete(ctx, initBucket)) // simulate force-delete of bucket while claim is bound
@@ -409,7 +403,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 	})
 
 	t.Run("dynamic provisioning", func(t *testing.T) {
-		t.Run("err no bucketclass", func(t *testing.T) {
+		t.Run("bucketclass does not exist", func(t *testing.T) {
 			bootstrapped := cositest.MustBootstrap(t,
 				baseDynamicClaim.DeepCopy(),
 				// no bucketclass
@@ -425,7 +419,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 			assert.NotErrorIs(t, err, reconcile.TerminalError(nil)) // should be terminal error when bucketclass watcher is set up
 			assert.Empty(t, res)
 
-			claim, _, _ := getAllResources(bootstrapped)
+			claim, _, _ := getClaimResources(bootstrapped)
 
 			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 			status := claim.Status
@@ -436,7 +430,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 			require.NotNil(t, serr)
 			assert.NotNil(t, serr.Time)
 			assert.NotNil(t, serr.Message)
-			assert.Contains(t, *serr.Message, baseClass.Name)
+			assert.Contains(t, *serr.Message, baseBucketClass.Name)
 
 			bootstrapped.AssertResourceDoesNotExist(t, types.NamespacedName{Name: "bc-dynamicuid"}, &cosiapi.Bucket{})
 		})
@@ -461,7 +455,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 			assert.ErrorContains(t, err, "static-bucket")
 			assert.Empty(t, res)
 
-			claim, _, _ := getAllResources(bootstrapped)
+			claim, _, _ := getClaimResources(bootstrapped)
 
 			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 			assert.Equal(t, baseStaticClaim.Spec, claim.Spec)
@@ -536,7 +530,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					}
 					assert.Empty(t, res)
 
-					claim, dynamicBucket, staticBucket := getAllResources(bootstrapped)
+					claim, dynamicBucket, staticBucket := getClaimResources(bootstrapped)
 
 					assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 					assert.Equal(t, baseStaticClaim.Spec, claim.Spec)
