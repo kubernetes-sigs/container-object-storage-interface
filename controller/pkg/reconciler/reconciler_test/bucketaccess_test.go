@@ -213,6 +213,31 @@ func TestBucketAccessReconcile(t *testing.T) {
 			assert.Equal(t, initRwClaim, rwClaim)
 			assert.Equal(t, initRoClaim, roClaim)
 		})
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			bootstrapped := bootstrapped.MustCopy() // copy prior test world state
+			ctx := bootstrapped.ContextWithLogger
+			r := claimReconcilerForClient(bootstrapped.Client)
+
+			initAccess, _, _ := getAccessResources(bootstrapped)
+
+			require.NoError(t, r.Delete(ctx, initAccess))
+			delAccess, err := sidecartest.ReconcileOpinionatedS3BucketAccess(t, bootstrapped, cositest.NsName(initAccess))
+			require.NoError(t, err)
+			assert.NotNil(t, delAccess) // sidecar should not remove the finalizer
+
+			// using the same client and stuff from before
+			res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			_, rwClaim, roClaim := getAccessResources(bootstrapped)
+
+			bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(initAccess), &cosiapi.BucketAccess{})
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
 
 	t.Run("one bucketclaim does not exist", func(t *testing.T) {
@@ -704,4 +729,6 @@ func TestBucketAccessReconcile(t *testing.T) {
 		assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 	})
+
+	// TODO: deletion test where another bucketaccess is referencing one of the claims
 }

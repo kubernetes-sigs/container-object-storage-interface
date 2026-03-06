@@ -176,3 +176,72 @@ func ReconcileOpinionatedAzureBucket(
 
 	return ReconcileBucket(t, bootstrapped, &fakeServer, driverInfo, nsName)
 }
+
+// ReconcileBucketAccess reconciles the BucketAccess with the given namespaced name for unit tests.
+// BucketAccess should exist (if desired) in the bootstrapped dependencies's client.
+// It is suitable for unit testing behavior that relies on a BucketAccess to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketAccess reconciliation.
+func ReconcileBucketAccess(
+	t *testing.T,
+	bootstrapped *cositest.Dependencies,
+	fakeServer *cositest.FakeProvisionerServer,
+	driverInfo sidecar.DriverInfo, // minus the RPC client
+	nsName types.NamespacedName,
+) (*cosiapi.BucketAccess, error) {
+	cleanup, serve, tmpSock, err := cositest.RpcServer(nil, fakeServer)
+	defer cleanup()
+	require.NoError(t, err)
+	go serve()
+
+	conn, err := cositest.RpcClientConn(tmpSock)
+	require.NoError(t, err)
+	rpcClient := cosiproto.NewProvisionerClient(conn)
+
+	r := sidecar.BucketAccessReconciler{
+		Client:     bootstrapped.Client,
+		Scheme:     bootstrapped.Client.Scheme(),
+		DriverInfo: driverInfo,
+	}
+	r.DriverInfo.ProvisionerClient = rpcClient
+
+	_, err = r.Reconcile(bootstrapped.ContextWithLogger, ctrl.Request{NamespacedName: nsName})
+	if err != nil {
+		return nil, err
+	}
+
+	access := &cosiapi.BucketAccess{}
+	if err := bootstrapped.Client.Get(bootstrapped.ContextWithLogger, nsName, access); err != nil {
+		return nil, err
+	}
+	return access, nil
+}
+
+// ReconcileOpinionatedS3BucketAccess reconciles the BucketAccess with the given namespaced name for unit tests.
+// It uses a configurations that are compatible with the opinionated S3 driver and BucketClass.
+// It is suitable for unit testing behavior that relies on a BucketAccess to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketAccess reconciliation.
+func ReconcileOpinionatedS3BucketAccess(
+	t *testing.T,
+	bootstrapped *cositest.Dependencies,
+	nsName types.NamespacedName,
+) (*cosiapi.BucketAccess, error) {
+	fakeServer := cositest.FakeProvisionerServer{
+		// nolint:lll // long line is fine for test code
+		RevokeBucketAccessFunc: func(ctx context.Context, dbar *cosiproto.DriverRevokeBucketAccessRequest) (*cosiproto.DriverRevokeBucketAccessResponse, error) {
+			return &cosiproto.DriverRevokeBucketAccessResponse{}, nil
+		},
+	}
+
+	driverInfo := sidecar.DriverInfo{
+		Name: cositest.OpinionatedS3BucketClass().Spec.DriverName,
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{
+			cosiproto.ObjectProtocol_S3,
+		},
+	}
+
+	return ReconcileBucketAccess(t, bootstrapped, &fakeServer, driverInfo, nsName)
+}
+
+// TODO: ReconcileOpinionatedGcsBucketAccess
+
+// TODO: ReconcileOpinionatedAzureBucketAccess
