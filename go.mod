@@ -17,7 +17,7 @@ require (
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 	sigs.k8s.io/container-object-storage-interface/client v0.0.0-20250925174816-5fce7c365e9c
 	sigs.k8s.io/container-object-storage-interface/proto v0.0.0-00010101000000-000000000000
-	sigs.k8s.io/controller-runtime v0.23.1
+	sigs.k8s.io/controller-runtime v0.23.3
 )
 
 require (
