@@ -110,6 +110,7 @@ type FakeProvisionerServer struct {
 
 	CreateBucketFunc       func(context.Context, *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error)
 	GetBucketFunc          func(context.Context, *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error)
+	DeleteBucketFunc       func(context.Context, *cosiproto.DriverDeleteBucketRequest) (*cosiproto.DriverDeleteBucketResponse, error)
 	GrantBucketAccessFunc  func(context.Context, *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error)
 	RevokeBucketAccessFunc func(context.Context, *cosiproto.DriverRevokeBucketAccessRequest) (*cosiproto.DriverRevokeBucketAccessResponse, error)
 }
@@ -132,6 +133,16 @@ func (s *FakeProvisionerServer) DriverGetBucket(
 	}
 	// unit tests must set an expectation if they expect the call to be made
 	panic("DriverGetBucketFunc not implemented in FakeProvisionerServer")
+}
+
+func (s *FakeProvisionerServer) DriverDeleteBucket(
+	ctx context.Context, req *cosiproto.DriverDeleteBucketRequest,
+) (*cosiproto.DriverDeleteBucketResponse, error) {
+	if s.DeleteBucketFunc != nil {
+		return s.DeleteBucketFunc(ctx, req)
+	}
+	// unit tests must set an expectation if they expect the call to be made
+	panic("DriverDeleteBucketFunc not implemented in FakeProvisionerServer")
 }
 
 func (s *FakeProvisionerServer) DriverGrantBucketAccess(
