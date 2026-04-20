@@ -5,7 +5,7 @@ go 1.25.0
 toolchain go1.25.8
 
 require (
-	k8s.io/apimachinery v0.35.3
+	k8s.io/apimachinery v0.35.4
 	sigs.k8s.io/controller-runtime v0.22.1
 )
 
