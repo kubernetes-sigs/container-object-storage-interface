@@ -142,7 +142,7 @@ func (r *BucketAccessReconciler) reconcile(
 	}
 
 	if !access.GetDeletionTimestamp().IsZero() {
-		logger.V(1).Info("beginning BucketAccess deletion")
+		logger.Info("beginning BucketAccess deletion")
 		return r.reconcileDelete(ctx, logger, access)
 	}
 

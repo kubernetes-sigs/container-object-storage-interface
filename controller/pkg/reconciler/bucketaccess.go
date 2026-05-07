@@ -128,17 +128,8 @@ func (r *BucketAccessReconciler) reconcile(
 	ctx context.Context, logger logr.Logger, access *cosiapi.BucketAccess,
 ) error {
 	if !access.GetDeletionTimestamp().IsZero() {
-		logger.V(1).Info("beginning BucketAccess deletion cleanup")
-
-		// TODO: deletion logic
-
-		ctrlutil.RemoveFinalizer(access, cosiapi.ProtectionFinalizer)
-		if err := r.Update(ctx, access); err != nil {
-			logger.Error(err, "failed to remove finalizer")
-			return fmt.Errorf("failed to remove finalizer: %w", err)
-		}
-
-		return cosierr.NonRetryableError(fmt.Errorf("deletion is not yet implemented")) // TODO
+		logger.Info("beginning BucketAccess deletion")
+		return r.reconcileDelete(ctx, logger, access)
 	}
 
 	initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status)
@@ -167,6 +158,11 @@ func (r *BucketAccessReconciler) reconcile(
 			logger.Error(err, "failed to add protection finalizer")
 			return fmt.Errorf("failed to add protection finalizer: %w", err)
 		}
+	}
+
+	if err := validateAllBucketClaimReferencesUnique(access.Spec.BucketClaims); err != nil {
+		logger.Error(err, "bucketClaims references are not unique")
+		return err
 	}
 
 	claimsByName, err := getAllBucketClaims(ctx, r.Client, access.Namespace, access.Spec.BucketClaims)
@@ -259,6 +255,68 @@ func (r *BucketAccessReconciler) reconcile(
 	return nil
 }
 
+func (r *BucketAccessReconciler) reconcileDelete(
+	ctx context.Context, logger logr.Logger, access *cosiapi.BucketAccess,
+) error {
+	claimsByName, err := getAllBucketClaims(ctx, r.Client, access.Namespace, access.Spec.BucketClaims)
+	if err != nil {
+		logger.Error(err, "failed to get all referenced BucketClaims during deletion")
+		return err
+	}
+
+	accessList := cosiapi.BucketAccessList{}
+	if err := r.List(ctx, &accessList, &client.ListOptions{Namespace: access.Namespace}); err != nil {
+		logger.Error(err, "failed to list BucketAccesses during deletion")
+		return err
+	}
+
+	// Removing a mark on a BucketClaim is not a guarantee that there are no referencing
+	// BucketAccesses. A user may create a referencing BucketAccess at any time during or after this
+	// reconcile. To avoid races, the BucketClaim controller should check that the claim is unmarked
+	// and check again for referencing accesses before proceeding with its own deletion.
+	unmarked, err := unmarkUnaccessedBucketClaims(ctx, r.Client, claimsByName, accessList.Items, access.Name)
+	if len(unmarked) > 0 {
+		logger.Info("removed mark from BucketClaims having no referencing BucketAccesses",
+			"removedMarkFromClaims", unmarked)
+	}
+	if err != nil {
+		logger.Error(err, "failed to unmark unaccessed BucketClaims during deletion")
+		return err
+	}
+
+	ctrlutil.RemoveFinalizer(access, cosiapi.ProtectionFinalizer)
+	if err := r.Update(ctx, access); err != nil {
+		logger.Error(err, "failed to remove finalizer")
+		return fmt.Errorf("failed to remove finalizer: %w", err)
+	}
+
+	return nil
+}
+
+// Validate that all bucketClaims references are to unique claims.
+// This should be prohibited by schema rules, but this is critical for the BucketAccess reconcile
+// logic's expectations, so double check.
+func validateAllBucketClaimReferencesUnique(claimAccesses []cosiapi.BucketClaimAccess) error {
+	claimCounts := make(map[string]int, len(claimAccesses))
+	doErr := false
+	for _, ref := range claimAccesses {
+		count, ok := claimCounts[ref.BucketClaimName]
+		if !ok {
+			claimCounts[ref.BucketClaimName] = 1
+		} else {
+			claimCounts[ref.BucketClaimName] = count + 1
+			doErr = true
+		}
+	}
+	if doErr {
+		return cosierr.NonRetryableError(
+			fmt.Errorf("one or more BucketClaims are referenced multiple times, with reference counts: %v",
+				claimCounts))
+	}
+
+	return nil
+}
+
 // Get all BucketClaims that this BucketAccess references.
 // If any claims don't exist, assume they don't exist YET; mark them nil in the resulting map
 // without treating nonexistence as an error.
@@ -270,13 +328,6 @@ func getAllBucketClaims(
 	errs := []error{}
 
 	for _, ref := range claimAccesses {
-		if _, ok := claims[ref.BucketClaimName]; ok {
-			// In testing, the CEL validation rules prevent this case, but no duplicates is critical
-			// to the access initialization, so double check it.
-			return nil, cosierr.NonRetryableError(
-				fmt.Errorf("BucketClaim %q is referenced more than once", ref.BucketClaimName))
-		}
-
 		c := cosiapi.BucketClaim{}
 		nsName := types.NamespacedName{
 			Namespace: namespace,
@@ -284,7 +335,7 @@ func getAllBucketClaims(
 		}
 		err := client.Get(ctx, nsName, &c)
 		if kerrors.IsNotFound(err) {
-			// BucketClaim doesn't exist (yet)
+			// BucketClaim doesn't exist
 			claims[ref.BucketClaimName] = nil
 		} else if err != nil {
 			// Unspecified API server error that probably resolves after exponential backoff
@@ -297,11 +348,6 @@ func getAllBucketClaims(
 
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("could not get one or more BucketClaims: %w", errors.Join(errs...))
-	}
-
-	if len(claims) != len(claimAccesses) {
-		// Should never happen, but double check because the 1:1 requirement is critical.
-		return nil, fmt.Errorf("did not get one or more BucketClaims, but no errors observed")
 	}
 
 	return claims, nil
@@ -340,6 +386,68 @@ func markAllBucketClaimsAsAccessed(
 	}
 
 	return nil
+}
+
+// Unmark all (non-nil) BucketClaims that aren't referenced by any other BucketAccesses.
+// Optionally ignore a reference from a specific BucketAccess.
+// Returns list of BucketClaims that were unmarked, which is accurate even when an error is returned.
+func unmarkUnaccessedBucketClaims(
+	ctx context.Context,
+	client client.Client,
+	claimsByName map[string]*cosiapi.BucketClaim,
+	accesses []cosiapi.BucketAccess,
+	ignoreReferenceFromAccessName string, // optional
+) ([]string, error) {
+	errs := []error{}
+	unmarked := []string{}
+	for _, claim := range claimsByName {
+		if claim == nil {
+			continue
+		}
+
+		if claim.Annotations == nil {
+			continue // no annotations means not marked
+		}
+		if _, ok := claim.Annotations[cosiapi.HasBucketAccessReferencesAnnotation]; !ok {
+			continue // not marked
+		}
+
+		if hasBucketAccessReferences(claim.Name, accesses, ignoreReferenceFromAccessName) {
+			continue // should not unmark
+		}
+
+		unmarked = append(unmarked, claim.Name)
+		delete(claim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		if err := client.Update(ctx, claim); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return unmarked, fmt.Errorf("failed to unmark one or more BucketClaims without referencing BucketAccesses: %w",
+			errors.Join(errs...))
+	}
+
+	return unmarked, nil
+}
+
+// Return true if one or more BucketAccesses reference the named BucketClaim.
+// Optionally ignore a reference from a specific BucketAccess.
+func hasBucketAccessReferences(
+	claimName string,
+	accesses []cosiapi.BucketAccess,
+	ignoreReferenceFromAccessName string, // optional
+) bool {
+	for _, access := range accesses {
+		if access.Name == ignoreReferenceFromAccessName {
+			continue
+		}
+		for _, ref := range access.Spec.BucketClaims {
+			if ref.BucketClaimName == claimName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Return an error if the BucketAccess doesn't meet BucketAccessClass requirements.

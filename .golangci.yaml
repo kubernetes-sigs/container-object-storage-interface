@@ -33,7 +33,7 @@ linters:
   exclusions:
     generated: lax
     rules:
-      - path: _test.go
+      - path: test.go
         linters:
           - goconst # tests often avoid constants for readability
           - dupl # duplication is usually intended in tests

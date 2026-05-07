@@ -225,6 +225,24 @@ func OpinionatedBucketClaim(namespace, name, className string, protocols ...cosi
 	}
 }
 
+// OpinionatedBucketAccessClass returns a BucketAccessClass with opinionated, working defaults for unit tests.
+// It is suitable for unit testing behavior that relies on a BucketAccess to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketAccess reconciliation.
+func OpinionatedBucketAccessClass(identifier string) *cosiapi.BucketAccessClass {
+	bClass := OpinionatedBucketClass(identifier)
+	return &cosiapi.BucketAccessClass{
+		ObjectMeta: ctrl.ObjectMeta{
+			Name: bClass.Name, // reuse same name as opinionated BucketClass for convenience
+		},
+		Spec: cosiapi.BucketAccessClassSpec{
+			DriverName:                  bClass.Spec.DriverName, // use same driver as opinionated BucketClass
+			AuthenticationType:          cosiapi.BucketAccessAuthenticationTypeKey,
+			DisallowedBucketAccessModes: []cosiapi.BucketAccessMode{},             // all allowed
+			MultiBucketAccess:           cosiapi.MultiBucketAccessMultipleBuckets, // allow multi
+		},
+	}
+}
+
 // OpinionatedS3BucketClass returns a BucketClass configured for an opinionated S3 driver.
 // It is suitable for unit testing behavior that relies on a BucketClaim to be reconciled as a
 // prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
@@ -237,6 +255,13 @@ func OpinionatedS3BucketClass() *cosiapi.BucketClass {
 // prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
 func OpinionatedS3BucketClaim(namespace, name string) *cosiapi.BucketClaim {
 	return OpinionatedBucketClaim(namespace, name, OpinionatedS3BucketClass().Name, cosiapi.ObjectProtocolS3)
+}
+
+// OpinionatedS3BucketAccessClass returns a BucketAccessClass configured for an opinionated S3 driver.
+// It is suitable for unit testing behavior that relies on a BucketAccess to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketAccess reconciliation.
+func OpinionatedS3BucketAccessClass() *cosiapi.BucketAccessClass {
+	return OpinionatedBucketAccessClass("s3")
 }
 
 // OpinionatedGcsBucketClass returns a BucketClass configured for an opinionated GCS driver.
@@ -253,6 +278,13 @@ func OpinionatedGcsBucketClaim(namespace, name string) *cosiapi.BucketClaim {
 	return OpinionatedBucketClaim(namespace, name, OpinionatedGcsBucketClass().Name, cosiapi.ObjectProtocolGcs)
 }
 
+// OpinionatedGcsBucketAccessClass returns a BucketAccessClass configured for an opinionated CS driver.
+// It is suitable for unit testing behavior that relies on a BucketAccess to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketAccess reconciliation.
+func OpinionatedGcsBucketAccessClass() *cosiapi.BucketAccessClass {
+	return OpinionatedBucketAccessClass("gcs")
+}
+
 // OpinionatedAzureBucketClass returns a BucketClass configured for an opinionated Azure driver.
 func OpinionatedAzureBucketClass() *cosiapi.BucketClass {
 	return OpinionatedBucketClass("azure")
@@ -263,4 +295,11 @@ func OpinionatedAzureBucketClass() *cosiapi.BucketClass {
 // prerequisite. It is not suitable for unit testing BucketClaim reconciliation.
 func OpinionatedAzureBucketClaim(namespace, name string) *cosiapi.BucketClaim {
 	return OpinionatedBucketClaim(namespace, name, OpinionatedAzureBucketClass().Name, cosiapi.ObjectProtocolAzure)
+}
+
+// OpinionatedAzureBucketAccessClass returns a BucketAccessClass configured for an opinionated Azure driver.
+// It is suitable for unit testing behavior that relies on a BucketAccess to be reconciled as a
+// prerequisite. It is not suitable for unit testing BucketAccess reconciliation.
+func OpinionatedAzureBucketAccessClass() *cosiapi.BucketAccessClass {
+	return OpinionatedBucketAccessClass("azure")
 }

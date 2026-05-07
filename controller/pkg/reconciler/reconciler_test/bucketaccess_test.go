@@ -66,7 +66,7 @@ var (
 			Name: "s3-class",
 		},
 		Spec: cosiapi.BucketAccessClassSpec{
-			DriverName:         "cosi.s3.internal",
+			DriverName:         s3DriverName,
 			AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
 			Parameters: map[string]string{
 				"maxSize": "100Gi",
@@ -116,6 +116,39 @@ func accessReconcilerForClient(client client.Client) *controller.BucketAccessRec
 		Client: client,
 		Scheme: client.Scheme(),
 	}
+}
+
+// Except for rare corner cases or nonstandard unit tests, deleting a BucketAccess should always work.
+func testShouldDelete(t *testing.T, previousTestDeps *cositest.Dependencies) (
+	rwClaim, roClaim *cosiapi.BucketClaim,
+) {
+	bootstrapped := previousTestDeps.MustCopy() // copy prior test world state
+	ctx := bootstrapped.ContextWithLogger
+	r := accessReconcilerForClient(bootstrapped.Client)
+
+	initAccess, _, _ := getAccessResources(bootstrapped)
+
+	// Sidecar reconcile the BucketAccess
+	// If BucketAccess management is not handed off to the sidecar, this will be a noop
+	finAccess, err := sidecartest.ReconcileOpinionatedS3BucketAccess(t, bootstrapped, cositest.NsName(initAccess))
+	require.NoError(t, err)
+
+	require.NoError(t, r.Delete(ctx, finAccess)) // Delete the BucketAccess
+
+	// If BucketAccess management is not handed off to the sidecar, this will be a noop
+	delAccess, err := sidecartest.ReconcileOpinionatedS3BucketAccess(t, bootstrapped, cositest.NsName(initAccess))
+	require.NoError(t, err)
+	assert.NotNil(t, delAccess) // sidecar should not remove the finalizer
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+	assert.NoError(t, err)
+	assert.Empty(t, res)
+
+	_, rwClaim, roClaim = getAccessResources(bootstrapped)
+
+	bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(initAccess), &cosiapi.BucketAccess{})
+
+	return rwClaim, roClaim
 }
 
 func TestBucketAccessReconcile(t *testing.T) {
@@ -176,7 +209,7 @@ func TestBucketAccessReconcile(t *testing.T) {
 			},
 			status.AccessedBuckets,
 		)
-		assert.Equal(t, "cosi.s3.internal", status.DriverName)
+		assert.Equal(t, s3DriverName, status.DriverName)
 		assert.Equal(t, "Key", string(status.AuthenticationType))
 		assert.Equal(t,
 			map[string]string{
@@ -197,7 +230,7 @@ func TestBucketAccessReconcile(t *testing.T) {
 		t.Run("reconcile again", func(t *testing.T) {
 			bootstrapped := bootstrapped.MustCopy() // copy prior test world state
 			ctx := bootstrapped.ContextWithLogger
-			r := claimReconcilerForClient(bootstrapped.Client)
+			r := accessReconcilerForClient(bootstrapped.Client)
 
 			initAccess, initRwClaim, initRoClaim := getAccessResources(bootstrapped)
 
@@ -212,6 +245,44 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 			assert.Equal(t, initRwClaim, rwClaim)
 			assert.Equal(t, initRoClaim, roClaim)
+		})
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
+
+		t.Run("a new BucketAccess references a shared claim", func(t *testing.T) {
+			bootstrapped := bootstrapped.MustCopy()
+			r := accessReconcilerForClient(bootstrapped.Client)
+			ctx := bootstrapped.ContextWithLogger
+
+			newAccess := baseAccess.DeepCopy()
+			newAccess.Name = "new-access"
+			newAccess.Spec.BucketClaims = []cosiapi.BucketClaimAccess{
+				baseAccess.Spec.BucketClaims[0], // rwClaim shared between accesses
+			}
+			require.NoError(t, r.Create(ctx, newAccess))
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(newAccess)})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			newAccessReconciled := cosiapi.BucketAccess{}
+			require.NoError(t, r.Get(ctx, cositest.NsName(newAccess), &newAccessReconciled))
+			assert.True(t, bucketaccess.ManagedBySidecar(&newAccessReconciled)) // quick validation
+
+			t.Run("subsequent original deletion", func(t *testing.T) {
+				rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+				// new access still references this, so the annotation should be present
+				assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+				// no access references this, so the annotation should be absent
+				assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			})
 		})
 	})
 
@@ -266,6 +337,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.Nil(t, roClaim) // does not exist
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.Nil(t, roClaim)
+		})
 	})
 
 	t.Run("1 claim ready, 1 claim provisioning", func(t *testing.T) {
@@ -322,6 +400,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.Contains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
 
 	t.Run("1 claim provisioning, 1 claim deleting", func(t *testing.T) {
@@ -381,6 +466,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.Contains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
 
 	t.Run("1 claim ready, 1 claim protocol unsupported", func(t *testing.T) {
@@ -445,6 +537,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.Contains(t, gcsClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
 
 	t.Run("bucketaccessclass does not exist", func(t *testing.T) {
@@ -485,6 +584,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.Contains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
 
 	t.Run("err bucketaccessclass disallows multi-bucket access", func(t *testing.T) {
@@ -528,6 +634,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.Contains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
 
 	t.Run("single-bucket succeeds when multi-bucket access is disallowed", func(t *testing.T) {
@@ -590,7 +703,7 @@ func TestBucketAccessReconcile(t *testing.T) {
 			},
 			status.AccessedBuckets,
 		)
-		assert.Equal(t, "cosi.s3.internal", status.DriverName)
+		assert.Equal(t, s3DriverName, status.DriverName)
 		assert.Equal(t, "Key", string(status.AuthenticationType))
 		assert.Equal(t,
 			map[string]string{
@@ -607,6 +720,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation) // not referenced
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
 
 	t.Run("err bucketaccessclass disallows write modes", func(t *testing.T) {
@@ -655,6 +775,13 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.Contains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.Contains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
 
 	t.Run("err duplicate BucketClaim reference", func(t *testing.T) {
@@ -703,5 +830,14 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 		assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
 		assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			rwClaim, roClaim := testShouldDelete(t, bootstrapped)
+
+			assert.NotContains(t, rwClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+			assert.NotContains(t, roClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		})
 	})
+
+	// TODO: deletion test where another bucketaccess is referencing one of the claims
 }
