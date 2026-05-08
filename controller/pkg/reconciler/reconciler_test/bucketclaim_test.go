@@ -101,7 +101,8 @@ var (
 	}
 )
 
-func getClaimResources(
+// Get claim and both dynamic and static buckets.
+func getAllClaimResources(
 	bootstrapped *cositest.Dependencies,
 ) (
 	claim *cosiapi.BucketClaim,
@@ -131,6 +132,32 @@ func getClaimResources(
 	return claim, dynamicBucket, staticBucket
 }
 
+// Get claim and its associated bucket. Requires the claim to have been reconciled at least once.
+func getClaimAndBucket(
+	bootstrapped *cositest.Dependencies,
+) (
+	claim *cosiapi.BucketClaim,
+	bucket *cosiapi.Bucket,
+) {
+	ctx := bootstrapped.ContextWithLogger
+	client := bootstrapped.Client
+	var err error
+
+	claim = &cosiapi.BucketClaim{}
+	err = client.Get(ctx, cositest.NsName(&baseDynamicClaim), claim)
+	if err != nil {
+		claim = nil
+	}
+
+	bucket = &cosiapi.Bucket{}
+	err = client.Get(ctx, cositest.BucketNsName(claim), bucket)
+	if err != nil {
+		bucket = nil
+	}
+
+	return claim, bucket
+}
+
 func claimReconcilerForClient(client client.Client) *controller.BucketClaimReconciler {
 	return &controller.BucketClaimReconciler{
 		Client: client,
@@ -155,7 +182,7 @@ func dynamicInitializationTest(t *testing.T) (
 	assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
 	assert.Empty(t, res)
 
-	claim, bucket, _ := getClaimResources(bootstrapped)
+	claim, bucket, _ := getAllClaimResources(bootstrapped)
 
 	assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 	status := claim.Status
@@ -202,7 +229,7 @@ func staticInitializationTest(
 	assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
 	assert.Empty(t, res)
 
-	claim, dynamicBucket, staticBucket := getClaimResources(bootstrapped)
+	claim, dynamicBucket, staticBucket := getAllClaimResources(bootstrapped)
 
 	assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 	assert.Equal(t, "static-bucket", claim.Status.BoundBucketName)
@@ -229,32 +256,122 @@ func staticInitializationTest(
 	return bootstrapped
 }
 
+func deletionTestSuite(t *testing.T,
+	deps *cositest.Dependencies,
+) {
+	t.Run("deletionPolicy=Retain", func(t *testing.T) {
+		bootstrapped := deps.MustCopy() // copy prior test world state
+		ctx := bootstrapped.ContextWithLogger
+		r := claimReconcilerForClient(bootstrapped.Client)
+
+		initClaim, initBucket := getClaimAndBucket(bootstrapped)
+		require.NotNil(t, initBucket)
+
+		initBucket.Spec.DeletionPolicy = cosiapi.BucketDeletionPolicyRetain
+		require.NoError(t, r.Update(ctx, initBucket))
+
+		require.NoError(t, r.Delete(ctx, initClaim))
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+		assert.NoError(t, err)
+		// assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+		assert.Empty(t, res)
+
+		bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(&baseDynamicClaim), &cosiapi.BucketClaim{})
+
+		bucket := &cosiapi.Bucket{}
+		require.NoError(t, r.Get(ctx, cositest.NsName(initBucket), bucket))
+
+		require.NotNil(t, bucket)
+		assert.Contains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
+		assert.Equal(t, initBucket.Spec, bucket.Spec)
+		assert.Equal(t, initBucket.Status, bucket.Status)
+	})
+
+	t.Run("deletionPolicy=Delete", func(t *testing.T) {
+		bootstrapped := deps.MustCopy() // copy prior test world state
+		ctx := bootstrapped.ContextWithLogger
+		r := claimReconcilerForClient(bootstrapped.Client)
+
+		initClaim, initBucket := getClaimAndBucket(bootstrapped)
+		require.NotNil(t, initBucket)
+		bucketHasFinalizer := len(initBucket.GetFinalizers()) > 0
+
+		initBucket.Spec.DeletionPolicy = cosiapi.BucketDeletionPolicyDelete
+		require.NoError(t, r.Update(ctx, initBucket))
+
+		require.NoError(t, r.Delete(ctx, initClaim))
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+		assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
+		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+		assert.ErrorContains(t, err, "waiting for Bucket to be deleted")
+		assert.Empty(t, res)
+
+		claim, bucket := getClaimAndBucket(bootstrapped)
+
+		// claim waiting for Bucket deletion
+		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+		assert.Equal(t, initClaim.Spec, claim.Spec)
+		assert.Equal(t, false, *claim.Status.ReadyToUse)
+		require.NotNil(t, claim.Status.Error)
+		assert.Contains(t, *claim.Status.Error.Message, "waiting for Bucket to be deleted")
+		assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
+		assert.Equal(t, initClaim.Status.Protocols, claim.Status.Protocols)
+
+		if !bucketHasFinalizer {
+			// If Bucket had no finalizer before deletion, Bucket will delete immediately.
+			assert.Nil(t, bucket)
+			return
+		}
+
+		require.NotNil(t, bucket)
+		assert.Contains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
+		assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
+		assert.NotZero(t, bucket.GetDeletionTimestamp())
+		assert.Equal(t, initBucket.Spec, bucket.Spec)
+		assert.Equal(t, initBucket.Status, bucket.Status)
+	})
+}
+
+func deletionTestSuiteWithoutBucket(t *testing.T,
+	deps *cositest.Dependencies,
+) {
+	bootstrapped := deps.MustCopy() // copy prior test world state
+	ctx := bootstrapped.ContextWithLogger
+	r := claimReconcilerForClient(bootstrapped.Client)
+
+	initClaim, initBucket := getClaimAndBucket(bootstrapped)
+	require.NotNil(t, initClaim)
+	assert.Nil(t, initBucket) // bucket should not exist at start of this test deletionTestSuiteWithoutBucket
+
+	require.NoError(t, r.Delete(ctx, initClaim))
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+	assert.NoError(t, err) // TODO: should be NoError when Bucket watcher is set up
+	assert.Empty(t, res)
+
+	bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(&baseDynamicClaim), &cosiapi.BucketClaim{})
+	bootstrapped.AssertResourceDoesNotExist(t, cositest.BucketNsName(initClaim), &cosiapi.Bucket{})
+}
+
 func TestBucketClaimReconcile(t *testing.T) {
 	// A lot of things can happen after successful initialization. Test all of them, building off of
 	// successful initialization with subsequent tests.
 	t.Run("successful initialization", func(t *testing.T) {
 		type testDef struct {
-			name             string
-			testInitialFunc  func(t *testing.T) *cositest.Dependencies
-			getResourcesFunc func(*cositest.Dependencies) (claim *cosiapi.BucketClaim, bucket *cosiapi.Bucket)
+			name            string
+			testInitialFunc func(t *testing.T) *cositest.Dependencies
 		}
 		tests := []testDef{
 			{
 				name:            "dynamic provisioning",
 				testInitialFunc: dynamicInitializationTest,
-				getResourcesFunc: func(deps *cositest.Dependencies) (*cosiapi.BucketClaim, *cosiapi.Bucket) {
-					claim, bucket, _ := getClaimResources(deps)
-					return claim, bucket
-				},
 			},
 			{
 				name: "static provisioning (preset UID)",
 				testInitialFunc: func(t *testing.T) *cositest.Dependencies {
 					return staticInitializationTest(t, true)
-				},
-				getResourcesFunc: func(deps *cositest.Dependencies) (*cosiapi.BucketClaim, *cosiapi.Bucket) {
-					claim, _, bucket := getClaimResources(deps)
-					return claim, bucket
 				},
 			},
 			{
@@ -262,29 +379,30 @@ func TestBucketClaimReconcile(t *testing.T) {
 				testInitialFunc: func(t *testing.T) *cositest.Dependencies {
 					return staticInitializationTest(t, false)
 				},
-				getResourcesFunc: func(deps *cositest.Dependencies) (*cosiapi.BucketClaim, *cosiapi.Bucket) {
-					claim, _, bucket := getClaimResources(deps)
-					return claim, bucket
-				},
 			},
 		}
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				initBootstrapped := test.testInitialFunc(t)
 
+				// ensure that subtests have bucket info on the claim
+				_, initBucket := getClaimAndBucket(initBootstrapped)
+				require.NotNil(t, initBucket)
+
 				t.Run("reconcile again", func(t *testing.T) {
 					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
 					ctx := bootstrapped.ContextWithLogger
 					r := claimReconcilerForClient(bootstrapped.Client)
 
-					initClaim, initBucket := test.getResourcesFunc(bootstrapped)
+					initClaim, initBucket := getClaimAndBucket(bootstrapped)
+					require.NotNil(t, initBucket)
 
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
 					assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
 					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 					assert.Empty(t, res)
 
-					claim, bucket := test.getResourcesFunc(bootstrapped)
+					claim, bucket := getClaimAndBucket(bootstrapped)
 
 					// claim should be unchanged since bucket is not ready
 					assert.Equal(t, initClaim.Finalizers, claim.Finalizers)
@@ -299,12 +417,16 @@ func TestBucketClaimReconcile(t *testing.T) {
 					assert.Len(t, buckets.Items, 1) // no other bucket should be created
 				})
 
+				t.Run("deletion before Bucket reconcile", func(t *testing.T) {
+					deletionTestSuite(t, initBootstrapped)
+				})
+
 				t.Run("completion after Bucket ready", func(t *testing.T) {
 					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
 					ctx := bootstrapped.ContextWithLogger
 					r := claimReconcilerForClient(bootstrapped.Client)
 
-					initClaim, initBucket := test.getResourcesFunc(bootstrapped)
+					initClaim, initBucket := getClaimAndBucket(bootstrapped)
 
 					// Reconcile Bucket using sidecar logic
 					initBucket, err := sidecartest.ReconcileOpinionatedS3Bucket(t, bootstrapped, cositest.NsName(initBucket))
@@ -314,7 +436,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					assert.NoError(t, err)
 					assert.Empty(t, res)
 
-					claim, bucket := test.getResourcesFunc(bootstrapped)
+					claim, bucket := getClaimAndBucket(bootstrapped)
 
 					assert.Equal(t, initClaim.Finalizers, claim.Finalizers)
 					assert.Equal(t, initClaim.Spec, claim.Spec)
@@ -329,6 +451,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 					buckets := &cosiapi.BucketList{}
 					assert.NoError(t, r.List(ctx, buckets))
 					assert.Len(t, buckets.Items, 1) // no other bucket should be created
+
+					t.Run("subsequent deletion", func(t *testing.T) {
+						deletionTestSuite(t, initBootstrapped)
+					})
 				})
 
 				t.Run("still waiting after Bucket error", func(t *testing.T) {
@@ -337,7 +463,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					r := claimReconcilerForClient(bootstrapped.Client)
 
 					// make Bucket incompatible with Sidecar reconciler so it errors
-					_, errBucket := test.getResourcesFunc(bootstrapped)
+					_, errBucket := getClaimAndBucket(bootstrapped)
 					errBucket.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}
 					require.NoError(t, bootstrapped.Client.Update(ctx, errBucket))
 
@@ -345,14 +471,14 @@ func TestBucketClaimReconcile(t *testing.T) {
 					_, err := sidecartest.ReconcileOpinionatedS3Bucket(t, bootstrapped, cositest.NsName(errBucket))
 					require.Error(t, err)
 
-					initClaim, initBucket := test.getResourcesFunc(bootstrapped)
+					initClaim, initBucket := getClaimAndBucket(bootstrapped)
 
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
 					assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
 					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 					assert.Empty(t, res)
 
-					claim, bucket := test.getResourcesFunc(bootstrapped)
+					claim, bucket := getClaimAndBucket(bootstrapped)
 
 					// claim should be unchanged since bucket is not ready
 					assert.Equal(t, initClaim.Finalizers, claim.Finalizers)
@@ -365,6 +491,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 					buckets := &cosiapi.BucketList{}
 					assert.NoError(t, r.List(ctx, buckets))
 					assert.Len(t, buckets.Items, 1) // no other bucket should be created
+
+					t.Run("subsequent deletion", func(t *testing.T) {
+						deletionTestSuite(t, initBootstrapped)
+					})
 				})
 
 				t.Run("err bucket force-deleted", func(t *testing.T) {
@@ -375,7 +505,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					ctx := bootstrapped.ContextWithLogger
 					r := claimReconcilerForClient(bootstrapped.Client)
 
-					initClaim, initBucket := test.getResourcesFunc(bootstrapped)
+					initClaim, initBucket := getClaimAndBucket(bootstrapped)
 					require.NoError(t, r.Delete(ctx, initBucket)) // simulate force-delete of bucket while claim is bound
 
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
@@ -385,7 +515,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					assert.ErrorContains(t, err, "no longer exists")
 					assert.Empty(t, res)
 
-					claim, _ := test.getResourcesFunc(bootstrapped)
+					claim, _ := getClaimAndBucket(bootstrapped)
 					assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 					assert.Equal(t, initClaim.Spec, claim.Spec)
 					assert.False(t, *claim.Status.ReadyToUse)
@@ -397,6 +527,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 					buckets := &cosiapi.BucketList{}
 					require.NoError(t, r.List(ctx, buckets))
 					assert.Len(t, buckets.Items, 0) // no buckets should be created when claim is degraded
+
+					t.Run("subsequent deletion", func(t *testing.T) {
+						deletionTestSuite(t, initBootstrapped)
+					})
 				})
 			})
 		}
@@ -419,7 +553,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 			assert.NotErrorIs(t, err, reconcile.TerminalError(nil)) // should be terminal error when bucketclass watcher is set up
 			assert.Empty(t, res)
 
-			claim, _, _ := getClaimResources(bootstrapped)
+			claim, _, _ := getAllClaimResources(bootstrapped)
 
 			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 			status := claim.Status
@@ -433,6 +567,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 			assert.Contains(t, *serr.Message, baseBucketClass.Name)
 
 			bootstrapped.AssertResourceDoesNotExist(t, types.NamespacedName{Name: "bc-dynamicuid"}, &cosiapi.Bucket{})
+
+			t.Run("subsequent deletion", func(t *testing.T) {
+				deletionTestSuiteWithoutBucket(t, bootstrapped)
+			})
 		})
 	})
 
@@ -455,7 +593,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 			assert.ErrorContains(t, err, "static-bucket")
 			assert.Empty(t, res)
 
-			claim, _, _ := getClaimResources(bootstrapped)
+			claim, _, _ := getAllClaimResources(bootstrapped)
 
 			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 			assert.Equal(t, baseStaticClaim.Spec, claim.Spec)
@@ -471,6 +609,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 			buckets := &cosiapi.BucketList{}
 			assert.NoError(t, r.List(ctx, buckets))
 			assert.Len(t, buckets.Items, 0) // no bucket should be created
+
+			t.Run("subsequent deletion", func(t *testing.T) {
+				deletionTestSuiteWithoutBucket(t, bootstrapped)
+			})
 		})
 
 		t.Run("bucket bucketClaimRef mismatch", func(t *testing.T) {
@@ -530,7 +672,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					}
 					assert.Empty(t, res)
 
-					claim, dynamicBucket, staticBucket := getClaimResources(bootstrapped)
+					claim, dynamicBucket, staticBucket := getAllClaimResources(bootstrapped)
 
 					assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 					assert.Equal(t, baseStaticClaim.Spec, claim.Spec)
@@ -547,6 +689,28 @@ func TestBucketClaimReconcile(t *testing.T) {
 					assert.Equal(t, bucketNoMatch, staticBucket)
 
 					assert.Nil(t, dynamicBucket) // no dynamic bucket
+
+					t.Run("subsequent deletion", func(t *testing.T) {
+						bootstrapped := bootstrapped.MustCopy() // copy prior test world state
+						ctx := bootstrapped.ContextWithLogger
+						r := claimReconcilerForClient(bootstrapped.Client)
+
+						initClaim, initBucket := getClaimAndBucket(bootstrapped)
+						require.NotNil(t, initClaim)
+						require.NotNil(t, initBucket)
+
+						require.NoError(t, r.Delete(ctx, initClaim))
+
+						res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+						assert.NoError(t, err) // TODO: should be NoError when Bucket watcher is set up
+						assert.Empty(t, res)
+
+						bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(&baseDynamicClaim), &cosiapi.BucketClaim{})
+
+						bucket := &cosiapi.Bucket{}
+						require.NoError(t, r.Get(ctx, cositest.NsName(initBucket), bucket))
+						assert.Equal(t, initBucket, bucket) // bucket unchanged since not matched to claim
+					})
 				})
 			}
 		})

@@ -167,7 +167,10 @@ func NsName(o client.Object) types.NamespacedName {
 // BucketNsName returns the NamespacedName for the Bucket bound to the given BucketClaim.
 func BucketNsName(claim *cosiapi.BucketClaim) types.NamespacedName {
 	name := claim.Status.BoundBucketName
-	if claim.Status.BoundBucketName == "" {
+	if name == "" {
+		name = claim.Spec.ExistingBucketName
+	}
+	if name == "" {
 		name = "bc-" + string(claim.UID)
 	}
 	return types.NamespacedName{
