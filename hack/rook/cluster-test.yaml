@@ -1,0 +1,69 @@
+# Rook/Ceph test cluster configuration for local minikube development.
+# Consumes the extra raw disks attached by `make cluster` (minikube --extra-disks).
+#
+# Usage:
+#   hack/setup-rook.sh   (handles everything, including this file)
+#
+# Derived from rook/deploy/examples/cluster-test.yaml (Rook v1.19.4).
+---
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: my-cluster
+  namespace: rook-ceph
+spec:
+  dataDirHostPath: /var/lib/rook
+  cephVersion:
+    image: quay.io/ceph/ceph:v20
+    allowUnsupported: true
+  mon:
+    count: 1
+    allowMultiplePerNode: true
+  skipUpgradeChecks: true
+  mgr:
+    count: 1
+    allowMultiplePerNode: true
+    modules:
+      - name: rook
+        enabled: true
+  dashboard:
+    enabled: false
+  crashCollector:
+    disable: true
+  storage:
+    useAllNodes: true
+    useAllDevices: false
+    # Match the extra raw disks minikube attaches via --extra-disks (vdc, vdd, ...).
+    deviceFilter: "^vd[c-z]$"
+    config:
+      osdMemoryTarget: "512Mi"
+  monitoring:
+    enabled: false
+  healthCheck:
+    daemonHealth:
+      mon:
+        interval: 45s
+        timeout: 600s
+  priorityClassNames:
+    all: system-node-critical
+    mgr: system-cluster-critical
+  disruptionManagement:
+    managePodBudgets: false
+  cephConfig:
+    global:
+      osd_pool_default_size: "1"
+      mon_warn_on_pool_no_redundancy: "false"
+      bdev_flock_retry: "20"
+      bluefs_buffered_io: "false"
+      mon_data_avail_warn: "10"
+---
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: builtin-mgr
+  namespace: rook-ceph
+spec:
+  name: .mgr
+  replicated:
+    size: 1
+    requireSafeReplicaSize: false

@@ -1,0 +1,10 @@
+apiVersion: objectstorage.k8s.io/v1alpha2
+kind: BucketClass
+metadata:
+  name: ($namespace)
+spec:
+  driverName: ($driverName)
+  deletionPolicy: ($deletionPolicy)
+  parameters:
+    sample.objectstorage.x-k8s.io/adminSecretName: cosi-sample-s3-admin-secret
+    sample.objectstorage.x-k8s.io/adminSecretNamespace: ($driverNamespace)

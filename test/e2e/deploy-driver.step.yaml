@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/steptemplate-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: StepTemplate
+metadata:
+  name: deploy-driver
+spec:
+  bindings:
+  - name: driverNamespace
+    value: ($values.driverNamespace)
+  - name: s3Endpoint
+    value: ($values.s3Endpoint)
+  - name: s3Region
+    value: ($values.s3Region)
+  - name: adminAccessKeyId
+    value: ($values.adminAccessKeyId)
+  - name: adminSecretAccessKey
+    value: ($values.adminSecretAccessKey)
+  - name: accessKeyId
+    value: ($values.accessKeyId)
+  - name: accessSecretKey
+    value: ($values.accessSecretKey)
+  try:
+  # Create the driver namespace.
+  - apply:
+      file: resources/driver-namespace.yaml
+
+  # Admin Secret: read by the driver for all bucket/access operations.
+  # TODO: Replace placeholder values with real rook/ceph RGW credentials.
+  - apply:
+      file: resources/admin-secret.yaml
+
+  # Access Secret: returned verbatim to BucketAccess consumers.
+  # TODO: Replace placeholder values with real rook/ceph user credentials.
+  - apply:
+      file: resources/access-secret.yaml
+
+  # Apply the driver via kustomize, then patch the images to the runtime values.
+  # KUBECONFIG is auto-set by chainsaw for all script steps.
+  - script:
+      env:
+      - name: SAMPLE_DRIVER_IMAGE
+        value: ($values.sampleDriverImage)
+      - name: SIDECAR_IMAGE
+        value: ($values.sidecarImage)
+      - name: DRIVER_NAMESPACE
+        value: ($values.driverNamespace)
+      content: |
+        set -eu
+
+        # Chainsaw runs scripts with the test directory as CWD.
+        # Apply the static kustomize overlay (which references the base at the
+        # correct relative path), then immediately patch the Deployment's images
+        # to the runtime values supplied via chainsaw bindings.
+        # This avoids the kustomize image transformer overlay complexity.
+        kustomize build --load-restrictor=LoadRestrictionsNone "$(pwd)/kustomize" \
+          | kubectl apply -f -
+
+        kubectl set image deployment/cosi-sample-driver \
+          driver="${SAMPLE_DRIVER_IMAGE}" \
+          objectstorage-provisioner-sidecar="${SIDECAR_IMAGE}" \
+          -n "${DRIVER_NAMESPACE}"
+
+  # Wait for the driver Deployment to become ready.
+  # Use a generous timeout to account for initial image pulls from the local
+  # registry and the base Deployment's minReadySeconds: 30.
+  - assert:
+      timeout: 300s
+      file: resources/driver-deployment-assert.yaml
+
+  catch:
+  - describe:
+      apiVersion: apps/v1
+      kind: Deployment
+      name: cosi-sample-driver
+      namespace: ($driverNamespace)
+  - podLogs:
+      namespace: ($driverNamespace)
+      selector: app.kubernetes.io/component=cosi-driver
+      container: driver
+      tail: -1
+  - podLogs:
+      namespace: ($driverNamespace)
+      selector: app.kubernetes.io/component=cosi-driver
+      container: objectstorage-provisioner-sidecar
+      tail: -1

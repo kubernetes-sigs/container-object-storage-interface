@@ -1,0 +1,6 @@
+apiVersion: objectstorage.k8s.io/v1alpha2
+kind: BucketClaim
+metadata:
+  name: ($namespace)
+status:
+  readyToUse: true

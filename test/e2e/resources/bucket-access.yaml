@@ -1,0 +1,12 @@
+apiVersion: objectstorage.k8s.io/v1alpha2
+kind: BucketAccess
+metadata:
+  name: ($namespace)
+spec:
+  bucketAccessClassName: ($namespace)
+  protocol: S3
+  bucketClaims:
+  - bucketClaimName: ($namespace)
+    accessMode: ReadWrite
+    accessSecretName: ($namespace)
+  serviceAccountName: ($namespace)
