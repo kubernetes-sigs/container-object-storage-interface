@@ -137,17 +137,8 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 	isStaticProvisioning := claim.Spec.ExistingBucketName != ""
 
 	if !claim.GetDeletionTimestamp().IsZero() {
-		logger.V(1).Info("beginning BucketClaim deletion cleanup")
-
-		// TODO: deletion logic
-
-		ctrlutil.RemoveFinalizer(claim, cosiapi.ProtectionFinalizer)
-		if err := r.Update(ctx, claim); err != nil {
-			logger.Error(err, "failed to remove finalizer")
-			return fmt.Errorf("failed to remove finalizer: %w", err)
-		}
-
-		return cosierr.NonRetryableError(fmt.Errorf("deletion is not yet implemented")) // TODO
+		logger.Info("beginning BucketClaim deletion")
+		return r.reconcileDelete(ctx, logger, claim, bucketName, isStaticProvisioning)
 	}
 
 	logger.V(1).Info("reconciling BucketClaim")
@@ -183,6 +174,7 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 		if isStaticProvisioning {
 			// Bucket not created yet, retry
 			logger.Info("waiting for statically-provisioned Bucket to exist")
+			// TODO: return nil when Bucket watcher is set up
 			return fmt.Errorf("waiting for statically-provisioned Bucket %q to exist", bucketName)
 		}
 
@@ -244,6 +236,117 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 		return err
 	}
 
+	return nil
+}
+
+func (r *BucketClaimReconciler) reconcileDelete(
+	ctx context.Context, logger logr.Logger,
+	claim *cosiapi.BucketClaim,
+	bucketName string,
+	isStaticProvisioning bool,
+) error {
+	claim.Status.ReadyToUse = ptr.To(false)
+	claim.Status.Error = nil // previous error is no longer relevant
+	if err := r.Status().Update(ctx, claim); err != nil {
+		logger.Error(err, "failed to update BucketClaim status before deletion")
+		return fmt.Errorf("failed to update BucketClaim status before deletion: %w", err)
+	}
+
+	bucket := &cosiapi.Bucket{}
+	bucketNsName := types.NamespacedName{
+		Name:      bucketName,
+		Namespace: "", // global resource
+	}
+	if err := r.Get(ctx, bucketNsName, bucket); err != nil {
+		if kerrors.IsNotFound(err) {
+			// Bucket doesn't exist
+			logger.Info("removing finalizer from BucketClaim with deleted or nonexistent Bucket")
+			return r.removeClaimFinalizer(ctx, logger, claim)
+		} else {
+			logger.Error(err, "failed to determine if Bucket exists")
+			return err
+		}
+	}
+
+	isBound, err := bucketIsBoundToClaim(bucket, claim)
+	if err != nil {
+		if isStaticProvisioning {
+			// BucketClaim was made with a reference to a Bucket already bound to another claim.
+			// Allow the claim to delete so the user can try again.
+			logger.Info(
+				"removing finalizer from static BucketClaim which references a Bucket already bound to a different BucketClaim") // nolint:lll
+			return r.removeClaimFinalizer(ctx, logger, claim)
+		}
+		// It might be safe to delete the claim, but we can't be sure. It is safest to require the
+		// admin to decide what to do, to ensure no system info is lost in the worst case.
+		errMsg := "administrator must resolve unexpected error: dynamic Bucket does not reference this BucketClaim"
+		logger.Error(err, errMsg)
+		return cosierr.NonRetryableError(fmt.Errorf("%s: %w", errMsg, err))
+	}
+
+	if !isBound { // implies static provisioning because dynamic buckets are bound at initial creation
+		logger.Info("removing finalizer from static BucketClaim which references an unbound Bucket")
+		return r.removeClaimFinalizer(ctx, logger, claim)
+	}
+
+	logger = logger.WithValues("bucketDeletionPolicy", cosiapi.BucketDeletionPolicyRetain)
+
+	switch bucket.Spec.DeletionPolicy {
+	case cosiapi.BucketDeletionPolicyRetain:
+		if err := r.applyBucketClaimIsDeletingAnnotation(ctx, logger, bucket); err != nil {
+			return err
+		}
+		return r.removeClaimFinalizer(ctx, logger, claim)
+
+	case cosiapi.BucketDeletionPolicyDelete:
+		if !bucket.DeletionTimestamp.IsZero() {
+			logger.Info("still waiting for Bucket to be deleted")
+			// TODO: return nil when Bucket watcher is set up
+			return fmt.Errorf("still waiting for Bucket to be deleted")
+		}
+
+		if err := r.applyBucketClaimIsDeletingAnnotation(ctx, logger, bucket); err != nil {
+			return err
+		}
+
+		if err := r.Delete(ctx, bucket); err != nil {
+			logger.Error(err, "failed to delete Bucket")
+			return fmt.Errorf("failed to delete Bucket: %w", err)
+		}
+
+		logger.Info("waiting for Bucket to be deleted")
+		// TODO: return nil when Bucket watcher is set up
+		return fmt.Errorf("waiting for Bucket to be deleted")
+		// once Bucket is deleted, a future reconcile will remove the BucketClaim finalizer
+
+	default:
+		logger.Error(nil, "unknown Bucket deletion policy", "deletionPolicy", bucket.Spec.DeletionPolicy)
+		return cosierr.NonRetryableError(fmt.Errorf("unknown Bucket deletion policy %q", bucket.Spec.DeletionPolicy))
+	}
+}
+
+func (r *BucketClaimReconciler) removeClaimFinalizer(
+	ctx context.Context, logger logr.Logger, claim *cosiapi.BucketClaim,
+) error {
+	ctrlutil.RemoveFinalizer(claim, cosiapi.ProtectionFinalizer)
+	if err := r.Update(ctx, claim); err != nil {
+		logger.Error(err, "failed to remove finalizer")
+		return fmt.Errorf("failed to remove finalizer: %w", err)
+	}
+	return nil
+}
+
+func (r *BucketClaimReconciler) applyBucketClaimIsDeletingAnnotation(
+	ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket,
+) error {
+	if bucket.Annotations == nil {
+		bucket.Annotations = map[string]string{}
+	}
+	bucket.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation] = ""
+	if err := r.Update(ctx, bucket); err != nil {
+		logger.Error(err, "failed to annotate Bucket to indicate BucketClaim is being deleted")
+		return fmt.Errorf("failed to annotate Bucket to indicate BucketClaim is being deleted: %w", err)
+	}
 	return nil
 }
 
@@ -371,7 +474,7 @@ func bucketIsBoundToClaim(bucket *cosiapi.Bucket, claim *cosiapi.BucketClaim) (b
 			claimRef.Name, claim.Name))
 	}
 
-	if string(claimRef.UID) == "" { // bucket is not (yet) bound to this claim
+	if string(claimRef.UID) == "" { // bucket is not bound
 		if len(errs) > 0 {
 			return false, fmt.Errorf("unbound Bucket does not match BucketClaim: %w", errors.Join(errs...))
 		}
