@@ -24,11 +24,22 @@ sed -e 's|\./|../|g' "$ROOT"/kustomization.yaml > "$DEV_KUSTOMIZE_FILE"
 NEW_NAME="${CONTROLLER_TAG%:*}" # e.g., "localhost:5000/cosi-controller"
 NEW_TAG="${CONTROLLER_TAG##*:}" # e.g., "latest"
 
-# replace the default controller image with one for local dev
+# replace the default controller image with one for local dev, and force
+# imagePullPolicy: IfNotPresent so a sideloaded/locally-built image is
+# preferred over a registry pull (kubelet defaults to Always for :latest).
 cat <<EOF >> "$DEV_KUSTOMIZE_FILE"
 
 images:
   - name: gcr.io/k8s-staging-sig-storage/objectstorage-controller
     newName: "$NEW_NAME"
     newTag: "$NEW_TAG"
+
+patches:
+  - target:
+      kind: Deployment
+      name: controller
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
 EOF

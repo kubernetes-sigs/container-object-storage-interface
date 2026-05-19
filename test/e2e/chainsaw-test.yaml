@@ -6,6 +6,10 @@ metadata:
 spec:
   template: true
 
+  # The COSI controller and the sample driver (with its credentials Secrets)
+  # are required to be deployed and Ready before this suite runs. The suite
+  # itself is purely functional - it does not deploy or configure any
+  # cluster components.
   steps:
 
   # Step 1: Verify the COSI controller is running before proceeding.
@@ -13,10 +17,10 @@ spec:
     use:
       template: assert-controller-ready.step.yaml
 
-  # Step 2: Deploy the sample driver (Namespace, Secrets, kustomize build).
-  - name: Deploy sample driver
+  # Step 2: Verify the sample driver is running before proceeding.
+  - name: Assert sample driver is running
     use:
-      template: deploy-driver.step.yaml
+      template: assert-driver-ready.step.yaml
 
   # Step 3: Create the cluster-scoped BucketClass and BucketAccessClass.
   - name: Create BucketClass and BucketAccessClass

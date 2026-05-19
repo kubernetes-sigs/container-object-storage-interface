@@ -1,8 +1,0 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cosi-sample-driver
-  namespace: ($driverNamespace)
-status:
-  (readyReplicas == replicas): true
-  (availableReplicas == replicas): true

@@ -31,9 +31,9 @@ spec:
           export AWS_DEFAULT_REGION="${COSI_S3_REGION:-us-east-1}"
           export AWS_ENDPOINT_URL="${COSI_S3_ENDPOINT}"
 
-          # For non-AWS S3-compatible backends (e.g. rook/ceph RGW),
-          # path-style addressing must be used.  There is no env-var
-          # equivalent in aws CLI v2, so configure it explicitly.
+          # For non-AWS S3-compatible backends, path-style addressing
+          # must be used. There is no env-var equivalent in aws CLI v2,
+          # so configure it explicitly.
           aws configure set default.s3.addressing_style path
 
           BUCKET="${COSI_S3_BUCKET_ID}"

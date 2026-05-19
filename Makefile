@@ -41,47 +41,11 @@ PLATFORM ?= linux/$(GOARCH)
 ## BUILD_ARGS :## Additional args for builds
 BUILD_ARGS ?=
 
-## REGISTRY :## Container registry to push images to
-REGISTRY ?= localhost:5000
-
-# Content-derived tag: stable across clean trees (so CI and incremental local
-# builds get cache hits), but unique on dirty trees so a rebuilt image always
-# gets a fresh tag - `minikube image load` is then a pure insert and never
-# collides with a tag still pinned by a running container.
-#
-# Bound with := so the timestamp is evaluated exactly once per `make`
-# invocation. Recursive (?=/=) evaluation would re-run $(shell) at every
-# expansion and yield mismatched tags between build, load, and deploy.
-## IMAGE_TAG :## Image tag suffix for build/load (override to use a fixed tag, e.g. for releases)
-IMAGE_TAG := $(if $(IMAGE_TAG),$(IMAGE_TAG),$(shell \
-	sha=$$(git rev-parse --short HEAD 2>/dev/null || echo nogit); \
-	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then \
-		echo "$$sha-dirty-$$(date +%s)"; \
-	else \
-		echo "$$sha"; \
-	fi))
-
 ## CONTROLLER_TAG :## Image tag for controller image build and deploy
-CONTROLLER_TAG ?= $(REGISTRY)/cosi-controller:$(IMAGE_TAG)
+CONTROLLER_TAG ?= cosi-controller:latest
 
 ## SIDECAR_TAG :## Image tag for sidecar image build
-SIDECAR_TAG ?= $(REGISTRY)/cosi-provisioner-sidecar:$(IMAGE_TAG)
-
-## SAMPLE_DRIVER_TAG :## Image tag for the sample COSI driver build
-SAMPLE_DRIVER_TAG ?= $(REGISTRY)/cosi-driver-sample:$(IMAGE_TAG)
-
-## SAMPLE_DRIVER_PATH :## Path to the sample COSI driver source code
-SAMPLE_DRIVER_PATH ?= $(CACHE)/sample-driver
-
-## SAMPLE_DRIVER_BRANCH :## Branch of the sample COSI driver to build
-SAMPLE_DRIVER_BRANCH ?= main
-
-## MINIKUBE_DRIVER :## Driver for minikube cluster
-ifeq ($(shell uname -s),Darwin)
-MINIKUBE_DRIVER ?= vfkit
-else
-MINIKUBE_DRIVER ?= qemu2
-endif
+SIDECAR_TAG ?= cosi-provisioner-sidecar:latest
 
 export
 
@@ -138,52 +102,17 @@ clobber: ## Clean build environment and cached tools
 prebuild: .gen fmt .doc-vendor ## Run all pre-build prerequisite steps (faster with 'make -j')
 
 CACHE ?= $(CURDIR)/.cache
-$(CACHE_PATH):
-	mkdir -p $(CACHE_PATH)
+$(CACHE):
+	mkdir -p $(CACHE)
 
 .PHONY: build
 build: build.controller build.sidecar ## Build container images without prerequisites
 
-$(SAMPLE_DRIVER_PATH): | $(CACHE) ## Cache the sample COSI driver image (only cloned if missing)
-	git clone --depth 1 --branch $(SAMPLE_DRIVER_BRANCH) https://github.com/Kubernetes-sigs/cosi-driver-sample.git $(SAMPLE_DRIVER_PATH)
-
-.PHONY: build.controller build.sidecar build.sample-driver
+.PHONY: build.controller build.sidecar
 build.controller: controller/Dockerfile ## Build only the controller container image
 	$(DOCKER) build --file controller/Dockerfile --platform $(PLATFORM) $(BUILD_ARGS) --tag $(CONTROLLER_TAG) .
 build.sidecar: sidecar/Dockerfile ## Build only the sidecar container image
 	$(DOCKER) build --file sidecar/Dockerfile --platform $(PLATFORM) $(BUILD_ARGS) --tag $(SIDECAR_TAG) .
-build.sample-driver: $(SAMPLE_DRIVER_PATH) ## Build the sample COSI driver image from $(SAMPLE_DRIVER_PATH)
-	$(DOCKER) build \
-		--file $(SAMPLE_DRIVER_PATH)/Dockerfile \
-		--platform $(PLATFORM) \
-		$(BUILD_ARGS) \
-		--tag $(SAMPLE_DRIVER_TAG) \
-		$(SAMPLE_DRIVER_PATH)
-
-.PHONY: push.controller push.sidecar push.sample-driver
-push.controller: ## Push only the controller container image
-	$(DOCKER) push $(CONTROLLER_TAG)
-push.sidecar: ## Push only the sidecar container image
-	$(DOCKER) push $(SIDECAR_TAG)
-push.sample-driver: ## Push the sample COSI driver image from $(SAMPLE_DRIVER_PATH)
-	$(DOCKER) push $(SAMPLE_DRIVER_TAG)
-
-# Sideload images into the local minikube node's container runtime.
-# Works around the lack of a usable local registry (MacOS port 5000 is taken
-# by AirPlay Receiver, and the minikube `registry` addon has known issues).
-# Same flow in CI and locally - minikube is the deployment target either way.
-#
-# IMAGE_TAG is content-derived (git SHA + dirty-timestamp), so a rebuilt image
-# always lands under a new tag and 'minikube image load' never collides with a
-# tag still referenced by a running container.
-.PHONY: load load.controller load.sidecar load.sample-driver
-load: load.controller load.sidecar load.sample-driver ## Build and sideload all images into minikube
-load.controller: build.controller minikube ## Sideload the controller image into minikube
-	$(MINIKUBE) image load $(CONTROLLER_TAG)
-load.sidecar: build.sidecar minikube ## Sideload the sidecar image into minikube
-	$(MINIKUBE) image load $(SIDECAR_TAG)
-load.sample-driver: build.sample-driver minikube ## Sideload the sample COSI driver image into minikube
-	$(MINIKUBE) image load $(SAMPLE_DRIVER_TAG)
 
 .PHONY: generate
 generate: crds controller/Dockerfile sidecar/Dockerfile ## Generate files
@@ -230,62 +159,21 @@ vendor: tidy.client tidy.proto ## Update go vendor dir
 tidy.%: FORCE
 	cd $* && go mod tidy
 
-ROOK_CREDS ?= $(CURDIR)/test/e2e/rook-credentials.yaml
-
-.PHONY: deploy-rook
-deploy-rook: ## Deploy Rook/Ceph RGW to the local cluster and write S3 credentials to test/e2e/rook-credentials.yaml
-	ROOK_VERSION=$(ROOK_VERSION) hack/setup-rook.sh
-
-E2E_IMAGE_VALUES := $(CACHE)/e2e-images.yaml
-
 .PHONY: test-e2e
-test-e2e: chainsaw kustomize load.sidecar load.sample-driver ## Run e2e tests against the local K8s cluster (requires controller deployed; S3 steps need deploy-rook)
-	$(eval EXTRA_VALUES := $(if $(wildcard $(ROOK_CREDS)),--values $(ROOK_CREDS),))
-	@if [ -z "$(wildcard $(ROOK_CREDS))" ]; then \
-		echo "WARNING: $(ROOK_CREDS) not found - S3 credential steps will use placeholder values."; \
-		echo "  Run 'make deploy-rook' to deploy Rook/Ceph RGW and generate real credentials."; \
-	fi
-	@mkdir -p $(CACHE)
-	@printf 'sampleDriverImage: "%s"\nsidecarImage: "%s"\n' \
-		"$(SAMPLE_DRIVER_TAG)" "$(SIDECAR_TAG)" > $(E2E_IMAGE_VALUES)
+test-e2e: chainsaw ## Run the purely functional chainsaw e2e suite against the current kubectl context (requires controller, sample driver, and S3 backend already deployed - see docs/src/developing/core.md)
 	PATH=$(TOOLBIN):$(PATH) $(CHAINSAW) test test/e2e/ \
 		--config test/e2e/.chainsaw.yaml \
-		--values test/e2e/values.yaml \
-		--values $(E2E_IMAGE_VALUES) \
-		$(EXTRA_VALUES)
+		--values test/e2e/values.yaml
 
 ##@ Deployment (Advanced)
 
-.PHONY: cluster
-cluster: minikube ## Create cluster and local registry
-	@$(MINIKUBE) start --cpus=4 --memory=6g --extra-disks=3 \
-		--driver=$(MINIKUBE_DRIVER) \
-		--container-runtime=containerd
-
-.PHONY: cluster-reset
-cluster-reset: minikube ## Delete cluster and local registry
-	@$(MINIKUBE) stop && $(MINIKUBE) delete
-
 .PHONY: deploy
-deploy: load.controller kustomize ## Build, sideload, and deploy controller (CONTROLLER_TAG) to the local K8s cluster
+deploy: kustomize ## Deploy controller (CONTROLLER_TAG) to the current kubectl context
 	./hack/dev-kustomize.sh && $(KUSTOMIZE) build $(CACHE) | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
-undeploy: kustomize ## Undeploy controller (CONTROLLER_TAG) from the local K8s cluster
+undeploy: kustomize ## Undeploy controller (CONTROLLER_TAG) from the current kubectl context
 	./hack/dev-kustomize.sh && $(KUSTOMIZE) build $(CACHE) | $(KUBECTL) delete --ignore-not-found=true -f -
-
-DRIVER_NAMESPACE ?= cosi-driver-sample-system
-
-.PHONY: deploy-sample-driver
-deploy-sample-driver: load.sample-driver load.sidecar kustomize ## Build, sideload, and deploy the sample COSI driver to the local K8s cluster
-	$(KUSTOMIZE) build $(SAMPLE_DRIVER_PATH)/config/default | $(KUBECTL) apply -f -
-	$(KUBECTL) -n $(DRIVER_NAMESPACE) set image deployment/cosi-sample-driver \
-		driver=$(SAMPLE_DRIVER_TAG) \
-		objectstorage-provisioner-sidecar=$(SIDECAR_TAG)
-
-.PHONY: undeploy-sample-driver
-undeploy-sample-driver: kustomize ## Undeploy the sample COSI driver from the local K8s cluster
-	$(KUSTOMIZE) build $(SAMPLE_DRIVER_PATH)/config/default | $(KUBECTL) delete --ignore-not-found=true -f -
 
 #
 # ===== Tools =====
@@ -304,11 +192,10 @@ GOLANGCI_LINT  ?= $(TOOLBIN)/golangci-lint
 KUBEAPI_LINT   ?= $(TOOLBIN)/golangci-lint-kube-api-linter
 KUSTOMIZE      ?= $(TOOLBIN)/kustomize
 MDBOOK         ?= $(TOOLBIN)/mdbook
-MINIKUBE       ?= $(TOOLBIN)/minikube
 SHELLCHECK     ?= $(TOOLBIN)/shellcheck
 
 # Tool Versions
-CHAINSAW_VERSION         ?= v0.2.14
+CHAINSAW_VERSION         ?= v0.2.15
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
 CRD_REF_DOCS_VERSION     ?= v0.2.0
 GOLANGCI_LINT_VERSION    ?= v2.11.4
@@ -316,14 +203,12 @@ HADOLINT_VERSION         ?= v2.14.0
 KUBEAPI_LINT_VERSION     ?= v0.0.0-20260320123815-c9b9b51b278a
 KUSTOMIZE_VERSION        ?= v5.8.1
 MDBOOK_VERSION           ?= v0.4.47
-MINIKUBE_VERSION         ?= v1.38.1
-ROOK_VERSION             ?= v1.19.4
 SHELLCHECK_VERSION       ?= v0.11.0
 
 .PHONY: chainsaw
 chainsaw: $(CHAINSAW)-$(CHAINSAW_VERSION)
 $(CHAINSAW)-$(CHAINSAW_VERSION): $(TOOLBIN)
-	./hack/tools/install-chainsaw.sh $(CHAINSAW) $(CHAINSAW_VERSION)
+	$(call go-install-tool,$(CHAINSAW),github.com/kyverno/chainsaw,$(CHAINSAW_VERSION))
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN)-$(CONTROLLER_TOOLS_VERSION)
@@ -354,11 +239,6 @@ $(KUSTOMIZE)-$(KUSTOMIZE_VERSION): $(TOOLBIN)
 mdbook: $(MDBOOK)-$(MDBOOK_VERSION)
 $(MDBOOK)-$(MDBOOK_VERSION): $(TOOLBIN)
 	./hack/tools/install-mdbook.sh $(MDBOOK) $(MDBOOK_VERSION)
-
-.PHONY: minikube
-minikube: $(MINIKUBE)-$(MINIKUBE_VERSION)
-$(MINIKUBE)-$(MINIKUBE_VERSION): $(TOOLBIN)
-	./hack/tools/install-minikube.sh $(MINIKUBE) $(MINIKUBE_VERSION)
 
 .PHONY: shellcheck
 shellcheck: $(SHELLCHECK)-$(SHELLCHECK_VERSION)
