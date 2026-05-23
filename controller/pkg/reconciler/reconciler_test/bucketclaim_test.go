@@ -615,6 +615,48 @@ func TestBucketClaimReconcile(t *testing.T) {
 			})
 		})
 
+		t.Run("bucket created after initial reconcile", func(t *testing.T) {
+			bootstrapped := cositest.MustBootstrap(t,
+				baseStaticClaim.DeepCopy(),
+				// no bucket
+			)
+			r := claimReconcilerForClient(bootstrapped.Client)
+			ctx := bootstrapped.ContextWithLogger
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticClaim)})
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.ErrorContains(t, err, "waiting for statically-provisioned Bucket")
+			assert.Empty(t, res)
+
+			require.NoError(t, bootstrapped.Client.Create(ctx, baseStaticBucket.DeepCopy()))
+
+			bucket, err := sidecartest.ReconcileOpinionatedS3Bucket(
+				t,
+				bootstrapped,
+				cositest.NsName(&baseStaticBucket),
+			)
+			require.NoError(t, err)
+			require.NotNil(t, bucket.Status.ReadyToUse)
+			require.True(t, *bucket.Status.ReadyToUse)
+
+			res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticClaim)})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			claim, dynamicBucket, staticBucket := getAllClaimResources(bootstrapped)
+
+			require.NotNil(t, claim)
+			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			assert.Equal(t, "static-bucket", claim.Status.BoundBucketName)
+			assert.Equal(t, bucket.Status.ReadyToUse, claim.Status.ReadyToUse)
+			assert.Equal(t, bucket.Status.Protocols, claim.Status.Protocols)
+			assert.Nil(t, claim.Status.Error)
+
+			assert.Nil(t, dynamicBucket)
+			assert.Equal(t, bucket.Status, staticBucket.Status)
+		})
+
 		t.Run("bucket bucketClaimRef mismatch", func(t *testing.T) {
 			type bucketClaimRefMismatchTest struct {
 				testName      string
