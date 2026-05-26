@@ -15,7 +15,7 @@ substitutions:
   _PLATFORMS: linux/amd64,linux/arm64 # add more platforms here if desired
 steps:
   - id: do-multi-arch-build-all-images
-    name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20250513-9264efb079
+    name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud@sha256:ff388e0dc16351e96f8464e2e185b74a7578a5ccb7a112cf3393468e59e6e2d2 # v20260205-38cfa9523f
     args:
       - hack/cloudbuild.sh
     env:
