@@ -577,11 +577,12 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 		[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
 		bucket.Status.Protocols,
 	)
-	assert.NotEmpty(t, bucket.Status.BucketInfo)
-	assert.Equal(t, "corp-"+helper.ExpectBucketId(), bucket.Status.BucketInfo["COSI_S3_BUCKET_ID"])
-	for k := range bucket.Status.BucketInfo {
-		assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-	}
+	assert.Equal(t, map[string]string{
+		string(cosiapi.BucketInfoVar_S3_BucketId):        "corp-" + helper.ExpectBucketId(),
+		string(cosiapi.BucketInfoVar_S3_Endpoint):        "s3.corp.net",
+		string(cosiapi.BucketInfoVar_S3_Region):          "us-east-1",
+		string(cosiapi.BucketInfoVar_S3_AddressingStyle): "path",
+	}, bucket.Status.BucketInfo)
 
 	t.Run("reconcile again", func(t *testing.T) {
 		createBucketReq = []*cosiproto.DriverCreateBucketRequest{}         // reset seen rpc calls
@@ -1525,15 +1526,12 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
-		// If we check the exact results of details.allProtoBucketInfo, we will tie the unit tests
-		// to the specific implementation of the S3 bucket info translator, tested elsewhere.
-		// Instead, check only COSI_S3_BUCKET_ID which is unlikely to change in the future, and
-		// check that all info is prefixed `COSI_S3_`.
-		assert.NotEmpty(t, details.allProtoBucketInfo)
-		assert.Equal(t, "backend-bc-qwerty", details.allProtoBucketInfo[string(cosiapi.BucketInfoVar_S3_BucketId)])
-		for k := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-		}
+		assert.Equal(t, map[string]string{
+			string(cosiapi.BucketInfoVar_S3_BucketId):        "backend-bc-qwerty",
+			string(cosiapi.BucketInfoVar_S3_Endpoint):        "s3.corp.net",
+			string(cosiapi.BucketInfoVar_S3_Region):          "us-east-1",
+			string(cosiapi.BucketInfoVar_S3_AddressingStyle): "path",
+		}, details.allProtoBucketInfo)
 		assert.Equal(t, inputParams, requestParams)
 	})
 
@@ -1690,11 +1688,12 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
-		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-			assert.Empty(t, v) // but all info will be empty string
-		}
+		assert.Equal(t, map[string]string{
+			string(cosiapi.BucketInfoVar_S3_BucketId):        "",
+			string(cosiapi.BucketInfoVar_S3_Endpoint):        "",
+			string(cosiapi.BucketInfoVar_S3_Region):          "",
+			string(cosiapi.BucketInfoVar_S3_AddressingStyle): "",
+		}, details.allProtoBucketInfo)
 	})
 
 	t.Run("valid driver, empty Azure proto response", func(t *testing.T) {
@@ -1734,11 +1733,9 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolAzure}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
-		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_AZURE_"))
-			assert.Empty(t, v) // but all info will be empty string
-		}
+		assert.Equal(t, map[string]string{
+			string(cosiapi.BucketInfoVar_Azure_StorageAccount): "",
+		}, details.allProtoBucketInfo)
 	})
 
 	t.Run("valid driver, empty GCS proto response", func(t *testing.T) {
@@ -1778,11 +1775,10 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
-		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_GCS_"))
-			assert.Empty(t, v) // but all info will be empty string
-		}
+		assert.Equal(t, map[string]string{
+			string(cosiapi.BucketInfoVar_GCS_BucketName): "",
+			string(cosiapi.BucketInfoVar_GCS_ProjectId):  "",
+		}, details.allProtoBucketInfo)
 	})
 
 	t.Run("valid driver, empty S3+Azure proto response", func(t *testing.T) {
@@ -1832,11 +1828,13 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 			details.supportedProtos,
 		)
-		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
-		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_") || strings.HasPrefix(k, "COSI_AZURE_"))
-			assert.Empty(t, v) // but all info will be empty string
-		}
+		assert.Equal(t, map[string]string{
+			string(cosiapi.BucketInfoVar_S3_BucketId):          "",
+			string(cosiapi.BucketInfoVar_S3_Endpoint):          "",
+			string(cosiapi.BucketInfoVar_S3_Region):            "",
+			string(cosiapi.BucketInfoVar_S3_AddressingStyle):   "",
+			string(cosiapi.BucketInfoVar_Azure_StorageAccount): "",
+		}, details.allProtoBucketInfo)
 	})
 
 }
@@ -2143,11 +2141,12 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo)
-		assert.Equal(t, "static-bucket", details.allProtoBucketInfo[string(cosiapi.BucketInfoVar_S3_BucketId)])
-		for k := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-		}
+		assert.Equal(t, map[string]string{
+			string(cosiapi.BucketInfoVar_S3_BucketId):        "static-bucket",
+			string(cosiapi.BucketInfoVar_S3_Endpoint):        "s3.corp.net",
+			string(cosiapi.BucketInfoVar_S3_Region):          "us-east-1",
+			string(cosiapi.BucketInfoVar_S3_AddressingStyle): "path",
+		}, details.allProtoBucketInfo)
 		assert.Equal(t, inputParams, requestParams)
 	})
 
@@ -2338,11 +2337,12 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo)
-		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-			assert.Empty(t, v)
-		}
+		assert.Equal(t, map[string]string{
+			string(cosiapi.BucketInfoVar_S3_BucketId):        "",
+			string(cosiapi.BucketInfoVar_S3_Endpoint):        "",
+			string(cosiapi.BucketInfoVar_S3_Region):          "",
+			string(cosiapi.BucketInfoVar_S3_AddressingStyle): "",
+		}, details.allProtoBucketInfo)
 	})
 }
 
