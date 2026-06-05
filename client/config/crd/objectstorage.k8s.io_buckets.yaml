@@ -198,9 +198,9 @@ spec:
                 additionalProperties:
                   type: string
                 description: |-
-                  bucketInfo contains info about the bucket reported by the driver, rendered in the same
-                  COSI_<PROTOCOL>_<KEY> format used for the BucketAccess Secret.
-                  e.g., COSI_S3_ENDPOINT, COSI_AZURE_STORAGE_ACCOUNT.
+                  bucketInfo contains info about the bucket reported by the driver, rendered in the
+                  well-known env var key format used for the BucketAccess Secret.
+                  e.g., AWS_ENDPOINT_URL, AZURE_STORAGE_ACCOUNT.
                   This should not contain any sensitive information.
                 maxProperties: 128
                 minProperties: 1

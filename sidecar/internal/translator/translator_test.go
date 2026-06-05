@@ -17,7 +17,6 @@ limitations under the License.
 package translator
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,16 +27,16 @@ import (
 
 func TestTranslateBucketInfo(t *testing.T) {
 	tests := []struct {
-		name                string // description of this test case
-		pbi                 *cosiproto.ObjectProtocolAndBucketInfo
-		validation          *ValidationConfig
-		wantProtos          []cosiapi.ObjectProtocol
-		wantInfoVarPrefixes []string
-		wantErr             string
+		name       string // description of this test case
+		pbi        *cosiproto.ObjectProtocolAndBucketInfo
+		validation *ValidationConfig
+		wantProtos []cosiapi.ObjectProtocol
+		wantInfo   map[string]string
+		wantErr    string
 	}{
 		{"no info, no validation",
 			&cosiproto.ObjectProtocolAndBucketInfo{}, nil,
-			[]cosiapi.ObjectProtocol{}, []string{}, "",
+			[]cosiapi.ObjectProtocol{}, map[string]string{}, "",
 		},
 		{"no info, validate S3",
 			&cosiproto.ObjectProtocolAndBucketInfo{},
@@ -59,11 +58,12 @@ func TestTranslateBucketInfo(t *testing.T) {
 				S3: &cosiproto.S3BucketInfo{},
 			},
 			nil, // no validation
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolS3,
-			},
-			[]string{
-				"COSI_S3_",
+			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
+			map[string]string{
+				string(cosiapi.BucketInfoVar_S3_BucketId):        "",
+				string(cosiapi.BucketInfoVar_S3_Endpoint):        "",
+				string(cosiapi.BucketInfoVar_S3_Region):          "",
+				string(cosiapi.BucketInfoVar_S3_AddressingStyle): "",
 			},
 			"",
 		},
@@ -89,11 +89,12 @@ func TestTranslateBucketInfo(t *testing.T) {
 				},
 			},
 			nil, // no validation
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolS3,
-			},
-			[]string{
-				"COSI_S3_",
+			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
+			map[string]string{
+				string(cosiapi.BucketInfoVar_S3_BucketId):        "something",
+				string(cosiapi.BucketInfoVar_S3_Endpoint):        "cosi.corp.net",
+				string(cosiapi.BucketInfoVar_S3_Region):          "",
+				string(cosiapi.BucketInfoVar_S3_AddressingStyle): "",
 			},
 			"",
 		},
@@ -124,11 +125,9 @@ func TestTranslateBucketInfo(t *testing.T) {
 				Azure: &cosiproto.AzureBucketInfo{},
 			},
 			nil, // no validation
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolAzure,
-			},
-			[]string{
-				"COSI_AZURE_",
+			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolAzure},
+			map[string]string{
+				string(cosiapi.BucketInfoVar_Azure_StorageAccount): "",
 			},
 			"",
 		},
@@ -146,11 +145,9 @@ func TestTranslateBucketInfo(t *testing.T) {
 				},
 			},
 			nil, // no validation
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolAzure,
-			},
-			[]string{
-				"COSI_AZURE_",
+			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolAzure},
+			map[string]string{
+				string(cosiapi.BucketInfoVar_Azure_StorageAccount): "something",
 			},
 			"",
 		},
@@ -168,11 +165,10 @@ func TestTranslateBucketInfo(t *testing.T) {
 				Gcs: &cosiproto.GcsBucketInfo{},
 			},
 			nil, // no validation
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolGcs,
-			},
-			[]string{
-				"COSI_GCS_",
+			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs},
+			map[string]string{
+				string(cosiapi.BucketInfoVar_GCS_BucketName): "",
+				string(cosiapi.BucketInfoVar_GCS_ProjectId):  "",
 			},
 			"",
 		},
@@ -190,11 +186,10 @@ func TestTranslateBucketInfo(t *testing.T) {
 				},
 			},
 			nil, // no validation
-			[]cosiapi.ObjectProtocol{
-				cosiapi.ObjectProtocolGcs,
-			},
-			[]string{
-				"COSI_GCS_",
+			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs},
+			map[string]string{
+				string(cosiapi.BucketInfoVar_GCS_BucketName): "something",
+				string(cosiapi.BucketInfoVar_GCS_ProjectId):  "",
 			},
 			"",
 		},
@@ -220,10 +215,13 @@ func TestTranslateBucketInfo(t *testing.T) {
 				cosiapi.ObjectProtocolAzure,
 				cosiapi.ObjectProtocolGcs,
 			},
-			[]string{
-				"COSI_S3_",
-				"COSI_AZURE_",
-				"COSI_GCS_",
+			map[string]string{
+				string(cosiapi.BucketInfoVar_S3_BucketId):          "",
+				string(cosiapi.BucketInfoVar_S3_Endpoint):          "",
+				string(cosiapi.BucketInfoVar_S3_Region):            "",
+				string(cosiapi.BucketInfoVar_S3_AddressingStyle):   "",
+				string(cosiapi.BucketInfoVar_Azure_StorageAccount): "",
+				string(cosiapi.BucketInfoVar_GCS_ProjectId):        "",
 			},
 			"",
 		},
@@ -272,10 +270,13 @@ func TestTranslateBucketInfo(t *testing.T) {
 				cosiapi.ObjectProtocolAzure,
 				cosiapi.ObjectProtocolGcs,
 			},
-			[]string{
-				"COSI_S3_",
-				"COSI_AZURE_",
-				"COSI_GCS_",
+			map[string]string{
+				string(cosiapi.BucketInfoVar_S3_BucketId):          "something",
+				string(cosiapi.BucketInfoVar_S3_Endpoint):          "",
+				string(cosiapi.BucketInfoVar_S3_Region):            "",
+				string(cosiapi.BucketInfoVar_S3_AddressingStyle):   "",
+				string(cosiapi.BucketInfoVar_Azure_StorageAccount): "acct",
+				string(cosiapi.BucketInfoVar_GCS_ProjectId):        "",
 			},
 			"",
 		},
@@ -335,24 +336,10 @@ func TestTranslateBucketInfo(t *testing.T) {
 				assert.ErrorContains(t, err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantProtos, protos)
-			// If we check the exact results of details.allProtoBucketInfo, we will tie the unit
-			// tests to the specific implementation of bucket info translators, tested elsewhere.
-			// Instead, check only that prefixes match what we expect.
-			if len(tt.wantProtos) > 0 {
-				assert.NotZero(t, len(infoVars))
+			if tt.wantErr == "" {
+				assert.Equal(t, tt.wantInfo, infoVars)
 			} else {
-				assert.Zero(t, len(infoVars))
-			}
-			// t.Log("got info map:", infoVars)
-			for _, p := range tt.wantInfoVarPrefixes {
-				found := false
-				for k := range infoVars {
-					assert.True(t, strings.HasPrefix(k, "COSI_")) // all vars must be prefixed COSI_
-					if strings.HasPrefix(k, p) {
-						found = true
-					}
-				}
-				assert.Truef(t, found, "prefix %q not found in %v keys", p, infoVars)
+				assert.Nil(t, infoVars)
 			}
 		})
 	}
@@ -360,40 +347,88 @@ func TestTranslateBucketInfo(t *testing.T) {
 
 func TestTranslateCredentials(t *testing.T) {
 	tests := []struct {
-		name                string // description of this test case
-		pbi                 *cosiproto.CredentialInfo
-		validation          ValidationConfig
-		wantInfoVarPrefixes []string
-		wantErr             string
+		name       string // description of this test case
+		pbi        *cosiproto.CredentialInfo
+		validation ValidationConfig
+		wantCreds  map[string]string
+		wantErr    string
 	}{
+		{"s3 valid, validate S3",
+			&cosiproto.CredentialInfo{
+				S3: &cosiproto.S3CredentialInfo{
+					AccessKeyId:     "accesskey",
+					AccessSecretKey: "secretkey",
+				},
+			},
+			ValidationConfig{cosiapi.ObjectProtocolS3, cosiapi.BucketAccessAuthenticationTypeKey},
+			map[string]string{
+				string(cosiapi.CredentialVar_S3_AccessKeyId):     "accesskey",
+				string(cosiapi.CredentialVar_S3_AccessSecretKey): "secretkey",
+			},
+			"",
+		},
+		{"azure valid, validate Azure",
+			&cosiproto.CredentialInfo{
+				Azure: &cosiproto.AzureCredentialInfo{
+					AccessToken: "token",
+				},
+			},
+			ValidationConfig{cosiapi.ObjectProtocolAzure, cosiapi.BucketAccessAuthenticationTypeKey},
+			map[string]string{
+				string(cosiapi.CredentialVar_Azure_AccessToken):     "token",
+				string(cosiapi.CredentialVar_Azure_ExpiryTimestamp): "",
+			},
+			"",
+		},
+		{"GCS key valid, validate GCS",
+			&cosiproto.CredentialInfo{
+				Gcs: &cosiproto.GcsCredentialInfo{
+					AccessId:     "accessId",
+					AccessSecret: "accessSecret",
+				},
+			},
+			ValidationConfig{cosiapi.ObjectProtocolGcs, cosiapi.BucketAccessAuthenticationTypeKey},
+			map[string]string{
+				string(cosiapi.CredentialVar_GCS_AccessId):       "accessId",
+				string(cosiapi.CredentialVar_GCS_AccessSecret):   "accessSecret",
+				string(cosiapi.CredentialVar_GCS_PrivateKeyName): "",
+				string(cosiapi.CredentialVar_GCS_ServiceAccount): "",
+			},
+			"",
+		},
 		{"no info, validate S3",
 			&cosiproto.CredentialInfo{},
 			ValidationConfig{cosiapi.ObjectProtocolS3, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `missing response for expected "S3" protocol`,
+			nil,
+			`missing response for expected "S3" protocol`,
 		},
 		{"no info, validate Azure",
 			&cosiproto.CredentialInfo{},
 			ValidationConfig{cosiapi.ObjectProtocolAzure, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `missing response for expected "Azure" protocol`,
+			nil,
+			`missing response for expected "Azure" protocol`,
 		},
 		{"no info, validate GCS",
 			&cosiproto.CredentialInfo{},
 			ValidationConfig{cosiapi.ObjectProtocolGcs, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `missing response for expected "GCS" protocol`,
+			nil,
+			`missing response for expected "GCS" protocol`,
 		},
 		{"s3 empty, validate S3",
 			&cosiproto.CredentialInfo{
 				S3: &cosiproto.S3CredentialInfo{},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolS3, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, "errors translating S3 bucket credentials",
+			nil,
+			"errors translating S3 bucket credentials",
 		},
 		{"s3 empty, validate Azure",
 			&cosiproto.CredentialInfo{
 				S3: &cosiproto.S3CredentialInfo{},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolAzure, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `missing response for expected "Azure" protocol`,
+			nil,
+			`missing response for expected "Azure" protocol`,
 		},
 		{"s3 non-empty, validate S3",
 			&cosiproto.CredentialInfo{
@@ -403,7 +438,8 @@ func TestTranslateCredentials(t *testing.T) {
 				},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolS3, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, "errors translating S3 bucket credentials",
+			nil,
+			"errors translating S3 bucket credentials",
 		},
 		{"s3 non-empty, validate GCS",
 			&cosiproto.CredentialInfo{
@@ -413,14 +449,16 @@ func TestTranslateCredentials(t *testing.T) {
 				},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolGcs, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `missing response for expected "GCS" protocol`,
+			nil,
+			`missing response for expected "GCS" protocol`,
 		},
 		{"azure empty, validate Azure",
 			&cosiproto.CredentialInfo{
 				Azure: &cosiproto.AzureCredentialInfo{},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolAzure, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, "errors translating Azure bucket credentials",
+			nil,
+			"errors translating Azure bucket credentials",
 		},
 		{"azure non-empty, validate Azure",
 			&cosiproto.CredentialInfo{
@@ -429,14 +467,16 @@ func TestTranslateCredentials(t *testing.T) {
 				},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolAzure, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, "errors translating Azure bucket credentials",
+			nil,
+			"errors translating Azure bucket credentials",
 		},
 		{"GCS empty, validate GCS",
 			&cosiproto.CredentialInfo{
 				Gcs: &cosiproto.GcsCredentialInfo{},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolGcs, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, "errors translating GCS bucket credentials",
+			nil,
+			"errors translating GCS bucket credentials",
 		},
 		{"GCS non-empty, validate GCS",
 			&cosiproto.CredentialInfo{
@@ -446,7 +486,8 @@ func TestTranslateCredentials(t *testing.T) {
 				},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolGcs, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, "errors translating GCS bucket credentials",
+			nil,
+			"errors translating GCS bucket credentials",
 		},
 		{"s3+azure+GCS empty, validate S3",
 			&cosiproto.CredentialInfo{
@@ -455,7 +496,8 @@ func TestTranslateCredentials(t *testing.T) {
 				Gcs:   &cosiproto.GcsCredentialInfo{},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolS3, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `only "S3" protocol is expected`,
+			nil,
+			`only "S3" protocol is expected`,
 		},
 		{"s3+azure+GCS empty, validate Azure",
 			&cosiproto.CredentialInfo{
@@ -464,7 +506,8 @@ func TestTranslateCredentials(t *testing.T) {
 				Gcs:   &cosiproto.GcsCredentialInfo{},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolAzure, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `only "Azure" protocol is expected`,
+			nil,
+			`only "Azure" protocol is expected`,
 		},
 		{"s3+azure+GCS empty, validate GCS",
 			&cosiproto.CredentialInfo{
@@ -473,7 +516,8 @@ func TestTranslateCredentials(t *testing.T) {
 				Gcs:   &cosiproto.GcsCredentialInfo{},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolGcs, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `only "GCS" protocol is expected`,
+			nil,
+			`only "GCS" protocol is expected`,
 		},
 		{"s3+azure+GCS non-empty, validate S3",
 			&cosiproto.CredentialInfo{
@@ -488,7 +532,8 @@ func TestTranslateCredentials(t *testing.T) {
 				},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolS3, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `only "S3" protocol is expected`,
+			nil,
+			`only "S3" protocol is expected`,
 		},
 		{"s3+azure+GCS non-empty, validate Azure",
 			&cosiproto.CredentialInfo{
@@ -503,7 +548,8 @@ func TestTranslateCredentials(t *testing.T) {
 				},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolAzure, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `only "Azure" protocol is expected`,
+			nil,
+			`only "Azure" protocol is expected`,
 		},
 		{"s3+azure+GCS non-empty, validate GCS",
 			&cosiproto.CredentialInfo{
@@ -518,7 +564,8 @@ func TestTranslateCredentials(t *testing.T) {
 				},
 			},
 			ValidationConfig{cosiapi.ObjectProtocolGcs, cosiapi.BucketAccessAuthenticationTypeKey},
-			nil, `only "GCS" protocol is expected`,
+			nil,
+			`only "GCS" protocol is expected`,
 		},
 	}
 	for _, tt := range tests {
@@ -530,22 +577,10 @@ func TestTranslateCredentials(t *testing.T) {
 				t.Log("got error:", err)
 				assert.ErrorContains(t, err, tt.wantErr)
 			}
-			// If we check the exact results of details.allProtoBucketInfo, we will tie the unit
-			// tests to the specific implementation of bucket info translators, tested elsewhere.
-			// Instead, check only that prefixes match what we expect.
 			if tt.wantErr == "" {
-				assert.NotZero(t, len(creds))
-			}
-			// t.Log("got info map:", infoVars)
-			for _, p := range tt.wantInfoVarPrefixes {
-				found := false
-				for k := range creds {
-					assert.True(t, strings.HasPrefix(k, "COSI_")) // all vars must be prefixed COSI_
-					if strings.HasPrefix(k, p) {
-						found = true
-					}
-				}
-				assert.Truef(t, found, "prefix %q not found in %v keys", p, creds)
+				assert.Equal(t, tt.wantCreds, creds)
+			} else {
+				assert.Nil(t, creds)
 			}
 		})
 	}
