@@ -161,3 +161,46 @@ func TestBucketReadinessStatusChanged(t *testing.T) {
 	assert.False(t, predicate.Delete(event.DeleteEvent{Object: readyBucket}))
 	assert.False(t, predicate.Generic(event.GenericEvent{Object: readyBucket}))
 }
+
+func TestHasBucketAccessRefsRemovedWhileDeleting(t *testing.T) {
+	scheme := runtime.NewScheme()
+	err := cosiapi.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	predicate := HasBucketAccessRefsRemovedWhileDeleting(scheme)
+
+	deletionTimestamp := meta.Now()
+
+	unmarked := &cosiapi.BucketClaim{}
+	unmarked.DeletionTimestamp = &deletionTimestamp
+
+	marked := unmarked.DeepCopy()
+	marked.Annotations = map[string]string{cosiapi.HasBucketAccessReferencesAnnotation: ""}
+
+	notDeleting := &cosiapi.BucketClaim{}
+	notDeletingMarked := notDeleting.DeepCopy()
+	notDeletingMarked.Annotations = map[string]string{cosiapi.HasBucketAccessReferencesAnnotation: ""}
+
+	// reconcile if annotation removed
+	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: marked, ObjectNew: unmarked}))
+
+	// no reconcile if annotation added
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: unmarked, ObjectNew: marked}))
+
+	// no reconcile if annotation unchanged
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: marked, ObjectNew: marked.DeepCopy()}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: unmarked, ObjectNew: unmarked.DeepCopy()}))
+
+	// no reconcile if not deleting and even if mark removed
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: notDeletingMarked, ObjectNew: notDeleting}))
+
+	// non-BucketClaim objects are ignored
+	bucket := &cosiapi.Bucket{}
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: bucket, ObjectNew: unmarked}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: unmarked, ObjectNew: bucket}))
+
+	// non-Update events are ignored
+	assert.False(t, predicate.Create(event.CreateEvent{Object: unmarked}))
+	assert.False(t, predicate.Delete(event.DeleteEvent{Object: unmarked}))
+	assert.False(t, predicate.Generic(event.GenericEvent{Object: unmarked}))
+}
