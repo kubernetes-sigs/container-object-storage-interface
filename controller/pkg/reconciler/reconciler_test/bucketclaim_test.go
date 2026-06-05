@@ -355,6 +355,83 @@ func deletionTestSuiteWithoutBucket(t *testing.T,
 	bootstrapped.AssertResourceDoesNotExist(t, cositest.BucketNsName(initClaim), &cosiapi.Bucket{})
 }
 
+func deletionBlockedByBucketAccessReferenceSuite(t *testing.T, deps *cositest.Dependencies) {
+	t.Run("annotation present, blocks deletion", func(t *testing.T) {
+		bootstrapped := deps.MustCopy()
+		ctx := bootstrapped.ContextWithLogger
+		r := claimReconcilerForClient(bootstrapped.Client)
+
+		initClaim, initBucket := getClaimAndBucket(bootstrapped)
+		require.NotNil(t, initClaim)
+		require.NotNil(t, initBucket)
+
+		if initClaim.Annotations == nil {
+			initClaim.Annotations = map[string]string{}
+		}
+		initClaim.Annotations[cosiapi.HasBucketAccessReferencesAnnotation] = ""
+		require.NoError(t, r.Update(ctx, initClaim))
+		require.NoError(t, r.Delete(ctx, initClaim))
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+		assert.NoError(t, err)
+		assert.Empty(t, res)
+
+		claim, bucket := getClaimAndBucket(bootstrapped)
+		require.NotNil(t, claim)
+		require.NotNil(t, bucket)
+		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+		assert.Contains(t, claim.GetAnnotations(), cosiapi.HasBucketAccessReferencesAnnotation)
+		assert.Zero(t, bucket.GetDeletionTimestamp())
+		assert.NotContains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
+	})
+
+	t.Run("race protection re-check, blocks when annotation missing", func(t *testing.T) {
+		bootstrapped := deps.MustCopy()
+		ctx := bootstrapped.ContextWithLogger
+		r := claimReconcilerForClient(bootstrapped.Client)
+
+		initClaim, initBucket := getClaimAndBucket(bootstrapped)
+		require.NotNil(t, initClaim)
+		require.NotNil(t, initBucket)
+
+		access := &cosiapi.BucketAccess{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-access",
+				Namespace: initClaim.Namespace,
+			},
+			Spec: cosiapi.BucketAccessSpec{
+				BucketAccessClassName: "ignored",
+				Protocol:              cosiapi.ObjectProtocolS3,
+				BucketClaims: []cosiapi.BucketClaimAccess{
+					{
+						BucketClaimName: initClaim.Name,
+						AccessMode:      cosiapi.BucketAccessModeReadWrite,
+					},
+				},
+			},
+		}
+		require.NoError(t, r.Create(ctx, access))
+
+		if initClaim.Annotations != nil {
+			delete(initClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+		}
+		require.NoError(t, r.Update(ctx, initClaim))
+		require.NoError(t, r.Delete(ctx, initClaim))
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+		assert.NoError(t, err)
+		assert.Empty(t, res)
+
+		claim, bucket := getClaimAndBucket(bootstrapped)
+		require.NotNil(t, claim)
+		require.NotNil(t, bucket)
+		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+		assert.NotContains(t, claim.GetAnnotations(), cosiapi.HasBucketAccessReferencesAnnotation)
+		assert.Zero(t, bucket.GetDeletionTimestamp())
+		assert.NotContains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
+	})
+}
+
 func TestBucketClaimReconcile(t *testing.T) {
 	// A lot of things can happen after successful initialization. Test all of them, building off of
 	// successful initialization with subsequent tests.
@@ -756,5 +833,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 				})
 			}
 		})
+	})
+
+	t.Run("deletion blocked by BucketAccess references", func(t *testing.T) {
+		bootstrapped := dynamicInitializationTest(t)
+		deletionBlockedByBucketAccessReferenceSuite(t, bootstrapped)
 	})
 }
