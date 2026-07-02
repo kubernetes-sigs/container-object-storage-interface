@@ -28,12 +28,12 @@ MINIKUBE_CPUS="${MINIKUBE_CPUS:-4}"
 MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-6g}"
 # Extra raw disks attached to the minikube VM, consumed by the S3 backend.
 MINIKUBE_EXTRA_DISKS="${MINIKUBE_EXTRA_DISKS:-3}"
-MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-kvm2}"
+MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-qemu}"
 MINIKUBE_CONTAINER_RUNTIME="${MINIKUBE_CONTAINER_RUNTIME:-containerd}"
 
 minikube start \
-  --cpus="${MINIKUBE_CPUS}" \
-  --memory="${MINIKUBE_MEMORY}" \
-  --extra-disks="${MINIKUBE_EXTRA_DISKS}" \
-  --driver="${MINIKUBE_DRIVER}" \
-  --container-runtime="${MINIKUBE_CONTAINER_RUNTIME}"
+    --cpus="${MINIKUBE_CPUS}" \
+    --memory="${MINIKUBE_MEMORY}" \
+    --extra-disks="${MINIKUBE_EXTRA_DISKS}" \
+    --driver="${MINIKUBE_DRIVER}" \
+    --container-runtime="${MINIKUBE_CONTAINER_RUNTIME}"
