@@ -51,48 +51,24 @@ Prow CI and are not maintained as portable user-facing tools.
 
 ### Required tools (your responsibility)
 
-- A Kubernetes cluster of your choice (minikube, kind, k3d, a remote
-  cluster, etc.).
+- A Kubernetes cluster of your choice with enough capacity for the
+  controller, sample driver, and S3 backend.
 - `kubectl` configured to point at it.
 - `docker` (or any other tool sufficient to build OCI images, exposed as
   `DOCKER`).
 - `kustomize` (any sufficiently recent version).
 
-### Reference local setup: minikube + docker runtime
-
-The flow validated against this repo is minikube with the `docker`
-container runtime so that `minikube docker-env` is available and images
-built locally land directly on the node:
-
-```sh
-minikube start --cpus=4 --memory=6g --extra-disks=3 \
-  --driver=<your-driver> --container-runtime=docker
-eval "$(minikube docker-env)"
-```
-
-On macOS the driver matrix changes often (`vfkit`, `qemu2`, `docker`);
-on Linux `kvm2` or `docker` are common. See the
-[minikube docs](https://minikube.sigs.k8s.io/docs/drivers/) and pick
-whatever works on your host - the rest of these instructions are
-driver-agnostic.
-
-> **Note**: `minikube docker-env` is only available with
-> `--container-runtime=docker`. Other runtimes (e.g. `containerd`) work
-> but require `minikube image load <tag>` or `minikube image build`
-> after each `docker build`.
-
 ### Building and deploying the COSI controller
 
-With `minikube docker-env` active, `docker build` lands the image
-directly on the node. `make deploy` then applies the manifests via
-`hack/dev-kustomize.sh`, which patches the controller image reference to
-`CONTROLLER_TAG` and forces `imagePullPolicy: IfNotPresent` so the
-locally-built image is used (kubelet otherwise defaults to `Always` for
-`:latest` and tries to pull from a registry).
+`make deploy` applies the manifests via `hack/dev-kustomize.sh`, which
+patches the controller image reference to `CONTROLLER_TAG` and forces
+`imagePullPolicy: IfNotPresent` for local development. For remote
+clusters, push `CONTROLLER_TAG` to a registry the nodes can pull from
+before deploying.
 
 ```sh
 make -j prebuild       # codegen, fmt, docs, vendor (slow; skip if already done)
-make build.controller  # docker build into the minikube docker daemon
+make build.controller  # docker build
 make deploy            # kustomize build | kubectl apply (uses CONTROLLER_TAG)
 ```
 
@@ -150,11 +126,11 @@ The end-to-end suite drives the [`cosi-driver-sample`](https://github.com/kubern
 project. That repo owns the canonical build tooling; this project does
 not duplicate it.
 
-With `minikube docker-env` active:
-
 ```sh
 make build.sidecar
 make -C ../cosi-driver-sample build SAMPLE_DRIVER_TAG=cosi-driver-sample:latest
+
+# Push both the sidecar and driver images if your cluster cannot use local images.
 
 kustomize build ../cosi-driver-sample/config/default | kubectl apply -f -
 kubectl -n cosi-driver-sample-system set image deployment/cosi-sample-driver \
@@ -162,12 +138,6 @@ kubectl -n cosi-driver-sample-system set image deployment/cosi-sample-driver \
   objectstorage-provisioner-sidecar=cosi-provisioner-sidecar:latest
 kubectl -n cosi-driver-sample-system rollout status deployment/cosi-sample-driver
 ```
-
-The sample driver's Deployment already sets `imagePullPolicy:
-IfNotPresent`, so the locally-built images are picked up.
-
-If you are not using `minikube docker-env`, run `minikube image load
-<tag>` after each `docker build` instead.
 
 ### Running the suite
 
@@ -184,8 +154,8 @@ additional `--values` to Chainsaw if you need to.
 
 ### CI reference
 
-Prow runs `hack/prow-e2e.sh`, which composes `hack/setup-minikube.sh`,
-the sample driver's `hack/setup-s3-backend.sh`,
-`hack/setup-sample-driver.sh`, `make deploy`, and `make test-e2e`. Treat
-those scripts as the source of truth for the CI environment, not a
-portable developer workflow.
+Prow runs `hack/prow-e2e-kops.sh`, which creates a temporary kops/GCE
+cluster, adds raw node disks for Rook/Ceph, deploys the sample driver's
+S3 backend, deploys COSI, and runs `make test-e2e`. Treat the CI scripts
+as the source of truth for the CI environment, not a portable developer
+workflow.
