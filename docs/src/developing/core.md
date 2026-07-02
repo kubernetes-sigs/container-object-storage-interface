@@ -154,8 +154,8 @@ additional `--values` to Chainsaw if you need to.
 
 ### CI reference
 
-Prow runs `hack/prow-e2e-kops.sh`, which creates a temporary kops/GCE
-cluster, adds raw node disks for Rook/Ceph, deploys the sample driver's
-S3 backend, deploys COSI, and runs `make test-e2e`. Treat the CI scripts
-as the source of truth for the CI environment, not a portable developer
+Prow runs `hack/prow-e2e.sh`, which creates a kind cluster with
+loop-backed raw devices for Rook/Ceph, deploys the sample driver's S3
+backend, deploys COSI, and runs `make test-e2e`. Treat the CI scripts as
+the source of truth for the CI environment, not a portable developer
 workflow.
