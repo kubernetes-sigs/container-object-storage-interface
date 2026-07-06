@@ -22,5 +22,5 @@ spec:
       serviceAccountName: controller-sa
       containers:
         - name: objectstorage-controller
-          image: gcr.io/k8s-staging-sig-storage/objectstorage-controller:v20260626-controllerv0.2.0-rc1-291-g46fde39
+          image: gcr.io/k8s-staging-sig-storage/objectstorage-controller:v20260703-controllerv0.2.0-rc1-295-g32f99d8
           args: []
