@@ -19,6 +19,33 @@ package errors
 
 import "errors"
 
+// WaitingError is an error that indicates the reconcile is waiting on a prerequisite resource
+// to reach a desired state (e.g. a Bucket finishing provisioning or deleting). Reconcilers should
+// map it to a steady RequeueAfter poll instead of returning it as a plain error: plain-error
+// exponential backoff grows to a multi-minute cap, so a wait on a slow prerequisite can leave the
+// object unprocessed long after the prerequisite becomes ready.
+func WaitingError(wrapped error) error {
+	return &waitingError{err: wrapped}
+}
+
+type waitingError struct {
+	err error
+}
+
+func (we *waitingError) Error() string {
+	return we.err.Error()
+}
+
+// This function will return nil if we.err is nil.
+func (we *waitingError) Unwrap() error {
+	return we.err
+}
+
+func (we *waitingError) Is(target error) bool {
+	tp := &waitingError{}
+	return errors.As(target, &tp)
+}
+
 // NonRetryableError is an error that should not be retried but still treated as a reconcile error.
 func NonRetryableError(wrapped error) error {
 	return &nonRetryableError{err: wrapped}

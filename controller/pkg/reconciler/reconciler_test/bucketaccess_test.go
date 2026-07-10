@@ -18,6 +18,7 @@ package reconciler_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -311,9 +312,9 @@ func TestBucketAccessReconcile(t *testing.T) {
 		require.True(t, *rwClaim.Status.ReadyToUse)
 
 		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
+		// Waiting on prerequisites is a steady poll (WaitingError -> RequeueAfter), not an error.
+		assert.NoError(t, err)
+		assert.Equal(t, reconcile.Result{RequeueAfter: 30 * time.Second}, res)
 
 		access, rwClaim, roClaim := getAccessResources(bootstrapped)
 
@@ -374,9 +375,9 @@ func TestBucketAccessReconcile(t *testing.T) {
 		require.True(t, *roClaim.Status.ReadyToUse)
 
 		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
+		// Waiting on prerequisites is a steady poll (WaitingError -> RequeueAfter), not an error.
+		assert.NoError(t, err)
+		assert.Equal(t, reconcile.Result{RequeueAfter: 30 * time.Second}, res)
 
 		access, rwClaim, roClaim := getAccessResources(bootstrapped)
 

@@ -18,6 +18,7 @@ package reconciler_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -177,10 +178,10 @@ func dynamicInitializationTest(t *testing.T) (
 	ctx := bootstrapped.ContextWithLogger
 
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-	assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-	assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-	assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
-	assert.Empty(t, res)
+	// Waiting on the Bucket is a steady poll (WaitingError -> RequeueAfter), not an error.
+	// TODO: should requeue only on Bucket watch events when Bucket watcher is set up.
+	assert.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: 30 * time.Second}, res)
 
 	claim, bucket, _ := getAllClaimResources(bootstrapped)
 
@@ -224,10 +225,10 @@ func staticInitializationTest(
 	ctx := bootstrapped.ContextWithLogger
 
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticClaim)})
-	assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-	assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-	assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
-	assert.Empty(t, res)
+	// Waiting on the Bucket is a steady poll (WaitingError -> RequeueAfter), not an error.
+	// TODO: should requeue only on Bucket watch events when Bucket watcher is set up.
+	assert.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: 30 * time.Second}, res)
 
 	claim, dynamicBucket, staticBucket := getAllClaimResources(bootstrapped)
 
@@ -303,10 +304,10 @@ func deletionTestSuite(t *testing.T,
 		require.NoError(t, r.Delete(ctx, initClaim))
 
 		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-		assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.ErrorContains(t, err, "waiting for Bucket to be deleted")
-		assert.Empty(t, res)
+		// Waiting on Bucket deletion is a steady poll (WaitingError -> RequeueAfter), not an error.
+		// TODO: should requeue only on Bucket watch events when Bucket watcher is set up.
+		assert.NoError(t, err)
+		assert.Equal(t, reconcile.Result{RequeueAfter: 30 * time.Second}, res)
 
 		claim, bucket := getClaimAndBucket(bootstrapped)
 
@@ -398,9 +399,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 					require.NotNil(t, initBucket)
 
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-					assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-					assert.Empty(t, res)
+					// Waiting on the Bucket is a steady poll (WaitingError -> RequeueAfter), not an error.
+					// TODO: should requeue only on Bucket watch events when Bucket watcher is set up.
+					assert.NoError(t, err)
+					assert.Equal(t, reconcile.Result{RequeueAfter: 30 * time.Second}, res)
 
 					claim, bucket := getClaimAndBucket(bootstrapped)
 
@@ -474,9 +476,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 					initClaim, initBucket := getClaimAndBucket(bootstrapped)
 
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-					assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-					assert.Empty(t, res)
+					// Waiting on the Bucket is a steady poll (WaitingError -> RequeueAfter), not an error.
+					// TODO: should requeue only on Bucket watch events when Bucket watcher is set up.
+					assert.NoError(t, err)
+					assert.Equal(t, reconcile.Result{RequeueAfter: 30 * time.Second}, res)
 
 					claim, bucket := getClaimAndBucket(bootstrapped)
 

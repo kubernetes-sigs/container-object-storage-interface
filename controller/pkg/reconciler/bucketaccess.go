@@ -40,6 +40,10 @@ import (
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 )
 
+// waitingRequeueDelay is the steady poll interval used when a reconcile is waiting on a
+// prerequisite resource (WaitingError). See internal/errors.WaitingError for rationale.
+const waitingRequeueDelay = 30 * time.Second
+
 // BucketAccessReconciler reconciles a BucketAccess object
 type BucketAccessReconciler struct {
 	client.Client
@@ -91,6 +95,11 @@ func (r *BucketAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		if errors.Is(err, cosierr.NonRetryableError(nil)) {
 			return reconcile.Result{}, reconcile.TerminalError(err)
+		}
+		if errors.Is(err, cosierr.WaitingError(nil)) {
+			// Steady poll while waiting on prerequisites. Returning success resets the
+			// rate limiter so the wait never inherits a large backoff delay.
+			return reconcile.Result{RequeueAfter: waitingRequeueDelay}, nil
 		}
 		return reconcile.Result{}, err
 	}
@@ -226,10 +235,12 @@ func (r *BucketAccessReconciler) reconcile(
 	waitlist := waitingOnBucketClaims(claimsByName, bucketsByClaimName)
 	if len(waitlist) > 0 {
 		logger.Error(nil, "waiting for prerequisites before provisioning access", "waitlist", waitlist)
-		// TODO: for now, return an error and allow the controller to exponential backoff until we
-		// are done waiting on the resources. in the future, optimize this by adding a bucketclaim
-		// reconciler that enqueues requests for BucketClaims when they finish provisioning.
-		return fmt.Errorf("waiting for prerequisites before provisioning access: %v", waitlist)
+		// A WaitingError maps to a steady RequeueAfter poll rather than exponential backoff:
+		// backoff caps at ~17m, so a slow-provisioning Bucket could otherwise leave this access
+		// unprocessed long after the Bucket became ready. In the future, optimize this by adding
+		// a watch that enqueues BucketAccesses when a referenced BucketClaim finishes provisioning.
+		return cosierr.WaitingError(
+			fmt.Errorf("waiting for prerequisites before provisioning access: %v", waitlist))
 	}
 
 	accessedBuckets, err := compileAccessedBuckets(access.Spec.BucketClaims, bucketsByClaimName)

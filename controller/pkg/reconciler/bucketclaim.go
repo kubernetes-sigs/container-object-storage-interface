@@ -84,6 +84,11 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if errors.Is(err, cosierr.NonRetryableError(nil)) {
 			return reconcile.Result{}, reconcile.TerminalError(err)
 		}
+		if errors.Is(err, cosierr.WaitingError(nil)) {
+			// Steady poll while waiting on the Bucket. Returning success resets the
+			// rate limiter so the wait never inherits a large backoff delay.
+			return reconcile.Result{RequeueAfter: waitingRequeueDelay}, nil
+		}
 		return reconcile.Result{}, err
 	}
 
@@ -217,9 +222,10 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 
 	if bucket.Status.BucketID == "" {
 		// TODO: In the future, set up Bucket watcher to enqueue this BucketClaim when the Bucket
-		// is updated. For now, return error to requeue with backoff.
+		// is updated. For now, return a WaitingError to requeue on a steady poll (plain-error
+		// backoff caps high enough to strand the claim long after the Bucket is ready).
 		logger.Info("waiting for Bucket to be provisioned")
-		return fmt.Errorf("waiting for Bucket to be provisioned")
+		return cosierr.WaitingError(fmt.Errorf("waiting for Bucket to be provisioned"))
 	}
 
 	readyToUse := ptr.Deref(bucket.Status.ReadyToUse, false)
@@ -302,7 +308,7 @@ func (r *BucketClaimReconciler) reconcileDelete(
 		if !bucket.DeletionTimestamp.IsZero() {
 			logger.Info("still waiting for Bucket to be deleted")
 			// TODO: return nil when Bucket watcher is set up
-			return fmt.Errorf("still waiting for Bucket to be deleted")
+			return cosierr.WaitingError(fmt.Errorf("still waiting for Bucket to be deleted"))
 		}
 
 		if err := r.applyBucketClaimIsDeletingAnnotation(ctx, logger, bucket); err != nil {
@@ -316,7 +322,7 @@ func (r *BucketClaimReconciler) reconcileDelete(
 
 		logger.Info("waiting for Bucket to be deleted")
 		// TODO: return nil when Bucket watcher is set up
-		return fmt.Errorf("waiting for Bucket to be deleted")
+		return cosierr.WaitingError(fmt.Errorf("waiting for Bucket to be deleted"))
 		// once Bucket is deleted, a future reconcile will remove the BucketClaim finalizer
 
 	default:
