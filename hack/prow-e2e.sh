@@ -16,13 +16,16 @@ set -o xtrace
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 ROOT="${SCRIPT_DIR}/.."
 
+# shellcheck source=hack/kind-helpers.sh disable=SC1091
+source "${SCRIPT_DIR}/kind-helpers.sh"
+
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-cosi-e2e}"
 KIND_LOOP_DEVICE_DIR="${KIND_LOOP_DEVICE_DIR:-/tmp/cosi-kind-${KIND_CLUSTER_NAME}}"
 CONTROLLER_TAG="${CONTROLLER_TAG:-cosi-controller:latest}"
 SIDECAR_TAG="${SIDECAR_TAG:-cosi-provisioner-sidecar:latest}"
 SAMPLE_DRIVER_IMAGE="${SAMPLE_DRIVER_IMAGE:-cosi-driver-sample:latest}"
-SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/kubernetes-sigs/cosi-driver-sample.git}"
-SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-master}"
+SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/shanduur/cosi-driver-sample.git}"
+SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-ci/loop-device-osds}"
 SAMPLE_DRIVER_PATH="${SAMPLE_DRIVER_PATH:-${ROOT}/../cosi-driver-sample}"
 CREDS_FILE="${CREDS_FILE:-${ROOT}/.cache/s3-credentials.yaml}"
 export KIND_CLUSTER_NAME KIND_LOOP_DEVICE_DIR CONTROLLER_TAG SIDECAR_TAG SAMPLE_DRIVER_IMAGE SAMPLE_DRIVER_REPO SAMPLE_DRIVER_BRANCH SAMPLE_DRIVER_PATH CREDS_FILE
@@ -103,36 +106,20 @@ if [ ! -d "${SAMPLE_DRIVER_PATH}" ]; then
     "${SAMPLE_DRIVER_REPO}" \
     "${SAMPLE_DRIVER_PATH}"
 fi
-python3 - "${SAMPLE_DRIVER_PATH}/hack/setup-s3-backend.sh" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text()
-if "ROOK_CEPH_ALLOW_LOOP_DEVICES" not in text:
-    text = text.replace(
-        'kubectl apply -f "${ROOK_RAW_BASE}/common.yaml"\n',
-        'kubectl apply -f "${ROOK_RAW_BASE}/common.yaml"\n'
-        'kubectl -n "${ROOK_NS}" patch configmap rook-ceph-operator-config --type merge '
-        "-p '{\"data\":{\"ROOK_CEPH_ALLOW_LOOP_DEVICES\":\"true\"}}'\n",
-    )
-if "deviceFilter:" not in text:
-    text = text.replace(
-        'kubectl apply -f "${ROOK_RAW_BASE}/cluster-test.yaml"\n',
-        'curl --fail --location --silent "${ROOK_RAW_BASE}/cluster-test.yaml" | '
-        'sed \'/useAllDevices: true/a\\    deviceFilter: "^loop[0-9]+$"\' | kubectl apply -f -\n',
-    )
-path.write_text(text)
-PY
 mkdir -p "$(dirname "${CREDS_FILE}")"
-OUT_CREDS_FILE="${CREDS_FILE}" "${SAMPLE_DRIVER_PATH}/hack/setup-s3-backend.sh"
+# LOOP_DEVICE_OSDS=true: OSDs are backed by loop-mounted files on the kind
+# node (see setup-kind.sh); the sample driver's setup-s3-backend.sh enables
+# ROOK_CEPH_ALLOW_LOOP_DEVICES and scopes the CephCluster's deviceFilter to
+# loop devices only, so the runner's system disk is not touched.
+OUT_CREDS_FILE="${CREDS_FILE}" LOOP_DEVICE_OSDS=true \
+  "${SAMPLE_DRIVER_PATH}/hack/setup-s3-backend.sh"
 
 make -C "${ROOT}" build.controller
-kind load docker-image --name "${KIND_CLUSTER_NAME}" "${CONTROLLER_TAG}"
+load_image_into_cluster "${CONTROLLER_TAG}"
 make -C "${ROOT}" deploy
 
 make -C "${ROOT}" build.sidecar
-kind load docker-image --name "${KIND_CLUSTER_NAME}" "${SIDECAR_TAG}"
+load_image_into_cluster "${SIDECAR_TAG}"
 
 "${SCRIPT_DIR}/setup-sample-driver.sh"
 

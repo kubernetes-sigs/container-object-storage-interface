@@ -10,6 +10,9 @@ set -o xtrace
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 ROOT="${SCRIPT_DIR}/.."
 
+# shellcheck source=hack/kind-helpers.sh disable=SC1091
+source "${SCRIPT_DIR}/kind-helpers.sh"
+
 SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/kubernetes-sigs/cosi-driver-sample.git}"
 SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-master}"
 SAMPLE_DRIVER_IMAGE="${SAMPLE_DRIVER_IMAGE:-cosi-driver-sample:latest}"
@@ -25,7 +28,7 @@ if [ ! -d "${SAMPLE_DRIVER_PATH}" ]; then
 fi
 
 make -C "${SAMPLE_DRIVER_PATH}" build SAMPLE_DRIVER_TAG="${SAMPLE_DRIVER_IMAGE}"
-kind load docker-image --name "${KIND_CLUSTER_NAME}" "${SAMPLE_DRIVER_IMAGE}"
+load_image_into_cluster "${SAMPLE_DRIVER_IMAGE}"
 
 make -C "${ROOT}" kustomize
 KUSTOMIZE="${KUSTOMIZE:-${ROOT}/.cache/tools/kustomize}"

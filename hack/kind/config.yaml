@@ -1,0 +1,35 @@
+# kind cluster config for the COSI E2E CI, modelled on rook/rook PR 17822.
+#
+# Kind runs the node as a container, so host resources are not visible to it
+# by default. The extraMounts below bind-mount the resources the Rook/Ceph
+# backend (provisioned by cosi-driver-sample/hack/setup-s3-backend.sh) needs:
+#
+#   - /dev          : block devices, partitions and LVM devices created on the
+#                     host appear inside the node (shared devtmpfs) and, in
+#                     turn, inside the OSD pods that hostPath-mount the node's
+#                     /dev. Loop devices attached on the runner appear here
+#                     without any per-node mknod dance.
+#   - /var/lib/rook : dataDirHostPath and the local-PV mon directories.
+#   - /run/udev     : ceph-volume reads the udev database (/run/udev/data) to
+#                     inventory a disk; the kind node runs no udevd, so
+#                     without the host's populated db ceph-volume fails with
+#                     "No udev data could be retrieved" and rook skips the
+#                     device.
+#
+# HostToContainer propagation ensures devices attached on the host after the
+# cluster is up (e.g. loop devices set up by the CI harness) also appear
+# inside the node.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /dev
+        containerPath: /dev
+        propagation: HostToContainer
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: HostToContainer
+      - hostPath: /run/udev
+        containerPath: /run/udev
+        propagation: HostToContainer
