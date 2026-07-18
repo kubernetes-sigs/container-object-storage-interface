@@ -6,7 +6,7 @@ This section provides details for some of the operations that need to be perform
 
 ### Installing Custom Resources and Controller
 
-Refer to [Quickstart Guide](./quickstart.md) for installation instructions.
+Refer to [Quickstart Guide](../quick-start.md) for installation instructions.
 
 ### Installing Driver
 
