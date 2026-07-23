@@ -107,18 +107,8 @@ if [ ! -d "${SAMPLE_DRIVER_PATH}" ]; then
     "${SAMPLE_DRIVER_PATH}"
 fi
 mkdir -p "$(dirname "${CREDS_FILE}")"
-loop_devices=()
-for disk in "${KIND_LOOP_DEVICE_DIR}"/ceph-osd-*.img; do
-  loop_device=$(run_as_root losetup -j "${disk}" | cut -d: -f1)
-  [ -n "${loop_device}" ] || {
-    echo "no loop device found for ${disk}" >&2
-    exit 1
-  }
-  loop_devices+=("${loop_device}")
-done
-LOOP_DEVICE_NAMES=$(IFS=,; echo "${loop_devices[*]}")
-
-OUT_CREDS_FILE="${CREDS_FILE}" LOOP_DEVICE_NAMES="${LOOP_DEVICE_NAMES}" \
+OUT_CREDS_FILE="${CREDS_FILE}" LOOP_DEVICE_OSDS=true \
+  LOOP_DEVICE_BACKING_DIR="${KIND_LOOP_DEVICE_DIR}" \
   "${SAMPLE_DRIVER_PATH}/hack/setup-s3-backend.sh"
 
 make -C "${ROOT}" build.controller
