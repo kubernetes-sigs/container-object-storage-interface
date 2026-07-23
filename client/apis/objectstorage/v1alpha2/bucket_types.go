@@ -183,7 +183,7 @@ type BucketStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
-// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental v1alpha2 changes"
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental-only"
 
 // Bucket is the Schema for the buckets API
 type Bucket struct {

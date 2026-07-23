@@ -52,7 +52,7 @@ type BucketClassSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
-// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental v1alpha2 changes"
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental-only"
 
 // BucketClass defines a named "class" of object storage buckets.
 // Different classes might map to different object storage protocols, quality-of-service levels,

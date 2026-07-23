@@ -103,7 +103,7 @@ type BucketClaimStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental v1alpha2 changes"
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental-only"
 
 // BucketClaim is the Schema for the bucketclaims API
 type BucketClaim struct {

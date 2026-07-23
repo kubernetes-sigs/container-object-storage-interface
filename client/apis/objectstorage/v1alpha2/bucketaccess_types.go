@@ -238,7 +238,7 @@ type AccessedBucket struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental v1alpha2 changes"
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental-only"
 
 // BucketAccess is the Schema for the bucketaccesses API
 type BucketAccess struct {

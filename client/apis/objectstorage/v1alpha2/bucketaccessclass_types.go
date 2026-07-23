@@ -90,7 +90,7 @@ const (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
-// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental v1alpha2 changes"
+// +kubebuilder:metadata:annotations="api-approved.kubernetes.io=unapproved, experimental-only"
 
 // BucketAccessClass is the Schema for the bucketaccessclasses API
 type BucketAccessClass struct {
