@@ -45,16 +45,12 @@ ensure_shared_mount /dev
 ensure_shared_mount /var/lib/rook
 ensure_shared_mount /run/udev
 
-# Create loop-backed OSD devices on the host runner. With /dev bind-mounted
-# HostToContainer, the resulting /dev/loopN devices appear inside the node
-# automatically.
 mkdir -p "${KIND_LOOP_DEVICE_DIR}"
 for i in $(seq 1 "${KIND_LOOP_DEVICES}"); do
   disk="${KIND_LOOP_DEVICE_DIR}/ceph-osd-${i}.img"
-  if [ ! -f "${disk}" ]; then
-    truncate -s "${KIND_LOOP_DEVICE_SIZE}" "${disk}"
-  fi
   if ! run_as_root losetup -j "${disk}" | grep -q "${disk}"; then
+    truncate -s 0 "${disk}"
+    truncate -s "${KIND_LOOP_DEVICE_SIZE}" "${disk}"
     run_as_root losetup -f --show "${disk}"
   fi
 done
