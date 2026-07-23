@@ -83,6 +83,15 @@ func GenerationChangedInUpdateOnly() predicate.Funcs {
 	return funcs
 }
 
+func DeletionTimestampSet() predicate.Funcs {
+	funcs := allFalseFuncs()
+	funcs.UpdateFunc = func(e event.UpdateEvent) bool {
+		return e.ObjectOld.GetDeletionTimestamp().IsZero() &&
+			!e.ObjectNew.GetDeletionTimestamp().IsZero()
+	}
+	return funcs
+}
+
 // ProtectionFinalizerRemoved implements a predicate that enqueues a reconcile for Update events
 // where the protection finalizer has been removed. This helps ensure that COSI always has a chance
 // to re-apply the protection finalizer when it's needed.
