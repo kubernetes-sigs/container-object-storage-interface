@@ -107,11 +107,18 @@ if [ ! -d "${SAMPLE_DRIVER_PATH}" ]; then
     "${SAMPLE_DRIVER_PATH}"
 fi
 mkdir -p "$(dirname "${CREDS_FILE}")"
-# LOOP_DEVICE_OSDS=true: OSDs are backed by loop-mounted files on the kind
-# node (see setup-kind.sh); the sample driver's setup-s3-backend.sh enables
-# ROOK_CEPH_ALLOW_LOOP_DEVICES and scopes the CephCluster's deviceFilter to
-# loop devices only, so the runner's system disk is not touched.
-OUT_CREDS_FILE="${CREDS_FILE}" LOOP_DEVICE_OSDS=true \
+loop_devices=()
+for disk in "${KIND_LOOP_DEVICE_DIR}"/ceph-osd-*.img; do
+  loop_device=$(run_as_root losetup -j "${disk}" | cut -d: -f1)
+  [ -n "${loop_device}" ] || {
+    echo "no loop device found for ${disk}" >&2
+    exit 1
+  }
+  loop_devices+=("${loop_device}")
+done
+LOOP_DEVICE_NAMES=$(IFS=,; echo "${loop_devices[*]}")
+
+OUT_CREDS_FILE="${CREDS_FILE}" LOOP_DEVICE_NAMES="${LOOP_DEVICE_NAMES}" \
   "${SAMPLE_DRIVER_PATH}/hack/setup-s3-backend.sh"
 
 make -C "${ROOT}" build.controller
