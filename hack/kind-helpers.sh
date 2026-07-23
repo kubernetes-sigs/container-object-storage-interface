@@ -9,6 +9,14 @@
 #
 # shellcheck shell=bash
 
+run_as_root() {
+  if (( EUID == 0 )); then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
 ensure_kind_is_available() {
   # The kind-based CI helpers drive the cluster through the kind CLI; fail
   # clearly if it is absent.
@@ -58,8 +66,8 @@ add_host_routes_to_cluster() {
     return 1
   }
   # kind defaults: service subnet 10.96.0.0/16, pod subnet 10.244.0.0/16
-  sudo ip route replace 10.96.0.0/16 via "${ip}"
-  sudo ip route replace 10.244.0.0/16 via "${ip}"
+  run_as_root ip route replace 10.96.0.0/16 via "${ip}"
+  run_as_root ip route replace 10.244.0.0/16 via "${ip}"
   ip route show | grep -E '10\.(96|244)\.' || true # diagnostic print only
 }
 

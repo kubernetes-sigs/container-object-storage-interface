@@ -40,7 +40,7 @@ fi
 
 # /var/lib/rook is bind-mounted into the node by kind config; make sure it
 # exists on the host before the cluster comes up so the mount does not fail.
-sudo mkdir -p /var/lib/rook
+run_as_root mkdir -p /var/lib/rook
 
 # Create loop-backed OSD devices on the host runner. With /dev bind-mounted
 # HostToContainer, the resulting /dev/loopN devices appear inside the node
@@ -51,8 +51,8 @@ for i in $(seq 1 "${KIND_LOOP_DEVICES}"); do
   if [ ! -f "${disk}" ]; then
     truncate -s "${KIND_LOOP_DEVICE_SIZE}" "${disk}"
   fi
-  if ! losetup -j "${disk}" | grep -q "${disk}"; then
-    losetup -f --show "${disk}"
+  if ! run_as_root losetup -j "${disk}" | grep -q "${disk}"; then
+    run_as_root losetup -f --show "${disk}"
   fi
 done
 

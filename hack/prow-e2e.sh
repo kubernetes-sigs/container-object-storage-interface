@@ -90,9 +90,9 @@ cleanup() {
   fi
   for disk in "${KIND_LOOP_DEVICE_DIR}"/ceph-osd-*.img; do
     [ -e "${disk}" ] || continue
-    loop_device=$(losetup -j "${disk}" | cut -d: -f1 || true)
+    loop_device=$(run_as_root losetup -j "${disk}" | cut -d: -f1 || true)
     if [[ -n "${loop_device}" ]]; then
-      losetup -d "${loop_device}" || true
+      run_as_root losetup -d "${loop_device}" || true
     fi
   done
 }
