@@ -40,7 +40,10 @@ fi
 
 # /var/lib/rook is bind-mounted into the node by kind config; make sure it
 # exists on the host before the cluster comes up so the mount does not fail.
-run_as_root mkdir -p /var/lib/rook
+run_as_root mkdir -p /var/lib/rook /run/udev
+ensure_shared_mount /dev
+ensure_shared_mount /var/lib/rook
+ensure_shared_mount /run/udev
 
 # Create loop-backed OSD devices on the host runner. With /dev bind-mounted
 # HostToContainer, the resulting /dev/loopN devices appear inside the node

@@ -17,6 +17,17 @@ run_as_root() {
   fi
 }
 
+ensure_shared_mount() {
+  local path="${1?path is required}"
+  if findmnt -n -o PROPAGATION -T "${path}" | grep -qw shared; then
+    return
+  fi
+  if ! mountpoint -q "${path}"; then
+    run_as_root mount --bind "${path}" "${path}"
+  fi
+  run_as_root mount --make-rshared "${path}"
+}
+
 ensure_kind_is_available() {
   # The kind-based CI helpers drive the cluster through the kind CLI; fail
   # clearly if it is absent.
