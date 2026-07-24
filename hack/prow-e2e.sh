@@ -24,8 +24,8 @@ KIND_LOOP_DEVICE_DIR="${KIND_LOOP_DEVICE_DIR:-/tmp/cosi-kind-${KIND_CLUSTER_NAME
 CONTROLLER_TAG="${CONTROLLER_TAG:-cosi-controller:latest}"
 SIDECAR_TAG="${SIDECAR_TAG:-cosi-provisioner-sidecar:latest}"
 SAMPLE_DRIVER_IMAGE="${SAMPLE_DRIVER_IMAGE:-cosi-driver-sample:latest}"
-SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/shanduur/cosi-driver-sample.git}"
-SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-ci/loop-device-osds}"
+SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/kubernetes-sigs/cosi-driver-sample.git}"
+SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-master}"
 SAMPLE_DRIVER_PATH="${SAMPLE_DRIVER_PATH:-${ROOT}/../cosi-driver-sample}"
 CREDS_FILE="${CREDS_FILE:-${ROOT}/.cache/s3-credentials.yaml}"
 export KIND_CLUSTER_NAME KIND_LOOP_DEVICE_DIR CONTROLLER_TAG SIDECAR_TAG SAMPLE_DRIVER_IMAGE SAMPLE_DRIVER_REPO SAMPLE_DRIVER_BRANCH SAMPLE_DRIVER_PATH CREDS_FILE
