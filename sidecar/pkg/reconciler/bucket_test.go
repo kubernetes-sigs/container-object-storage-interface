@@ -456,7 +456,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("static provisioning, happy path", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetExistingBucketRequest{}
+		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
 		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
 		var requestError error
 		fakeServer := cositest.FakeProvisionerServer{
@@ -464,17 +464,17 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 				createBucketReq = append(createBucketReq, dcbr)
 				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
 			},
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				getBucketReq = append(getBucketReq, dgebr)
 				if requestError != nil {
 					return nil, requestError
 				}
-				ret := &cosiproto.DriverGetExistingBucketResponse{
-					BucketId: dgebr.ExistingBucketId,
+				ret := &cosiproto.DriverGetBucketResponse{
+					BucketId: dgebr.BucketId,
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.ExistingBucketId,
+							BucketId:        dgebr.BucketId,
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},
@@ -518,7 +518,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 
 		require.Len(t, getBucketReq, 1)
 		req := getBucketReq[0]
-		assert.Equal(t, "static-bucket", req.ExistingBucketId)
+		assert.Equal(t, "static-bucket", req.BucketId)
 		assert.Equal(t, []*cosiproto.ObjectProtocol{{Type: cosiproto.ObjectProtocol_S3}}, req.Protocols)
 		assert.Equal(t, map[string]string{"maxSize": "10Gi"}, req.Parameters)
 		// "DriverCreateBucket" must not be called for static provisioning
@@ -544,7 +544,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 		require.Len(t, getBucketReq, 1)
-		assert.Equal(t, "static-bucket", getBucketReq[0].ExistingBucketId)
+		assert.Equal(t, "static-bucket", getBucketReq[0].BucketId)
 		require.Len(t, createBucketReq, 0)
 
 		secondBucket := &cosiapi.Bucket{}
@@ -598,21 +598,21 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("static provisioning, driver name mismatch", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetExistingBucketRequest{}
+		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
 		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				createBucketReq = append(createBucketReq, dcbr)
 				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
 			},
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				getBucketReq = append(getBucketReq, dgebr)
-				return &cosiproto.DriverGetExistingBucketResponse{
-					BucketId: dgebr.ExistingBucketId,
+				return &cosiproto.DriverGetBucketResponse{
+					BucketId: dgebr.BucketId,
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.ExistingBucketId,
+							BucketId:        dgebr.BucketId,
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},
@@ -662,16 +662,16 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("static provisioning, proto not supported", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetExistingBucketRequest{}
+		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
 		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				createBucketReq = append(createBucketReq, dcbr)
 				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
 			},
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				getBucketReq = append(getBucketReq, dgebr)
-				return &cosiproto.DriverGetExistingBucketResponse{}, nil
+				return &cosiproto.DriverGetBucketResponse{}, nil
 			},
 		}
 
@@ -721,14 +721,14 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("static provisioning, backend bucket not found (error with retry)", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetExistingBucketRequest{}
+		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
 		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				createBucketReq = append(createBucketReq, dcbr)
 				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
 			},
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				getBucketReq = append(getBucketReq, dgebr)
 				return nil, status.Error(codes.NotFound, "bucket does not exist in backend")
 			},
@@ -764,7 +764,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 		require.Len(t, getBucketReq, 1)
-		assert.Equal(t, "static-bucket", getBucketReq[0].ExistingBucketId)
+		assert.Equal(t, "static-bucket", getBucketReq[0].BucketId)
 		require.Len(t, createBucketReq, 0)
 
 		bucket := &cosiapi.Bucket{}
@@ -780,17 +780,17 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("static provisioning, provisioned bucket supports wrong proto", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetExistingBucketRequest{}
+		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
 		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				createBucketReq = append(createBucketReq, dcbr)
 				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
 			},
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				getBucketReq = append(getBucketReq, dgebr)
-				ret := &cosiproto.DriverGetExistingBucketResponse{
-					BucketId: dgebr.ExistingBucketId,
+				ret := &cosiproto.DriverGetBucketResponse{
+					BucketId: dgebr.BucketId,
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 						Azure: &cosiproto.AzureBucketInfo{}, // bucket.spec wants S3
 					},
@@ -1348,14 +1348,14 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 	t.Run("valid driver and bucket, successful provision", func(t *testing.T) {
 		requestParams := map[string]string{}
 		fakeServer := cositest.FakeProvisionerServer{
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				requestParams = dgebr.Parameters
-				ret := &cosiproto.DriverGetExistingBucketResponse{
-					BucketId: dgebr.ExistingBucketId,
+				ret := &cosiproto.DriverGetBucketResponse{
+					BucketId: dgebr.BucketId,
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.ExistingBucketId,
+							BucketId:        dgebr.BucketId,
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},
@@ -1407,13 +1407,13 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 
 	t.Run("valid driver, claim ref malformed", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
-				return &cosiproto.DriverGetExistingBucketResponse{
-					BucketId: dgebr.ExistingBucketId,
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
+				return &cosiproto.DriverGetBucketResponse{
+					BucketId: dgebr.BucketId,
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.ExistingBucketId,
+							BucketId:        dgebr.BucketId,
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},
@@ -1466,7 +1466,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 
 	t.Run("valid driver, retryable provision error", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				return nil, status.Error(codes.Unknown, "fake unknown err")
 			},
 		}
@@ -1504,7 +1504,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 
 	t.Run("valid driver, non-retryable provision error", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				return nil, status.Error(codes.InvalidArgument, "fake invalid arg err")
 			},
 		}
@@ -1542,7 +1542,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 
 	t.Run("valid driver, bucket does not exist", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				return nil, status.Error(codes.NotFound, "bucket does not exist")
 			},
 		}
@@ -1580,13 +1580,13 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 
 	t.Run("valid driver, bucket ID missing in response", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
-				return &cosiproto.DriverGetExistingBucketResponse{
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
+				return &cosiproto.DriverGetBucketResponse{
 					BucketId: "", // MISSING
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.ExistingBucketId,
+							BucketId:        dgebr.BucketId,
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},
@@ -1628,9 +1628,9 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 
 	t.Run("valid driver, proto response nil", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
-				return &cosiproto.DriverGetExistingBucketResponse{
-					BucketId:  dgebr.ExistingBucketId,
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
+				return &cosiproto.DriverGetBucketResponse{
+					BucketId:  dgebr.BucketId,
 					Protocols: nil,
 				}, nil
 			},
@@ -1669,9 +1669,9 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 
 	t.Run("valid driver, empty S3 proto response", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
-			GetExistingBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error) {
-				return &cosiproto.DriverGetExistingBucketResponse{
-					BucketId: dgebr.ExistingBucketId,
+			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
+				return &cosiproto.DriverGetBucketResponse{
+					BucketId: dgebr.BucketId,
 					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 						S3: &cosiproto.S3BucketInfo{},
 					},

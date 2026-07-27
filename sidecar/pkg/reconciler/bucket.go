@@ -323,21 +323,21 @@ func (r *BucketReconciler) staticProvision(
 			fmt.Errorf("bucketClaimRef namespace and name must be set for static provisioning: %#v", ref))
 	}
 
-	resp, err := r.DriverInfo.ProvisionerClient.DriverGetExistingBucket(ctx,
-		&cosiproto.DriverGetExistingBucketRequest{
-			ExistingBucketId: static.existingBucketID,
-			Protocols:        static.requiredProtos,
-			Parameters:       static.parameters,
+	resp, err := r.DriverInfo.ProvisionerClient.DriverGetBucket(ctx,
+		&cosiproto.DriverGetBucketRequest{
+			BucketId:   static.existingBucketID,
+			Protocols:  static.requiredProtos,
+			Parameters: static.parameters,
 		},
 	)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			err = fmt.Errorf("waiting for backend bucket to exist: %w", err)
-			logger.Error(err, "DriverGetExistingBucket error")
+			logger.Error(err, "DriverGetBucket error")
 			return nil, err
 		}
 
-		logger.Error(err, "DriverGetExistingBucket error")
+		logger.Error(err, "DriverGetBucket error")
 		if rpcErrorIsRetryable(status.Code(err)) {
 			return nil, err
 		}
