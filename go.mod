@@ -10,7 +10,7 @@ replace (
 )
 
 require (
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.79.1
 	k8s.io/api v0.35.3
