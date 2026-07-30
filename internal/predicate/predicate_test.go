@@ -25,6 +25,7 @@ import (
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -92,4 +93,61 @@ func Test_handoffOccurred(t *testing.T) {
 		assert.True(t, handoffOccurred(logger, old, new))
 	})
 
+}
+
+func TestBucketAccessRefChangedInUpdateOnly(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, cosiapi.AddToScheme(scheme))
+	p := BucketAccessRefChangedInUpdateOnly(scheme)
+
+	t.Run("deleting claim mark removed", func(t *testing.T) {
+		oldClaim := &cosiapi.BucketClaim{
+			ObjectMeta: meta.ObjectMeta{
+				Namespace: "ns",
+				Name:      "claim",
+				Annotations: map[string]string{
+					cosiapi.HasBucketAccessReferencesAnnotation: "",
+				},
+			},
+		}
+		now := meta.Now()
+		newClaim := oldClaim.DeepCopy()
+		newClaim.DeletionTimestamp = &now
+		delete(newClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: oldClaim, ObjectNew: newClaim}))
+	})
+
+	t.Run("deleting claim mark unchanged", func(t *testing.T) {
+		now := meta.Now()
+		oldClaim := &cosiapi.BucketClaim{
+			ObjectMeta: meta.ObjectMeta{
+				Namespace:         "ns",
+				Name:              "claim",
+				DeletionTimestamp: &now,
+				Annotations: map[string]string{
+					cosiapi.HasBucketAccessReferencesAnnotation: "",
+				},
+			},
+		}
+		newClaim := oldClaim.DeepCopy()
+
+		assert.False(t, p.Update(event.UpdateEvent{ObjectOld: oldClaim, ObjectNew: newClaim}))
+	})
+
+	t.Run("non-deleting claim mark changed", func(t *testing.T) {
+		oldClaim := &cosiapi.BucketClaim{
+			ObjectMeta: meta.ObjectMeta{
+				Namespace: "ns",
+				Name:      "claim",
+				Annotations: map[string]string{
+					cosiapi.HasBucketAccessReferencesAnnotation: "",
+				},
+			},
+		}
+		newClaim := oldClaim.DeepCopy()
+		delete(newClaim.Annotations, cosiapi.HasBucketAccessReferencesAnnotation)
+
+		assert.False(t, p.Update(event.UpdateEvent{ObjectOld: oldClaim, ObjectNew: newClaim}))
+	})
 }

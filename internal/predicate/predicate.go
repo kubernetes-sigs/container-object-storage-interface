@@ -187,6 +187,52 @@ func BucketAccessManagedByController(s *runtime.Scheme) predicate.Funcs {
 	})
 }
 
+// BucketAccessRefChangedInUpdateOnly implements a predicate that enqueues a BucketClaim reconcile for
+// Update events where BucketAccess reference annotation presence changes while the claim is
+// deleting. This helps unblock deletions that intentionally return without retry when annotation
+// still exist.
+//
+// The predicate does not enqueue requests for any Create/Delete/Generic events.
+func BucketAccessRefChangedInUpdateOnly(s *runtime.Scheme) predicate.Funcs {
+	funcs := allFalseFuncs()
+	funcs.UpdateFunc = func(e event.UpdateEvent) bool {
+		logger := ctrl.Log.WithName("predicate")
+
+		oldClaim, ok := toTypedOrLogError[*cosiapi.BucketClaim](logger.WithValues("oldOrNew", "old"), s, e.ObjectOld)
+		if !ok {
+			return false
+		}
+		newClaim, ok := toTypedOrLogError[*cosiapi.BucketClaim](logger.WithValues("oldOrNew", "new"), s, e.ObjectNew)
+		if !ok {
+			return false
+		}
+
+		// Reconcile is only required for claims currently undergoing deletion.
+		if newClaim.GetDeletionTimestamp().IsZero() {
+			return false
+		}
+
+		oldHasMark := false
+		if oldClaim.Annotations != nil {
+			_, oldHasMark = oldClaim.Annotations[cosiapi.HasBucketAccessReferencesAnnotation]
+		}
+		newHasMark := false
+		if newClaim.Annotations != nil {
+			_, newHasMark = newClaim.Annotations[cosiapi.HasBucketAccessReferencesAnnotation]
+		}
+
+		if oldHasMark != newHasMark {
+			logger.Info("BucketClaim access reference mark changed during deletion",
+				"namespace", newClaim.GetNamespace(), "name", newClaim.GetName(),
+				"oldHasMark", oldHasMark, "newHasMark", newHasMark)
+			return true
+		}
+
+		return false
+	}
+	return funcs
+}
+
 // Converts a client object to a typed object. Logs an error if conversion fails.
 func toTypedOrLogError[T client.Object](logger logr.Logger, s *runtime.Scheme, object client.Object) (T, bool) {
 	typed, ok := object.(T)
