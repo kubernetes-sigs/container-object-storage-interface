@@ -109,7 +109,7 @@ type FakeProvisionerServer struct {
 	cosiproto.UnimplementedProvisionerServer
 
 	CreateBucketFunc       func(context.Context, *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error)
-	GetExistingBucketFunc  func(context.Context, *cosiproto.DriverGetExistingBucketRequest) (*cosiproto.DriverGetExistingBucketResponse, error)
+	GetBucketFunc          func(context.Context, *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error)
 	GrantBucketAccessFunc  func(context.Context, *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error)
 	RevokeBucketAccessFunc func(context.Context, *cosiproto.DriverRevokeBucketAccessRequest) (*cosiproto.DriverRevokeBucketAccessResponse, error)
 }
@@ -124,14 +124,14 @@ func (s *FakeProvisionerServer) DriverCreateBucket(
 	panic("DriverCreateBucketFunc not implemented in FakeProvisionerServer")
 }
 
-func (s *FakeProvisionerServer) DriverGetExistingBucket(
-	ctx context.Context, req *cosiproto.DriverGetExistingBucketRequest,
-) (*cosiproto.DriverGetExistingBucketResponse, error) {
-	if s.GetExistingBucketFunc != nil {
-		return s.GetExistingBucketFunc(ctx, req)
+func (s *FakeProvisionerServer) DriverGetBucket(
+	ctx context.Context, req *cosiproto.DriverGetBucketRequest,
+) (*cosiproto.DriverGetBucketResponse, error) {
+	if s.GetBucketFunc != nil {
+		return s.GetBucketFunc(ctx, req)
 	}
 	// unit tests must set an expectation if they expect the call to be made
-	panic("DriverGetExistingBucketFunc not implemented in FakeProvisionerServer")
+	panic("DriverGetBucketFunc not implemented in FakeProvisionerServer")
 }
 
 func (s *FakeProvisionerServer) DriverGrantBucketAccess(

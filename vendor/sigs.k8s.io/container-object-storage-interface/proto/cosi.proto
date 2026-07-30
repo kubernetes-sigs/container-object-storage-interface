@@ -71,7 +71,7 @@ service Provisioner {
     // Important return codes:
     // - MUST return OK if a backend bucket with matching identity and parameters already exists.
     // - MUST return NOT_FOUND if a bucket with matching identity does not exist.
-    rpc DriverGetExistingBucket (DriverGetExistingBucketRequest) returns (DriverGetExistingBucketResponse) {}
+    rpc DriverGetBucket (DriverGetBucketRequest) returns (DriverGetBucketResponse) {}
 
     // Delete the bucket in the backend.
     //
@@ -322,13 +322,13 @@ message DriverCreateBucketResponse {
     ObjectProtocolAndBucketInfo protocols = 2;
 }
 
-message DriverGetExistingBucketRequest {
+message DriverGetBucketRequest {
     // REQUIRED. The unique identifier for the existing backend bucket known to the Provisioner.
     // Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
     // It is RECOMMENDED to use the backend storage system's bucket ID.
     // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
     // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
-    string existing_bucket_id = 1;
+    string bucket_id = 1;
 
     // OPTIONAL. A list of all object storage protocols the provisioned bucket MUST support.
     // If none are given, the provisioner MAY provision with a set of default protocol(s) or return
@@ -341,7 +341,7 @@ message DriverGetExistingBucketRequest {
     map<string, string> parameters = 4;
 }
 
-message DriverGetExistingBucketResponse {
+message DriverGetBucketResponse {
     // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
     // This value WILL be used by COSI to make subsequent calls related to the bucket, so the
     // Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
