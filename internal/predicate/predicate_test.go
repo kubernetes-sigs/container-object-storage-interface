@@ -70,13 +70,13 @@ func Test_toTypedOrLogError(t *testing.T) {
 	})
 }
 
-func TestDeletionTimestampSet(t *testing.T) {
+func TestDeletionTimestampAdded(t *testing.T) {
 	deletionTimestamp := meta.Now()
 	old := &cosiapi.BucketAccess{}
 	deleting := old.DeepCopy()
 	deleting.DeletionTimestamp = &deletionTimestamp
 
-	predicate := DeletionTimestampSet()
+	predicate := DeletionTimestampAdded()
 
 	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: deleting}))
 	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: deleting, ObjectNew: deleting.DeepCopy()}))

@@ -45,6 +45,10 @@ to a cluster with:
    contain `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
    `AWS_ENDPOINT_URL`, and optionally `AWS_REGION`.
 
+   The admin Secret authorizes bucket provisioning and deletion. The access
+   Secret supplies the workload credentials returned for `BucketAccess`
+   resources; it is not used to manage buckets.
+
 The Makefile handles controller deployment through `make deploy` and runs
 the Chainsaw suite through `make test-e2e`. The sample driver and S3
 backend remain external to the Makefile because their setup depends on
@@ -71,6 +75,7 @@ before deploying.
 ```sh
 make -j prebuild       # codegen, fmt, docs, vendor (slow; skip if already done)
 make build.controller  # docker build
+# push CONTROLLER_TAG if needed
 make deploy            # kustomize build | kubectl apply (uses CONTROLLER_TAG)
 ```
 
@@ -173,12 +178,9 @@ additional `--values` to Chainsaw if you need to.
 
 ### CI reference
 
-Prow runs `hack/prow-e2e.sh`, which creates a kind cluster with
-loop-backed raw devices for Rook/Ceph, deploys the sample driver's S3
-backend, builds and loads the controller and sidecar images, deploys
-COSI, deploys the sample driver, creates the S3 credential Secrets, and
-runs `make test-e2e`.
-
-`hack/setup-kind.sh` and `hack/setup-sample-driver.sh` support that CI
-path. Treat the CI scripts as references for the CI environment, not as a
-stable portable developer API.
+Prow runs `hack/prow-e2e.sh`, which creates a kind cluster with the sample
+driver's S3 backend, deploys COSI, and runs `make test-e2e`.
+`hack/setup-kind.sh` and `hack/setup-sample-driver.sh` support that CI path.
+Treat the CI scripts as references for the CI environment, not as a stable
+portable developer API. **In rare cases, these scripts could result in
+accidental destruction of the local system.**

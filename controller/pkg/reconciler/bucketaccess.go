@@ -117,7 +117,7 @@ func (r *BucketAccessReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					cosipredicate.AnyGeneric(),
 					// opt in to desired update events
 					cosipredicate.BucketAccessHandoffOccurred(r.Scheme), // reconcile any handoff change
-					cosipredicate.DeletionTimestampSet(),
+					cosipredicate.DeletionTimestampAdded(),
 					cosipredicate.ProtectionFinalizerRemoved(r.Scheme), // re-add protection finalizer if removed
 				),
 			),

@@ -19,16 +19,15 @@ ROOT="${SCRIPT_DIR}/.."
 # shellcheck source=hack/kind-helpers.sh disable=SC1091
 source "${SCRIPT_DIR}/kind-helpers.sh"
 
-KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-cosi-e2e}"
-KIND_LOOP_DEVICE_DIR="${KIND_LOOP_DEVICE_DIR:-/tmp/cosi-kind-${KIND_CLUSTER_NAME}}"
-CONTROLLER_TAG="${CONTROLLER_TAG:-cosi-controller:latest}"
-SIDECAR_TAG="${SIDECAR_TAG:-cosi-provisioner-sidecar:latest}"
-SAMPLE_DRIVER_IMAGE="${SAMPLE_DRIVER_IMAGE:-cosi-driver-sample:latest}"
-SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/kubernetes-sigs/cosi-driver-sample.git}"
-SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-master}"
-SAMPLE_DRIVER_PATH="${SAMPLE_DRIVER_PATH:-${ROOT}/../cosi-driver-sample}"
-CREDS_FILE="${CREDS_FILE:-${ROOT}/.cache/s3-credentials.yaml}"
-export KIND_CLUSTER_NAME KIND_LOOP_DEVICE_DIR CONTROLLER_TAG SIDECAR_TAG SAMPLE_DRIVER_IMAGE SAMPLE_DRIVER_REPO SAMPLE_DRIVER_BRANCH SAMPLE_DRIVER_PATH CREDS_FILE
+export KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-cosi-e2e}"
+export KIND_LOOP_DEVICE_DIR="${KIND_LOOP_DEVICE_DIR:-/tmp/cosi-kind-${KIND_CLUSTER_NAME}}"
+export CONTROLLER_TAG="${CONTROLLER_TAG:-cosi-controller:latest}"
+export SIDECAR_TAG="${SIDECAR_TAG:-cosi-provisioner-sidecar:latest}"
+export SAMPLE_DRIVER_IMAGE="${SAMPLE_DRIVER_IMAGE:-cosi-driver-sample:latest}"
+export SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/kubernetes-sigs/cosi-driver-sample.git}"
+export SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-master}"
+export SAMPLE_DRIVER_PATH="${SAMPLE_DRIVER_PATH:-${ROOT}/../cosi-driver-sample}"
+export CREDS_FILE="${CREDS_FILE:-${ROOT}/.cache/s3-credentials.yaml}"
 
 dump_debug() {
   local exit_code=$?

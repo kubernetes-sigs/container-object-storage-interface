@@ -120,7 +120,7 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					cosipredicate.AnyGeneric(),
 					// opt in to desired Update events
 					cosipredicate.GenerationChangedInUpdateOnly(), // reconcile spec changes
-					cosipredicate.DeletionTimestampSet(),
+					cosipredicate.DeletionTimestampAdded(),
 					cosipredicate.ProtectionFinalizerRemoved(r.Scheme), // re-add protection finalizer if removed
 				),
 			),

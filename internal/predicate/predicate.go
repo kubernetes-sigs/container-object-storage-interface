@@ -83,7 +83,9 @@ func GenerationChangedInUpdateOnly() predicate.Funcs {
 	return funcs
 }
 
-func DeletionTimestampSet() predicate.Funcs {
+// DeletionTimestampAdded implements a predicate that enqueues a reconcile for Update events where
+// the deletion timestamp is added.
+func DeletionTimestampAdded() predicate.Funcs {
 	funcs := allFalseFuncs()
 	funcs.UpdateFunc = func(e event.UpdateEvent) bool {
 		return e.ObjectOld.GetDeletionTimestamp().IsZero() &&
