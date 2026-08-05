@@ -1,0 +1,59 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: controller-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+- apiGroups:
+  - objectstorage.k8s.io
+  resources:
+  - bucketaccessclasses
+  - bucketclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - objectstorage.k8s.io
+  resources:
+  - bucketaccesses
+  - bucketclaims
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - objectstorage.k8s.io
+  resources:
+  - bucketaccesses/finalizers
+  - bucketclaims/finalizers
+  - buckets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - objectstorage.k8s.io
+  resources:
+  - bucketaccesses/status
+  - bucketclaims/status
+  - buckets/status
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - objectstorage.k8s.io
+  resources:
+  - buckets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch

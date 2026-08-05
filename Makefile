@@ -111,11 +111,18 @@ build.sidecar: sidecar/Dockerfile ## Build only the sidecar container image
 	$(DOCKER) build --file sidecar/Dockerfile --platform $(PLATFORM) $(BUILD_ARGS) --tag $(SIDECAR_TAG) .
 
 .PHONY: generate
-generate: crds controller/Dockerfile sidecar/Dockerfile ## Generate files
+generate: crds rbac controller/Dockerfile sidecar/Dockerfile ## Generate files
 
 .PHONY: crds
 crds: controller-gen
-	cd ./client && $(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./apis/objectstorage/..."
+	cd ./client && $(CONTROLLER_GEN) crd paths="./apis/objectstorage/..."
+
+# RBAC markers live on the reconcilers in the root module, so this cannot be generated from
+# ./client (a separate Go module) alongside the CRDs.
+.PHONY: rbac
+rbac: controller-gen
+	$(CONTROLLER_GEN) rbac:roleName=controller-role paths="./controller/pkg/reconciler/..." \
+		output:rbac:artifacts:config=controller/resources
 
 %/Dockerfile: hack/Dockerfile.in hack/gen-dockerfile.sh
 	hack/gen-dockerfile.sh $* > "$@"
