@@ -396,6 +396,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 
 					initClaim, initBucket := getClaimAndBucket(bootstrapped)
 					require.NotNil(t, initBucket)
+					oldErrorTime := metav1.Unix(1, 0)
+					initClaim.Status.Error.Time = &oldErrorTime
+					require.NoError(t, r.Status().Update(ctx, initClaim))
+					initClaim, initBucket = getClaimAndBucket(bootstrapped)
 
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
 					assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up

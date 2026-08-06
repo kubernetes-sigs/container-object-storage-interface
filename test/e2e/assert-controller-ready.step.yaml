@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/steptemplate-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: StepTemplate
+metadata:
+  name: assert-controller-ready
+spec:
+  try:
+  - assert:
+      resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: container-object-storage-controller
+          namespace: container-object-storage-system
+        status:
+          availableReplicas: 1
+  catch:
+  - describe:
+      apiVersion: apps/v1
+      kind: Deployment
+      namespace: container-object-storage-system
+  - podLogs:
+      namespace: container-object-storage-system
+      selector: app.kubernetes.io/name=container-object-storage-controller
+      tail: -1

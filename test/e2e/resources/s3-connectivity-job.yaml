@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cosi-s3-connectivity
+  labels:
+    app.kubernetes.io/component: cosi-s3-connectivity-test
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: cosi-s3-connectivity-test
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: aws-cli
+        image: public.ecr.aws/aws-cli/aws-cli:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - secretRef:
+            name: ($namespace)
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+
+          # Map COSI secret keys to the env vars aws CLI expects.
+          export AWS_ACCESS_KEY_ID="${COSI_S3_ACCESS_KEY_ID}"
+          export AWS_SECRET_ACCESS_KEY="${COSI_S3_ACCESS_SECRET_KEY}"
+          export AWS_DEFAULT_REGION="${COSI_S3_REGION:-us-east-1}"
+          export AWS_ENDPOINT_URL="${COSI_S3_ENDPOINT}"
+
+          # For non-AWS S3-compatible backends, path-style addressing
+          # must be used. There is no env-var equivalent in aws CLI v2,
+          # so configure it explicitly.
+          aws configure set default.s3.addressing_style path
+
+          BUCKET="${COSI_S3_BUCKET_ID}"
+          OBJECT_KEY="cosi-e2e-probe-$(date +%s)"
+
+          echo "Uploading probe object s3://${BUCKET}/${OBJECT_KEY} ..."
+          echo "cosi-e2e-probe" | aws s3 cp - "s3://${BUCKET}/${OBJECT_KEY}"
+
+          echo "Deleting probe object s3://${BUCKET}/${OBJECT_KEY} ..."
+          aws s3 rm "s3://${BUCKET}/${OBJECT_KEY}"
+
+          echo "S3 connectivity validation passed."

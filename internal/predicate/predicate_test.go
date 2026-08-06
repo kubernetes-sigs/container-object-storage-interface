@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
@@ -67,6 +68,18 @@ func Test_toTypedOrLogError(t *testing.T) {
 		assert.Empty(t, gotObj)
 		assert.False(t, ok)
 	})
+}
+
+func TestDeletionTimestampAdded(t *testing.T) {
+	deletionTimestamp := meta.Now()
+	old := &cosiapi.BucketAccess{}
+	deleting := old.DeepCopy()
+	deleting.DeletionTimestamp = &deletionTimestamp
+
+	predicate := DeletionTimestampAdded()
+
+	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: deleting}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: deleting, ObjectNew: deleting.DeepCopy()}))
 }
 
 func Test_handoffOccurred(t *testing.T) {

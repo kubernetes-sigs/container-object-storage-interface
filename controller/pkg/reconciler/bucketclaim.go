@@ -69,16 +69,22 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	err := r.reconcile(ctx, logger, claim)
 	if err != nil {
-		// Record any error as a timestamped error in the status.
+		statusChanged := false
 		if claim.Status.ReadyToUse == nil {
 			claim.Status.ReadyToUse = ptr.To(false)
+			statusChanged = true
 		}
-		claim.Status.Error = cosiapi.NewTimestampedError(time.Now(), err.Error())
-		if updErr := r.Status().Update(ctx, claim); updErr != nil {
-			logger.Error(err, "failed to update BucketClaim status after reconcile error", "updateError", updErr)
-			// If status update fails, we must retry the error regardless of the reconcile return.
-			// The reconcile needs to run again to make sure the status is eventually updated.
-			return reconcile.Result{}, err
+		message := err.Error()
+		if claim.Status.Error == nil || claim.Status.Error.Time == nil ||
+			claim.Status.Error.Message == nil || *claim.Status.Error.Message != message {
+			claim.Status.Error = cosiapi.NewTimestampedError(time.Now(), message)
+			statusChanged = true
+		}
+		if statusChanged {
+			if updErr := r.Status().Update(ctx, claim); updErr != nil {
+				logger.Error(err, "failed to update BucketClaim status after reconcile error", "updateError", updErr)
+				return reconcile.Result{}, err
+			}
 		}
 
 		if errors.Is(err, cosierr.NonRetryableError(nil)) {
@@ -114,7 +120,8 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				cosipredicate.AnyDelete(),
 				cosipredicate.AnyGeneric(),
 				// opt in to desired Update events
-				cosipredicate.GenerationChangedInUpdateOnly(),      // reconcile spec changes
+				cosipredicate.GenerationChangedInUpdateOnly(), // reconcile spec changes
+				cosipredicate.DeletionTimestampAdded(),
 				cosipredicate.ProtectionFinalizerRemoved(r.Scheme), // re-add protection finalizer if removed
 			),
 		).

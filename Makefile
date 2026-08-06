@@ -57,7 +57,7 @@ all: prebuild build ## Build all container images, plus their prerequisites (fas
 
 .PHONY: lint
 lint: golangci-lint kubeapi-lint eof-newline-lint dockerfiles-lint shell-lint ## Run all linters (suggest `make -k`)
-golangci-lint: golangci-lint
+golangci-lint-run: golangci-lint
 	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_OPTS) --config $(CURDIR)/.golangci.yaml
 kubeapi-lint: kube-api-linter
 	cd client/apis && $(KUBEAPI_LINT) run --config $(CURDIR)/client/.kubeapilint.yaml
@@ -91,7 +91,7 @@ clean: ## Clean build environment
 clobber: ## Clean build environment and cached tools
 	$(MAKE) -C proto clobber
 	rm -rf $(TOOLBIN)
-	rm -rf $(CURDIR)/.cache
+	rm -rf $(CACHE)
 
 ##@ Development (Advanced)
 
@@ -100,6 +100,10 @@ clobber: ## Clean build environment and cached tools
 .doc-vendor: docs vendor # can be done in parallel
 .NOTPARALLEL: prebuild # codegen must be finished before fmt
 prebuild: .gen fmt .doc-vendor ## Run all pre-build prerequisite steps (faster with 'make -j')
+
+CACHE ?= $(CURDIR)/.cache
+$(CACHE):
+	mkdir -p $(CACHE)
 
 .PHONY: build
 build: build.controller build.sidecar ## Build container images without prerequisites
@@ -156,32 +160,27 @@ tidy.%: FORCE
 	cd $* && go mod tidy
 
 .PHONY: test-e2e
-test-e2e: chainsaw ## Run e2e tests against the local K8s cluster (requires both controller and driver deployed)
+test-e2e: chainsaw ## Run the purely functional chainsaw e2e suite against the current kubectl context (requires controller, sample driver, and S3 backend already deployed - see docs/src/developing/core.md)
+	PATH=$(TOOLBIN):$(PATH) $(CHAINSAW) test test/e2e/ \
+		--config test/e2e/.chainsaw.yaml \
+		--values test/e2e/values.yaml
 
 ##@ Deployment (Advanced)
 
-.PHONY: cluster
-cluster: kind ctlptl ## Create Kind cluster and local registry
-	PATH=$(TOOLBIN):$(PATH) $(CTLPTL) apply -f ctlptl.yaml
-
-.PHONY: cluster-reset
-cluster-reset: kind ctlptl ## Delete Kind cluster
-	PATH=$(TOOLBIN):$(PATH) $(CTLPTL) delete -f ctlptl.yaml
-
 .PHONY: deploy
-deploy: kustomize ## Deploy controller (CONTROLLER_TAG) to the local K8s cluster
-	./hack/dev-kustomize.sh && $(KUSTOMIZE) build $(CURDIR)/.cache | $(KUBECTL) apply -f -
+deploy: kustomize ## Deploy controller (CONTROLLER_TAG) to the current kubectl context
+	./hack/dev-kustomize.sh && $(KUSTOMIZE) build $(CACHE) | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
-undeploy: kustomize ## Undeploy controller (CONTROLLER_TAG) from the local K8s cluster
-	./hack/dev-kustomize.sh && $(KUSTOMIZE) build $(CURDIR)/.cache | $(KUBECTL) delete --ignore-not-found=true -f -
+undeploy: kustomize ## Undeploy controller (CONTROLLER_TAG) from the current kubectl context
+	./hack/dev-kustomize.sh && $(KUSTOMIZE) build $(CACHE) | $(KUBECTL) delete --ignore-not-found=true -f -
 
 #
 # ===== Tools =====
 #
 
 # Location to install dependencies to
-TOOLBIN ?= $(CURDIR)/.cache/tools
+TOOLBIN ?= $(CACHE)/tools
 $(TOOLBIN):
 	mkdir -p $(TOOLBIN)
 
@@ -189,25 +188,21 @@ $(TOOLBIN):
 CHAINSAW       ?= $(TOOLBIN)/chainsaw
 CONTROLLER_GEN ?= $(TOOLBIN)/controller-gen
 CRD_REF_DOCS   ?= $(TOOLBIN)/crd-ref-docs
-CTLPTL         ?= $(TOOLBIN)/ctlptl
 GOLANGCI_LINT  ?= $(TOOLBIN)/golangci-lint
-KIND           ?= $(TOOLBIN)/kind
 KUBEAPI_LINT   ?= $(TOOLBIN)/golangci-lint-kube-api-linter
 KUSTOMIZE      ?= $(TOOLBIN)/kustomize
 MDBOOK         ?= $(TOOLBIN)/mdbook
 SHELLCHECK     ?= $(TOOLBIN)/shellcheck
 
 # Tool Versions
-CHAINSAW_VERSION         ?= v0.2.14
+CHAINSAW_VERSION         ?= v0.2.15
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
 CRD_REF_DOCS_VERSION     ?= v0.2.0
-CTLPTL_VERSION           ?= v0.9.0
 GOLANGCI_LINT_VERSION    ?= v2.11.4
-KIND_VERSION             ?= v0.31.0
+HADOLINT_VERSION         ?= v2.14.0
 KUBEAPI_LINT_VERSION     ?= v0.0.0-20260320123815-c9b9b51b278a
 KUSTOMIZE_VERSION        ?= v5.8.1
 MDBOOK_VERSION           ?= v0.4.47
-HADOLINT_VERSION         ?= v2.14.0
 SHELLCHECK_VERSION       ?= v0.11.0
 
 .PHONY: chainsaw
@@ -225,20 +220,10 @@ crd-ref-docs: $(CRD_REF_DOCS)-$(CRD_REF_DOCS_VERSION)
 $(CRD_REF_DOCS)-$(CRD_REF_DOCS_VERSION): $(TOOLBIN)
 	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))
 
-.PHONY: ctlptl
-ctlptl: $(CTLPTL)-$(CTLPTL_VERSION)
-$(CTLPTL)-$(CTLPTL_VERSION): $(TOOLBIN)
-	$(call go-install-tool,$(CTLPTL),github.com/tilt-dev/ctlptl/cmd/ctlptl,$(CTLPTL_VERSION))
-
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT)-$(GOLANGCI_LINT_VERSION)
 $(GOLANGCI_LINT)-$(GOLANGCI_LINT_VERSION): $(TOOLBIN)
 	./hack/tools/install-golangci-lint.sh $(TOOLBIN) $(GOLANGCI_LINT) $(GOLANGCI_LINT_VERSION)
-
-.PHONY: kind
-kind: $(KIND)-$(KIND_VERSION)
-$(KIND)-$(KIND_VERSION): $(TOOLBIN)
-	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
 
 .PHONY: kube-api-linter
 kube-api-linter: $(KUBEAPI_LINT)-$(KUBEAPI_LINT_VERSION)

@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/steptemplate-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: StepTemplate
+metadata:
+  name: assert-bucket-provisioned
+spec:
+  bindings:
+  - name: namespace
+    value: ($namespace)
+  - name: driverNamespace
+    value: ($values.driverNamespace)
+  try:
+  - assert:
+      timeout: 120s
+      file: resources/bucket-claim-assert.yaml
+  catch:
+  - describe:
+      apiVersion: objectstorage.k8s.io/v1alpha2
+      kind: BucketClaim
+      name: ($namespace)
+  - describe:
+      apiVersion: objectstorage.k8s.io/v1alpha2
+      kind: Bucket
+  - podLogs:
+      namespace: ($values.driverNamespace)
+      selector: app.kubernetes.io/component=cosi-driver
+      container: driver
+      tail: -1
+  - podLogs:
+      namespace: ($values.driverNamespace)
+      selector: app.kubernetes.io/component=cosi-driver
+      container: objectstorage-provisioner-sidecar
+      tail: -1
+  - podLogs:
+      namespace: container-object-storage-system
+      selector: app.kubernetes.io/name=container-object-storage-controller
+      tail: -1

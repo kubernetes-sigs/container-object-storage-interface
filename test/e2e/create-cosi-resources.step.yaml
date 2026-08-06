@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/steptemplate-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: StepTemplate
+metadata:
+  name: create-cosi-resources
+spec:
+  bindings:
+  - name: namespace
+    value: ($namespace)
+  - name: driverName
+    value: ($values.driverName)
+  - name: driverNamespace
+    value: ($values.driverNamespace)
+  - name: deletionPolicy
+    value: ($values.deletionPolicy)
+  try:
+  - apply:
+      file: resources/bucket-class.yaml
+  - apply:
+      file: resources/bucket-access-class.yaml

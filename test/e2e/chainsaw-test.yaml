@@ -1,265 +1,58 @@
----
 # yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/test-chainsaw-v1alpha1.json
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
-  name: generic-test
+  name: sample-driver-e2e
 spec:
   template: true
-  bindings:
-  - name: driverName
-    value: ($values.driverName)
-  - name: deletionPolicy
-    value: ($values.deletionPolicy)
-  - name: bucketClassParams
-    value: ($values.bucketClassParams)
-  - name: bucketAccessClassParams
-    value: ($values.bucketAccessClassParams)
-  - name: authenticationType
-    value: ($values.authenticationType)
-  - name: bucketClaimProtocols
-    value: ($values.bucketClaimProtocols)
-  - name: bucketAccessProtocol
-    value: ($values.bucketAccessProtocol)
+
+  # The COSI controller and the sample driver (with its credentials Secrets)
+  # are required to be deployed and Ready before this suite runs. The suite
+  # itself is purely functional - it does not deploy or configure any
+  # cluster components.
   steps:
-  - name: Check if COSI Controller exist
-    try:
-    - assert:
-        resource:
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: container-object-storage-controller
-            namespace: container-object-storage-system
-          status:
-            availableReplicas: 1
-  - name: Create test BucketClass and BucketAccessClass
-    try:
-    - apply:
-        resource:
-          apiVersion: objectstorage.k8s.io/v1alpha1
-          kind: BucketClass
-          metadata:
-            name: ($namespace)
-          driverName: ($driverName)
-          deletionPolicy: ($deletionPolicy)
-          parameters: ($bucketClassParams)
-    - apply:
-        resource:
-          apiVersion: objectstorage.k8s.io/v1alpha1
-          kind: BucketAccessClass
-          metadata:
-            name: ($namespace)
-          driverName: ($driverName)
-          authenticationType: ($authenticationType)
-          parameters: ($bucketAccessClassParams)
-  - name: Create BucketClaim
-    try:
-    - apply:
-        resource:
-          apiVersion: objectstorage.k8s.io/v1alpha1
-          kind: BucketClaim
-          metadata:
-            name: ($namespace)
-          spec:
-            bucketClassName: ($namespace)
-            protocols: ($bucketClaimProtocols)
-  - name: Check if BucketClaim is ready
-    try:
-    - assert:
-        resource:
-          apiVersion: objectstorage.k8s.io/v1alpha1
-          kind: BucketClaim
-          metadata:
-            name: ($namespace)
-          status:
-            bucketReady: true
+
+  # Step 1: Verify the COSI controller is running before proceeding.
+  - name: Assert COSI controller is running
+    use:
+      template: assert-controller-ready.step.yaml
+
+  # Step 2: Verify the sample driver is running before proceeding.
+  - name: Assert sample driver is running
+    use:
+      template: assert-driver-ready.step.yaml
+
+  # Step 3: Create the cluster-scoped BucketClass and BucketAccessClass.
+  - name: Create BucketClass and BucketAccessClass
+    use:
+      template: create-cosi-resources.step.yaml
+
+  # Step 4: Create the ServiceAccount and BucketClaim in the test namespace.
+  - name: Create ServiceAccount and BucketClaim
+    use:
+      template: create-bucket-claim.step.yaml
+
+  # Step 5: Wait for the BucketClaim to reach Ready state.
+  - name: Assert BucketClaim is ready
+    use:
+      template: assert-bucket-provisioned.step.yaml
+
+  # Step 6: Create the BucketAccess to request credentials.
   - name: Create BucketAccess
-    try:
-    - apply:
-        resource:
-          apiVersion: objectstorage.k8s.io/v1alpha1
-          kind: BucketAccess
-          metadata:
-            name: ($namespace)
-          spec:
-            bucketClaimName: ($namespace)
-            protocol: ($bucketAccessProtocol)
-            bucketAccessClassName: ($namespace)
-            credentialsSecretName: ($namespace)
-            serviceAccountName: ($namespace)
-  - name: Check if BucketAccess is granted
-    try:
-    - assert:
-        resource:
-          apiVersion: objectstorage.k8s.io/v1alpha1
-          kind: BucketAccess
-          metadata:
-            name: ($namespace)
-          status:
-            accessGranted: true
-  - name: Check if Secret exists
-    try:
-    - assert:
-        resource:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: ($namespace)
-  - name: Run ObjectStorage validation tool
-    # TODO: This should be either a standalone test tool developed by us, to run test suite:
-    # - validate Secret format;
-    # - validate connectivity to the Object Storage server;
-    # Right now it is using busybox to check if the secret has correct format.
-    try:
-    - apply:
-        resource:
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: validation
-          data:
-            schema.json: |
-              {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "properties": {
-                  "spec": {
-                    "type": "object",
-                    "properties": {
-                      "bucketName": {
-                        "type": "string"
-                      },
-                      "authenticationType": {
-                        "type": "string",
-                        "enum": [
-                          "IAM",
-                          "Key"
-                        ]
-                      },
-                      "protocols": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "enum": [
-                            "S3",
-                            "Azure",
-                            "GCP"
-                          ]
-                        },
-                        "minItems": 1
-                      },
-                      "secretS3": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "type": "object"
-                          }
-                        ],
-                        "properties": {
-                          "endpoint": {
-                            "type": "string"
-                          },
-                          "region": {
-                            "type": "string"
-                          },
-                          "accessKeyID": {
-                            "type": "string"
-                          },
-                          "accessSecretKey": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "endpoint",
-                          "region",
-                          "accessKeyID",
-                          "accessSecretKey"
-                        ]
-                      },
-                      "secretAzure": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "type": "object"
-                          }
-                        ],
-                        "properties": {
-                          "accessToken": {
-                            "type": "string"
-                          },
-                          "expiryTimeStamp": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "accessToken",
-                          "expiryTimeStamp"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "bucketName",
-                      "authenticationType",
-                      "protocols",
-                      "secretAzure",
-                      "secretS3"
-                    ]
-                  }
-                },
-                "required": [
-                  "spec"
-                ]
-              }
-            validator.sh: |
-              #!/usr/bin/env sh
-              set -e
-              pip install check-jsonschema
-              check-jsonschema --schemafile /validation/schema.json /conf/BucketInfo
-    - create:
-        resource:
-          apiVersion: batch/v1
-          kind: Job
-          metadata:
-            name: ($namespace)
-          spec:
-            ttlSecondsAfterFinished: 100
-            template:
-              spec:
-                restartPolicy: Never
-                containers:
-                - name: secret-test
-                  image: docker.io/library/python:3.12
-                  command: [ "sh", "/validation/validator.sh" ]
-                  env:
-                  - name: PIP_ROOT_USER_ACTION
-                    value: ignore
-                  volumeMounts:
-                  - mountPath: /validation
-                    name: validation
-                  - mountPath: /conf
-                    name: secret-vol
-                volumes:
-                - name: validation
-                  configMap:
-                    name: validation
-                - name: secret-vol
-                  secret:
-                    secretName: ($namespace)
-                    items:
-                    - key: BucketInfo
-                      path: BucketInfo
-  - name: Check if ObjectStorage validation tool completed successfully
-    try:
-    - assert:
-        resource:
-          apiVersion: batch/v1
-          kind: Job
-          metadata:
-            name: ($namespace)
-          status:
-            succeeded: 1
+    use:
+      template: create-bucket-access.step.yaml
+
+  # Step 7: Wait for the BucketAccess to be granted and the Secret to appear.
+  - name: Assert BucketAccess is granted
+    use:
+      template: assert-access-granted.step.yaml
+
+  # Step 8: Validate the credentials Secret contains all required COSI_S3_* keys.
+  - name: Validate credentials Secret format
+    use:
+      template: validate-secret-format.step.yaml
+
+  # Step 9: Validate actual S3 connectivity by uploading and deleting a probe object.
+  - name: Validate S3 connectivity
+    use:
+      template: validate-s3-connectivity.step.yaml

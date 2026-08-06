@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kyverno/chainsaw/main/.schemas/json/steptemplate-chainsaw-v1alpha1.json
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: StepTemplate
+metadata:
+  name: assert-driver-ready
+spec:
+  bindings:
+  - name: driverNamespace
+    value: ($values.driverNamespace)
+  try:
+  - assert:
+      timeout: 60s
+      resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: cosi-sample-driver
+          namespace: ($driverNamespace)
+        status:
+          (readyReplicas == replicas): true
+          (availableReplicas == replicas): true
+  catch:
+  - describe:
+      apiVersion: apps/v1
+      kind: Deployment
+      name: cosi-sample-driver
+      namespace: ($driverNamespace)
+  - podLogs:
+      namespace: ($driverNamespace)
+      selector: app.kubernetes.io/component=cosi-driver
+      container: driver
+      tail: -1
+  - podLogs:
+      namespace: ($driverNamespace)
+      selector: app.kubernetes.io/component=cosi-driver
+      container: objectstorage-provisioner-sidecar
+      tail: -1

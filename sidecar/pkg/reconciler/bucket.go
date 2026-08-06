@@ -119,7 +119,8 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					cosipredicate.AnyDelete(),
 					cosipredicate.AnyGeneric(),
 					// opt in to desired Update events
-					cosipredicate.GenerationChangedInUpdateOnly(),      // reconcile spec changes
+					cosipredicate.GenerationChangedInUpdateOnly(), // reconcile spec changes
+					cosipredicate.DeletionTimestampAdded(),
 					cosipredicate.ProtectionFinalizerRemoved(r.Scheme), // re-add protection finalizer if removed
 				),
 			),

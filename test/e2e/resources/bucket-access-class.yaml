@@ -1,0 +1,12 @@
+apiVersion: objectstorage.k8s.io/v1alpha2
+kind: BucketAccessClass
+metadata:
+  name: ($namespace)
+spec:
+  driverName: ($driverName)
+  authenticationType: Key
+  parameters:
+    sample.objectstorage.x-k8s.io/adminSecretName: cosi-sample-s3-admin-secret
+    sample.objectstorage.x-k8s.io/adminSecretNamespace: ($driverNamespace)
+    sample.objectstorage.x-k8s.io/accessSecretName: cosi-sample-s3-access-secret
+    sample.objectstorage.x-k8s.io/accessSecretNamespace: ($driverNamespace)
