@@ -17,11 +17,13 @@ limitations under the License.
 package reconciler
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
@@ -101,6 +103,51 @@ func Test_determineBucketName(t *testing.T) {
 		assert.ErrorContains(t, err, "admin-created-bucket")
 		assert.ErrorContains(t, err, "deliberately-unique")
 		assert.Empty(t, n)
+	})
+}
+
+func Test_mapBucketToBucketClaim(t *testing.T) {
+	t.Run("bucket references a claim", func(t *testing.T) {
+		bucket := &cosiapi.Bucket{
+			ObjectMeta: meta.ObjectMeta{Name: "admin-bucket"},
+			Spec: cosiapi.BucketSpec{
+				BucketClaimRef: cosiapi.BucketClaimReference{Name: "static-claim", Namespace: "user-ns"},
+			},
+		}
+
+		requests := mapBucketToBucketClaim(context.Background(), bucket)
+
+		assert.Equal(t, []reconcile.Request{
+			{NamespacedName: types.NamespacedName{Name: "static-claim", Namespace: "user-ns"}},
+		}, requests)
+	})
+
+	t.Run("bucketClaimRef name is empty", func(t *testing.T) {
+		bucket := &cosiapi.Bucket{
+			ObjectMeta: meta.ObjectMeta{Name: "admin-bucket"},
+			Spec: cosiapi.BucketSpec{
+				BucketClaimRef: cosiapi.BucketClaimReference{Namespace: "user-ns"},
+			},
+		}
+
+		assert.Empty(t, mapBucketToBucketClaim(context.Background(), bucket))
+	})
+
+	t.Run("bucketClaimRef namespace is empty", func(t *testing.T) {
+		bucket := &cosiapi.Bucket{
+			ObjectMeta: meta.ObjectMeta{Name: "admin-bucket"},
+			Spec: cosiapi.BucketSpec{
+				BucketClaimRef: cosiapi.BucketClaimReference{Name: "static-claim"},
+			},
+		}
+
+		assert.Empty(t, mapBucketToBucketClaim(context.Background(), bucket))
+	})
+
+	t.Run("non-Bucket object is ignored", func(t *testing.T) {
+		claim := &cosiapi.BucketClaim{ObjectMeta: meta.ObjectMeta{Name: "static-claim", Namespace: "user-ns"}}
+
+		assert.Empty(t, mapBucketToBucketClaim(context.Background(), claim))
 	})
 }
 
