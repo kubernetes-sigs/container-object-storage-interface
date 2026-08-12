@@ -109,8 +109,10 @@ func TestManagedBySidecar(t *testing.T) {
 				Spec: cosiapi.BucketAccessSpec{
 					BucketClaims: []cosiapi.BucketClaimAccess{
 						{
-							BucketClaimName:  "bc-1",
-							AccessMode:       cosiapi.BucketAccessModeReadWrite,
+							BucketClaimName: "bc-1",
+							AccessModes: cosiapi.BucketAccessModes{
+								ObjectData: cosiapi.BucketAccessModeReadWrite,
+							},
 							AccessSecretName: "bc-1-creds",
 						},
 					},
@@ -149,6 +151,24 @@ func TestManagedBySidecar(t *testing.T) {
 			copy.Annotations[cosiapi.ControllerManagementOverrideAnnotation] = ""
 			withOverride := ManagedBySidecar(copy)
 			assert.False(t, withOverride)
+		})
+	}
+}
+
+func TestHasAnyAccessMode(t *testing.T) {
+	tests := []struct {
+		name string
+		m    cosiapi.BucketAccessModes
+		want bool
+	}{
+		{"all unset", cosiapi.BucketAccessModes{}, false},
+		{"objectData set", cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite}, true},
+		{"objectMetadata set", cosiapi.BucketAccessModes{ObjectMetadata: cosiapi.BucketAccessModeReadOnly}, true},
+		{"bucketMetadata set", cosiapi.BucketAccessModes{BucketMetadata: cosiapi.BucketAccessModeWriteOnly}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, HasAnyAccessMode(tt.m))
 		})
 	}
 }

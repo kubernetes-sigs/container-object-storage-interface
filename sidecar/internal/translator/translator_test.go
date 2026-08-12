@@ -550,3 +550,29 @@ func TestTranslateCredentials(t *testing.T) {
 		})
 	}
 }
+
+func TestAccessModeToRpc(t *testing.T) {
+	tests := []struct {
+		name    string
+		m       cosiapi.BucketAccessMode
+		want    cosiproto.AccessMode_Mode
+		wantErr bool
+	}{
+		{"category not requested maps to ANY, not UNKNOWN", "", cosiproto.AccessMode_ANY, false},
+		{"read-write", cosiapi.BucketAccessModeReadWrite, cosiproto.AccessMode_READ_WRITE, false},
+		{"read-only", cosiapi.BucketAccessModeReadOnly, cosiproto.AccessMode_READ_ONLY, false},
+		{"write-only", cosiapi.BucketAccessModeWriteOnly, cosiproto.AccessMode_WRITE_ONLY, false},
+		{"unknown mode is an error and maps to UNKNOWN", cosiapi.BucketAccessMode("bogus"), cosiproto.AccessMode_UNKNOWN, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := AccessModeToRpc(tt.m)
+			assert.Equal(t, tt.want, got)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

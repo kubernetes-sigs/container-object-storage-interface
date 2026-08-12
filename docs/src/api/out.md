@@ -157,7 +157,7 @@ _Appears in:_
 | `driverName` _string_ | driverName is the name of the driver that fulfills requests for this BucketAccessClass.<br />See driver documentation to determine the correct value to set.<br />Must be 63 characters or less, beginning and ending with an alphanumeric character<br />([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between. |  | MaxLength: 63 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9]([a-zA-Z0-9\-\.]\{0,61\}[a-zA-Z0-9])?$` <br /> |
 | `authenticationType` _[BucketAccessAuthenticationType](#bucketaccessauthenticationtype)_ | authenticationType specifies which authentication mechanism is used bucket access.<br />See driver documentation to determine which values are supported.<br />Possible values:<br /> - Key: The driver should generate a protocol-appropriate access key that clients can use to<br />   authenticate to the backend object store.<br /> - ServiceAccount: The driver should configure the system such that Pods using the given<br />   ServiceAccount authenticate to the backend object store automatically. |  | Enum: [Key ServiceAccount] <br /> |
 | `parameters` _object (keys:string, values:string)_ | parameters is an opaque map of driver-specific configuration items passed to the driver that<br />fulfills requests for this BucketAccessClass.<br />See driver documentation to determine supported parameters and their effects.<br />A maximum of 512 parameters are allowed. |  | MaxProperties: 512 <br />MinProperties: 1 <br /> |
-| `disallowedBucketAccessModes` _[BucketAccessMode](#bucketaccessmode) array_ | disallowedBucketAccessModes is a list of disallowed Read/Write access modes. A BucketAccess<br />using this class will not be allowed to request access to a BucketClaim with any access mode<br />listed here.<br />This is particularly useful for administrators to restrict access to a statically-provisioned<br />bucket that is managed outside the BucketAccess Namespace or Kubernetes cluster.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
+| `disallowedBucketAccessModes` _[DisallowedBucketAccessModes](#disallowedbucketaccessmodes)_ | disallowedBucketAccessModes controls, per category, which Read/Write access modes are<br />disallowed. A BucketAccess using this class will not be allowed to request access to a<br />BucketClaim with any access mode listed here, per category.<br />This is particularly useful for administrators to restrict access to a statically-provisioned<br />bucket that is managed outside the BucketAccess Namespace or Kubernetes cluster. |  | MinProperties: 1 <br /> |
 | `multiBucketAccess` _[MultiBucketAccess](#multibucketaccess)_ | multiBucketAccess specifies whether a BucketAccess using this class can reference multiple<br />BucketClaims. When omitted, this means no opinion, and COSI will choose a reasonable default,<br />which is subject to change over time.<br />Possible values:<br /> - SingleBucket: (default) A BucketAccess may reference only a single BucketClaim.<br /> - MultipleBuckets: A BucketAccess may reference multiple (1 or more) BucketClaims. |  | Enum: [SingleBucket MultipleBuckets] <br /> |
 
 
@@ -191,14 +191,34 @@ _Validation:_
 - Enum: [ReadWrite ReadOnly WriteOnly]
 
 _Appears in:_
-- [BucketAccessClassSpec](#bucketaccessclassspec)
-- [BucketClaimAccess](#bucketclaimaccess)
+- [BucketAccessModes](#bucketaccessmodes)
+- [DisallowedBucketAccessModes](#disallowedbucketaccessmodes)
 
 | Field | Description |
 | --- | --- |
 | `ReadWrite` | BucketAccessModeReadWrite represents read-write access mode.<br /> |
 | `ReadOnly` | BucketAccessModeReadOnly represents read-only access mode.<br /> |
 | `WriteOnly` | BucketAccessModeWriteOnly represents write-only access mode.<br /> |
+
+
+#### BucketAccessModes
+
+
+
+BucketAccessModes specifies, per category, the Read/Write access mode that a BucketAccess should
+have for a bucket. At least one category must be set.
+
+_Validation:_
+- MinProperties: 1
+
+_Appears in:_
+- [BucketClaimAccess](#bucketclaimaccess)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `objectData` _[BucketAccessMode](#bucketaccessmode)_ | objectData requests Read/Write access to the objects in a bucket.<br />Unspecified means any access may be provisioned, including no access.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
+| `objectMetadata` _[BucketAccessMode](#bucketaccessmode)_ | objectMetadata controls Read/Write access to the metadata on objects in a bucket.<br />Unspecified means any access may be provisioned, including no access.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
+| `bucketMetadata` _[BucketAccessMode](#bucketaccessmode)_ | bucketMetadata controls Read/Write access to the metadata on the bucket itself.<br />Unspecified means any access may be provisioned, including no access.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
 
 
 #### BucketAccessSpec
@@ -280,7 +300,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `bucketClaimName` _string_ | bucketClaimName is the name of a BucketClaim the access should have permissions for.<br />The BucketClaim must be in the same Namespace as the BucketAccess.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
-| `accessMode` _[BucketAccessMode](#bucketaccessmode)_ | accessMode is the Read/Write access mode that the access should have for the bucket.<br />The provisioned access will have the corresponding permissions to read and/or write objects<br />the BucketClaim's bucket.<br />The provisioned access can also assume to have corresponding permissions to read and/or write<br />object metadata and object metadata (e.g., tags) except when metadata changes would change<br />object store behaviors or permissions (e.g., changes to object caching behaviors).<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
+| `accessModes` _[BucketAccessModes](#bucketaccessmodes)_ | accessModes represents Read/Write access modes that this BucketAccess should<br />have for the BucketClaim, separated into the following categories:<br />- objectData - the objects themselves (their content)<br />- objectMetadata - metadata on objects (e.g. tags)<br />- bucketMetadata - metadata on the bucket itself (e.g. tags)<br />For each category, an empty access mode request means the user does not require<br />the permission and does not care if the corresponding access is allowed or not.<br />At least one access mode is required. |  | MinProperties: 1 <br /> |
 | `accessSecretName` _string_ | accessSecretName is the name of a Kubernetes Secret that COSI should create and populate with<br />bucket info and access credentials for the bucket.<br />The Secret is created in the same Namespace as the BucketAccess and is deleted when the<br />BucketAccess is deleted and deprovisioned.<br />The Secret name must be unique across all bucketClaimRefs for all BucketAccesses in the same<br />Namespace.<br />Must be a valid Kubernetes resource name: at most 253 characters, consisting only of<br />lower-case alphanumeric characters, hyphens, and periods, starting and ending with an<br />alphanumeric character. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 
 
@@ -525,6 +545,26 @@ _Appears in:_
 
 
 
+
+
+#### DisallowedBucketAccessModes
+
+
+
+DisallowedBucketAccessModes explicitly lists, per category, which BucketAccessModes are forbidden
+for BucketAccesses using this class.
+
+_Validation:_
+- MinProperties: 1
+
+_Appears in:_
+- [BucketAccessClassSpec](#bucketaccessclassspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `objectData` _[BucketAccessMode](#bucketaccessmode) array_ | objectData values disallow the corresponding Read/Write access to the objects in a bucket.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
+| `objectMetadata` _[BucketAccessMode](#bucketaccessmode) array_ | objectMetadata values disallow the corresponding Read/Write access to the metadata on objects in a bucket.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
+| `bucketMetadata` _[BucketAccessMode](#bucketaccessmode) array_ | bucketMetadata values disallow the corresponding Read/Write access to the metadata on the bucket itself.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
 
 
 #### MultiBucketAccess

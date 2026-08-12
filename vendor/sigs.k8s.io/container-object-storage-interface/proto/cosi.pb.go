@@ -187,27 +187,31 @@ type AccessMode_Mode int32
 
 const (
 	AccessMode_UNKNOWN AccessMode_Mode = 0
+	// The Provisioner MAY grant any mode it wishes, including none (recommended).
+	AccessMode_ANY AccessMode_Mode = 1
 	// Read/Write access mode.
-	AccessMode_READ_WRITE AccessMode_Mode = 1
+	AccessMode_READ_WRITE AccessMode_Mode = 2
 	// Read-only access mode.
-	AccessMode_READ_ONLY AccessMode_Mode = 2
+	AccessMode_READ_ONLY AccessMode_Mode = 3
 	// Write-only access mode.
-	AccessMode_WRITE_ONLY AccessMode_Mode = 3
+	AccessMode_WRITE_ONLY AccessMode_Mode = 4
 )
 
 // Enum value maps for AccessMode_Mode.
 var (
 	AccessMode_Mode_name = map[int32]string{
 		0: "UNKNOWN",
-		1: "READ_WRITE",
-		2: "READ_ONLY",
-		3: "WRITE_ONLY",
+		1: "ANY",
+		2: "READ_WRITE",
+		3: "READ_ONLY",
+		4: "WRITE_ONLY",
 	}
 	AccessMode_Mode_value = map[string]int32{
 		"UNKNOWN":    0,
-		"READ_WRITE": 1,
-		"READ_ONLY":  2,
-		"WRITE_ONLY": 3,
+		"ANY":        1,
+		"READ_WRITE": 2,
+		"READ_ONLY":  3,
+		"WRITE_ONLY": 4,
 	}
 )
 
@@ -1706,11 +1710,32 @@ type DriverGrantBucketAccessRequest_AccessedBucket struct {
 	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
 	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	BucketId string `protobuf:"bytes,1,opt,name=bucket_id,json=bucketId,proto3" json:"bucket_id,omitempty"`
-	// REQUIRED. The read/write access mode that the Provisioner SHOULD provision for the bucket
-	// associated with `bucket_id`.
-	AccessMode    *AccessMode `protobuf:"bytes,2,opt,name=access_mode,json=accessMode,proto3" json:"access_mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// REQUIRED. The read/write access mode that the Provisioner SHOULD provision for objects in
+	// the bucket associated with `bucket_id`. ANY means no access mode was requested for
+	// this category, and the driver may provision any mode it chooses.
+	// When ANY is specified, COSI's recommendation is that drivers provision with the least
+	// permissions possible for best security.
+	// COSI will not send UNKNOWN in any normal case, a Provisioner that receives UNKNOWN
+	// SHOULD treat it as an error.
+	ObjectDataAccessMode *AccessMode `protobuf:"bytes,2,opt,name=object_data_access_mode,json=objectDataAccessMode,proto3" json:"object_data_access_mode,omitempty"`
+	// REQUIRED. The read/write access mode that the Provisioner SHOULD provision for object
+	// metadata (e.g. tags) in the bucket associated with `bucket_id`. ANY means no access mode
+	// was requested for this category, and the driver may provision any mode it chooses.
+	// When ANY is specified, COSI's recommendation is that drivers provision with the least
+	// permissions possible for best security.
+	// COSI will not send UNKNOWN in any normal case, a Provisioner that receives UNKNOWN
+	// SHOULD treat it as an error.
+	ObjectMetadataAccessMode *AccessMode `protobuf:"bytes,3,opt,name=object_metadata_access_mode,json=objectMetadataAccessMode,proto3" json:"object_metadata_access_mode,omitempty"`
+	// REQUIRED. The read/write access mode that the Provisioner SHOULD provision for metadata
+	// (e.g. tags) on the bucket associated with `bucket_id` itself. ANY means no access mode
+	// was requested for this category, and the driver may provision any mode it chooses.
+	// When ANY is specified, COSI's recommendation is that drivers provision with the least
+	// permissions possible for best security.
+	// COSI will not send UNKNOWN in any normal case, a Provisioner that receives UNKNOWN
+	// SHOULD treat it as an error.
+	BucketMetadataAccessMode *AccessMode `protobuf:"bytes,4,opt,name=bucket_metadata_access_mode,json=bucketMetadataAccessMode,proto3" json:"bucket_metadata_access_mode,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *DriverGrantBucketAccessRequest_AccessedBucket) Reset() {
@@ -1750,9 +1775,23 @@ func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetBucketId() string {
 	return ""
 }
 
-func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetAccessMode() *AccessMode {
+func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetObjectDataAccessMode() *AccessMode {
 	if x != nil {
-		return x.AccessMode
+		return x.ObjectDataAccessMode
+	}
+	return nil
+}
+
+func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetObjectMetadataAccessMode() *AccessMode {
+	if x != nil {
+		return x.ObjectMetadataAccessMode
+	}
+	return nil
+}
+
+func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetBucketMetadataAccessMode() *AccessMode {
+	if x != nil {
+		return x.BucketMetadataAccessMode
 	}
 	return nil
 }
@@ -2047,17 +2086,18 @@ const file_cosi_proto_rawDesc = "" +
 	"\x04Type\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\a\n" +
 	"\x03KEY\x10\x01\x12\x13\n" +
-	"\x0fSERVICE_ACCOUNT\x10\x02\"\x90\x01\n" +
+	"\x0fSERVICE_ACCOUNT\x10\x02\"\x99\x01\n" +
 	"\n" +
 	"AccessMode\x12>\n" +
-	"\x04mode\x18\x01 \x01(\x0e2*.sigs.k8s.io.cosi.v1alpha2.AccessMode.ModeR\x04mode\"B\n" +
+	"\x04mode\x18\x01 \x01(\x0e2*.sigs.k8s.io.cosi.v1alpha2.AccessMode.ModeR\x04mode\"K\n" +
 	"\x04Mode\x12\v\n" +
-	"\aUNKNOWN\x10\x00\x12\x0e\n" +
+	"\aUNKNOWN\x10\x00\x12\a\n" +
+	"\x03ANY\x10\x01\x12\x0e\n" +
 	"\n" +
-	"READ_WRITE\x10\x01\x12\r\n" +
-	"\tREAD_ONLY\x10\x02\x12\x0e\n" +
+	"READ_WRITE\x10\x02\x12\r\n" +
+	"\tREAD_ONLY\x10\x03\x12\x0e\n" +
 	"\n" +
-	"WRITE_ONLY\x10\x03\"\x9d\x02\n" +
+	"WRITE_ONLY\x10\x04\"\x9d\x02\n" +
 	"\x19DriverCreateBucketRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12G\n" +
 	"\tprotocols\x18\x02 \x03(\v2).sigs.k8s.io.cosi.v1alpha2.ObjectProtocolR\tprotocols\x12d\n" +
@@ -2090,7 +2130,7 @@ const file_cosi_proto_rawDesc = "" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1c\n" +
-	"\x1aDriverDeleteBucketResponse\"\xa1\x05\n" +
+	"\x1aDriverDeleteBucketResponse\"\x84\a\n" +
 	"\x1eDriverGrantBucketAccessRequest\x12!\n" +
 	"\faccount_name\x18\x01 \x01(\tR\vaccountName\x12E\n" +
 	"\bprotocol\x18\x02 \x01(\v2).sigs.k8s.io.cosi.v1alpha2.ObjectProtocolR\bprotocol\x12^\n" +
@@ -2102,11 +2142,12 @@ const file_cosi_proto_rawDesc = "" +
 	"\abuckets\x18\x06 \x03(\v2H.sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucketR\abuckets\x1a=\n" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1au\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a\xd7\x02\n" +
 	"\x0eAccessedBucket\x12\x1b\n" +
-	"\tbucket_id\x18\x01 \x01(\tR\bbucketId\x12F\n" +
-	"\vaccess_mode\x18\x02 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.AccessModeR\n" +
-	"accessMode\"\xf3\x02\n" +
+	"\tbucket_id\x18\x01 \x01(\tR\bbucketId\x12\\\n" +
+	"\x17object_data_access_mode\x18\x02 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.AccessModeR\x14objectDataAccessMode\x12d\n" +
+	"\x1bobject_metadata_access_mode\x18\x03 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.AccessModeR\x18objectMetadataAccessMode\x12d\n" +
+	"\x1bbucket_metadata_access_mode\x18\x04 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.AccessModeR\x18bucketMetadataAccessMode\"\xf3\x02\n" +
 	"\x1fDriverGrantBucketAccessResponse\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12_\n" +
@@ -2240,32 +2281,34 @@ var file_cosi_proto_depIdxs = []int32{
 	16, // 26: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.authentication_type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType
 	34, // 27: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.ParametersEntry
 	35, // 28: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.AccessedBucket
-	17, // 29: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
-	7,  // 30: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.BucketInfo.bucket_info:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocolAndBucketInfo
-	36, // 31: sigs.k8s.io.cosi.v1alpha2.alpha_enum:extendee -> google.protobuf.EnumOptions
-	37, // 32: sigs.k8s.io.cosi.v1alpha2.alpha_enum_value:extendee -> google.protobuf.EnumValueOptions
-	38, // 33: sigs.k8s.io.cosi.v1alpha2.cosi_secret:extendee -> google.protobuf.FieldOptions
-	38, // 34: sigs.k8s.io.cosi.v1alpha2.alpha_field:extendee -> google.protobuf.FieldOptions
-	39, // 35: sigs.k8s.io.cosi.v1alpha2.alpha_message:extendee -> google.protobuf.MessageOptions
-	40, // 36: sigs.k8s.io.cosi.v1alpha2.alpha_method:extendee -> google.protobuf.MethodOptions
-	41, // 37: sigs.k8s.io.cosi.v1alpha2.alpha_service:extendee -> google.protobuf.ServiceOptions
-	4,  // 38: sigs.k8s.io.cosi.v1alpha2.Identity.DriverGetInfo:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetInfoRequest
-	18, // 39: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverCreateBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest
-	20, // 40: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGetBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetBucketRequest
-	22, // 41: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverDeleteBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest
-	24, // 42: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGrantBucketAccess:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest
-	26, // 43: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverRevokeBucketAccess:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest
-	5,  // 44: sigs.k8s.io.cosi.v1alpha2.Identity.DriverGetInfo:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetInfoResponse
-	19, // 45: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverCreateBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketResponse
-	21, // 46: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGetBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetBucketResponse
-	23, // 47: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverDeleteBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketResponse
-	25, // 48: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGrantBucketAccess:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse
-	27, // 49: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverRevokeBucketAccess:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessResponse
-	44, // [44:50] is the sub-list for method output_type
-	38, // [38:44] is the sub-list for method input_type
-	38, // [38:38] is the sub-list for extension type_name
-	31, // [31:38] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	17, // 29: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.object_data_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
+	17, // 30: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.object_metadata_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
+	17, // 31: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.bucket_metadata_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
+	7,  // 32: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.BucketInfo.bucket_info:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocolAndBucketInfo
+	36, // 33: sigs.k8s.io.cosi.v1alpha2.alpha_enum:extendee -> google.protobuf.EnumOptions
+	37, // 34: sigs.k8s.io.cosi.v1alpha2.alpha_enum_value:extendee -> google.protobuf.EnumValueOptions
+	38, // 35: sigs.k8s.io.cosi.v1alpha2.cosi_secret:extendee -> google.protobuf.FieldOptions
+	38, // 36: sigs.k8s.io.cosi.v1alpha2.alpha_field:extendee -> google.protobuf.FieldOptions
+	39, // 37: sigs.k8s.io.cosi.v1alpha2.alpha_message:extendee -> google.protobuf.MessageOptions
+	40, // 38: sigs.k8s.io.cosi.v1alpha2.alpha_method:extendee -> google.protobuf.MethodOptions
+	41, // 39: sigs.k8s.io.cosi.v1alpha2.alpha_service:extendee -> google.protobuf.ServiceOptions
+	4,  // 40: sigs.k8s.io.cosi.v1alpha2.Identity.DriverGetInfo:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetInfoRequest
+	18, // 41: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverCreateBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest
+	20, // 42: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGetBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetBucketRequest
+	22, // 43: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverDeleteBucket:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest
+	24, // 44: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGrantBucketAccess:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest
+	26, // 45: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverRevokeBucketAccess:input_type -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest
+	5,  // 46: sigs.k8s.io.cosi.v1alpha2.Identity.DriverGetInfo:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetInfoResponse
+	19, // 47: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverCreateBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketResponse
+	21, // 48: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGetBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGetBucketResponse
+	23, // 49: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverDeleteBucket:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketResponse
+	25, // 50: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverGrantBucketAccess:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse
+	27, // 51: sigs.k8s.io.cosi.v1alpha2.Provisioner.DriverRevokeBucketAccess:output_type -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessResponse
+	46, // [46:52] is the sub-list for method output_type
+	40, // [40:46] is the sub-list for method input_type
+	40, // [40:40] is the sub-list for extension type_name
+	33, // [33:40] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_cosi_proto_init() }

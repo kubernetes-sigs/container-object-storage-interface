@@ -36,6 +36,29 @@ const (
 	BucketAccessAuthenticationTypeServiceAccount = "ServiceAccount"
 )
 
+// BucketAccessModes specifies, per category, the Read/Write access mode that a BucketAccess should
+// have for a bucket. At least one category must be set.
+// +kubebuilder:validation:MinProperties=1
+type BucketAccessModes struct {
+	// objectData requests Read/Write access to the objects in a bucket.
+	// Unspecified means any access may be provisioned, including no access.
+	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
+	// +optional
+	ObjectData BucketAccessMode `json:"objectData,omitempty"`
+
+	// objectMetadata controls Read/Write access to the metadata on objects in a bucket.
+	// Unspecified means any access may be provisioned, including no access.
+	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
+	// +optional
+	ObjectMetadata BucketAccessMode `json:"objectMetadata,omitempty"`
+
+	// bucketMetadata controls Read/Write access to the metadata on the bucket itself.
+	// Unspecified means any access may be provisioned, including no access.
+	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
+	// +optional
+	BucketMetadata BucketAccessMode `json:"bucketMetadata,omitempty"`
+}
+
 // BucketAccessMode describes the Read/Write mode an access should have for a bucket.
 // +enum
 // +kubebuilder:validation:Enum:=ReadWrite;ReadOnly;WriteOnly
@@ -177,15 +200,16 @@ type BucketClaimAccess struct {
 	// +kubebuilder:validation:XValidation:message="name must be a valid resource name",rule="!format.dns1123Subdomain().validate(self).hasValue()"
 	BucketClaimName string `json:"bucketClaimName,omitempty"`
 
-	// accessMode is the Read/Write access mode that the access should have for the bucket.
-	// The provisioned access will have the corresponding permissions to read and/or write objects
-	// the BucketClaim's bucket.
-	// The provisioned access can also assume to have corresponding permissions to read and/or write
-	// object metadata and object metadata (e.g., tags) except when metadata changes would change
-	// object store behaviors or permissions (e.g., changes to object caching behaviors).
-	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
+	// accessModes represents Read/Write access modes that this BucketAccess should
+	// have for the BucketClaim, separated into the following categories:
+	// - objectData - the objects themselves (their content)
+	// - objectMetadata - metadata on objects (e.g. tags)
+	// - bucketMetadata - metadata on the bucket itself (e.g. tags)
+	// For each category, an empty access mode request means the user does not require
+	// the permission and does not care if the corresponding access is allowed or not.
+	// At least one access mode is required.
 	// +required
-	AccessMode BucketAccessMode `json:"accessMode,omitempty"`
+	AccessModes BucketAccessModes `json:"accessModes,omitzero"`
 
 	// accessSecretName is the name of a Kubernetes Secret that COSI should create and populate with
 	// bucket info and access credentials for the bucket.

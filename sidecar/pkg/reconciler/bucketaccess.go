@@ -339,8 +339,10 @@ type internalGrantAccessConfig struct {
 
 // Internal grant-access configuration for a specific bucket.
 type bucketGrantAccessConfig struct {
-	AccessMode       cosiproto.AccessMode_Mode
-	AccessSecretName string
+	ObjectDataMode     cosiproto.AccessMode_Mode
+	ObjectMetadataMode cosiproto.AccessMode_Mode
+	BucketMetadataMode cosiproto.AccessMode_Mode
+	AccessSecretName   string
 }
 
 // Internal representation of revoke-access configuration.
@@ -430,15 +432,24 @@ func generateInternalAccessedBucketConfigs(
 			continue
 		}
 
-		rpcMode, err := translator.AccessModeToRpc(claimRef.AccessMode)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to parse access mode for BucketClaim %q", claimRef.BucketClaimName))
+		if !bucketaccess.HasAnyAccessMode(claimRef.AccessModes) {
+			errs = append(errs, fmt.Errorf("BucketClaim %q has no access modes set", claimRef.BucketClaimName))
+			continue
+		}
+
+		objectDataMode, errObjData := translator.AccessModeToRpc(claimRef.AccessModes.ObjectData)
+		objectMetadataMode, errObjMetaData := translator.AccessModeToRpc(claimRef.AccessModes.ObjectMetadata)
+		bucketMetadataMode, errBktMetaData := translator.AccessModeToRpc(claimRef.AccessModes.BucketMetadata)
+		if err := errors.Join(errObjData, errObjMetaData, errBktMetaData); err != nil {
+			errs = append(errs, fmt.Errorf("failed to parse access mode for BucketClaim %q: %w", claimRef.BucketClaimName, err))
 			continue
 		}
 
 		cfg := bucketGrantAccessConfig{
-			AccessMode:       rpcMode,
-			AccessSecretName: claimRef.AccessSecretName,
+			ObjectDataMode:     objectDataMode,
+			ObjectMetadataMode: objectMetadataMode,
+			BucketMetadataMode: bucketMetadataMode,
+			AccessSecretName:   claimRef.AccessSecretName,
 		}
 
 		accessConfigsByBucketId[bucketID] = cfg
@@ -462,8 +473,14 @@ func (d *internalGrantAccessConfig) RpcGrantBucketsList() []*cosiproto.DriverGra
 		// must not implicitly rely on element ordering.
 		out[i] = &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
 			BucketId: id,
-			AccessMode: &cosiproto.AccessMode{
-				Mode: cfg.AccessMode,
+			ObjectDataAccessMode: &cosiproto.AccessMode{
+				Mode: cfg.ObjectDataMode,
+			},
+			ObjectMetadataAccessMode: &cosiproto.AccessMode{
+				Mode: cfg.ObjectMetadataMode,
+			},
+			BucketMetadataAccessMode: &cosiproto.AccessMode{
+				Mode: cfg.BucketMetadataMode,
 			},
 		}
 		i++
