@@ -525,7 +525,7 @@ func ensureStaticBucketBound(
 	}
 
 	// safe to bind the Bucket to this BucketClaim
-	logger.Info("binding statically-provisioned Bucket to BucketClaim UID %q", claimUID)
+	logger.Info("binding statically-provisioned Bucket to BucketClaim", "claimUID", claimUID)
 	bucket.Spec.BucketClaimRef.UID = claimUID
 	if err := client.Update(ctx, bucket); err != nil {
 		logger.Error(err, "failed to set bucketClaimRef.UID on Bucket")
