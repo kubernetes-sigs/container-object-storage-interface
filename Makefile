@@ -117,8 +117,7 @@ generate: crds rbac controller/Dockerfile sidecar/Dockerfile ## Generate files
 crds: controller-gen
 	cd ./client && $(CONTROLLER_GEN) crd paths="./apis/objectstorage/..."
 
-# RBAC markers live on the reconcilers in the root module, so this cannot be generated from
-# ./client (a separate Go module) alongside the CRDs.
+# Gen Controller RBAC from kubebuilder markers in reconciler go files
 .PHONY: rbac
 rbac: controller-gen
 	$(CONTROLLER_GEN) rbac:roleName=controller-role paths="./controller/pkg/reconciler/..." \
