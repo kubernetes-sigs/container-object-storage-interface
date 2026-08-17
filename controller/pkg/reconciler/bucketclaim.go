@@ -29,8 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrlpredicate "sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -125,8 +127,38 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				cosipredicate.ProtectionFinalizerRemoved(r.Scheme), // re-add protection finalizer if removed
 			),
 		).
-		Named("bucketclaim"). // TODO: .Owns(&cosiapi.Bucket{}, builder.WithPredicates(...))
+		// Bucket has no OwnerReference back to BucketClaim, so .Owns() can't be used; map Bucket
+		// events to the referencing BucketClaim instead.
+		Watches(
+			&cosiapi.Bucket{},
+			handler.EnqueueRequestsFromMapFunc(mapBucketToBucketClaim),
+			builder.WithPredicates(cosipredicate.AnyCreate()),
+		).
+		Named("bucketclaim").
 		Complete(r)
+}
+
+// mapBucketToBucketClaim is a handler.MapFunc that, given a Bucket event, returns a reconcile.Request
+// for the BucketClaim it references. This lets a Bucket watch re-trigger the BucketClaim waiting on it.
+// bucketClaimRef.name/namespace are required on every Bucket (static or dynamic), so no lookup is needed.
+func mapBucketToBucketClaim(ctx context.Context, obj client.Object) []reconcile.Request {
+	bucket, ok := obj.(*cosiapi.Bucket)
+	if !ok {
+		ctrl.LoggerFrom(ctx).Error(nil, "mapBucketToBucketClaim received non-Bucket object", "obj", obj)
+		return nil
+	}
+
+	claimRef := bucket.Spec.BucketClaimRef
+	if claimRef.Name == "" || claimRef.Namespace == "" {
+		// Shouldn't happen: the CRD schema requires both fields.
+		ctrl.LoggerFrom(ctx).V(1).Info("Bucket has no bucketClaimRef name/namespace",
+			"bucketName", bucket.Name, "claimRefName", claimRef.Name, "claimRefNamespace", claimRef.Namespace)
+		return nil
+	}
+
+	return []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Name: claimRef.Name, Namespace: claimRef.Namespace}},
+	}
 }
 
 func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logger, claim *cosiapi.BucketClaim) error {
@@ -179,10 +211,10 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 		}
 
 		if isStaticProvisioning {
-			// Bucket not created yet, retry
-			logger.Info("waiting for statically-provisioned Bucket to exist")
-			// TODO: return nil when Bucket watcher is set up
-			return fmt.Errorf("waiting for statically-provisioned Bucket %q to exist", bucketName)
+			// Bucket not created yet. The Bucket watch (see SetupWithManager)
+			// is responsible for re-enqueuing this BucketClaim once the Bucket is created.
+			logger.Info("waiting for statically-provisioned Bucket to be created")
+			return nil
 		}
 
 		// Claim is not bound yet, this is normal dynamic provisioning.
@@ -525,7 +557,7 @@ func ensureStaticBucketBound(
 	}
 
 	// safe to bind the Bucket to this BucketClaim
-	logger.Info("binding statically-provisioned Bucket to BucketClaim UID %q", claimUID)
+	logger.Info("binding statically-provisioned Bucket to BucketClaim", "claimUID", claimUID)
 	bucket.Spec.BucketClaimRef.UID = claimUID
 	if err := client.Update(ctx, bucket); err != nil {
 		logger.Error(err, "failed to set bucketClaimRef.UID on Bucket")

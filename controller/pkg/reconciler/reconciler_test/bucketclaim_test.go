@@ -591,22 +591,15 @@ func TestBucketClaimReconcile(t *testing.T) {
 			ctx := bootstrapped.ContextWithLogger
 
 			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticClaim)})
-			assert.Error(t, err)
-			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-			assert.ErrorContains(t, err, "waiting for statically-provisioned Bucket")
-			assert.ErrorContains(t, err, "static-bucket")
+			assert.NoError(t, err) // not an error: the Bucket watch re-enqueues once it's created
 			assert.Empty(t, res)
 
 			claim, _, _ := getAllClaimResources(bootstrapped)
 
 			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 			assert.Equal(t, baseStaticClaim.Spec, claim.Spec)
-			require.NotNil(t, claim.Status.Error)
-			assert.NotNil(t, claim.Status.Error.Time)
-			assert.NotNil(t, claim.Status.Error.Message)
-			assert.Contains(t, *claim.Status.Error.Message, "waiting for statically-provisioned Bucket")
-			assert.Contains(t, *claim.Status.Error.Message, "static-bucket")
-			assert.False(t, ptr.Deref(claim.Status.ReadyToUse, true))
+			assert.Nil(t, claim.Status.Error)
+			assert.Nil(t, claim.Status.ReadyToUse)
 			assert.Empty(t, claim.Status.BoundBucketName)
 			assert.Empty(t, claim.Status.Protocols)
 
@@ -628,9 +621,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 			ctx := bootstrapped.ContextWithLogger
 
 			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticClaim)})
-			require.Error(t, err)
-			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-			assert.ErrorContains(t, err, "waiting for statically-provisioned Bucket")
+			require.NoError(t, err) // not an error: the Bucket watch re-enqueues once it's created
 			assert.Empty(t, res)
 
 			require.NoError(t, bootstrapped.Client.Create(ctx, baseStaticBucket.DeepCopy()))
