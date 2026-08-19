@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -118,4 +119,45 @@ func Test_handoffOccurred(t *testing.T) {
 		assert.True(t, handoffOccurred(logger, old, new))
 	})
 
+}
+
+func TestBucketReadinessStatusChanged(t *testing.T) {
+	scheme := runtime.NewScheme()
+	err := cosiapi.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	predicate := BucketReadinessStatusChanged(scheme)
+
+	nilReadyBucket := &cosiapi.Bucket{}
+	notReadyBucket := nilReadyBucket.DeepCopy()
+	notReadyBucket.Status.ReadyToUse = ptr.To(false)
+	readyBucket := nilReadyBucket.DeepCopy()
+	readyBucket.Status.ReadyToUse = ptr.To(true)
+
+	// all permutations of readiness changes; nil is treated the same as false
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: nilReadyBucket, ObjectNew: nilReadyBucket.DeepCopy()}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: nilReadyBucket, ObjectNew: notReadyBucket}))
+	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: nilReadyBucket, ObjectNew: readyBucket}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: notReadyBucket, ObjectNew: nilReadyBucket}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: notReadyBucket, ObjectNew: notReadyBucket.DeepCopy()}))
+	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: notReadyBucket, ObjectNew: readyBucket}))
+	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: readyBucket, ObjectNew: nilReadyBucket}))
+	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: readyBucket, ObjectNew: notReadyBucket}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: readyBucket, ObjectNew: readyBucket.DeepCopy()}))
+
+	// other status fields changing alone is ignored
+	bucketWithDetails := readyBucket.DeepCopy()
+	bucketWithDetails.Status.BucketID = "some-bucket-id"
+	bucketWithDetails.Status.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: readyBucket, ObjectNew: bucketWithDetails}))
+
+	// non-Bucket objects are ignored
+	claim := &cosiapi.BucketClaim{}
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: claim, ObjectNew: readyBucket}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: readyBucket, ObjectNew: claim}))
+
+	// non-Update events are ignored
+	assert.False(t, predicate.Create(event.CreateEvent{Object: readyBucket}))
+	assert.False(t, predicate.Delete(event.DeleteEvent{Object: readyBucket}))
+	assert.False(t, predicate.Generic(event.GenericEvent{Object: readyBucket}))
 }

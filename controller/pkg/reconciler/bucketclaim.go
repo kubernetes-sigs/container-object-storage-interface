@@ -115,8 +115,9 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // SetupWithManager sets up the controller with the Manager.
 func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&cosiapi.BucketClaim{}).
-		WithEventFilter(
+		// Prefer WithPredicates() over WithEventFilter().
+		// Event filters gate all watched kinds whereas predicates are per-kind.
+		For(&cosiapi.BucketClaim{}, builder.WithPredicates(
 			ctrlpredicate.Or( //
 				// this is the only bucketclaim controller and should reconcile ALL Create/Delete/Generic events
 				cosipredicate.AnyCreate(),
@@ -127,13 +128,16 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				cosipredicate.DeletionTimestampAdded(),
 				cosipredicate.ProtectionFinalizerRemoved(r.Scheme), // re-add protection finalizer if removed
 			),
-		).
+		)).
 		// Bucket has no OwnerReference back to BucketClaim, so .Owns() can't be used; map Bucket
 		// events to the referencing BucketClaim instead.
 		Watches(
 			&cosiapi.Bucket{},
 			handler.EnqueueRequestsFromMapFunc(mapBucketToBucketClaim),
-			builder.WithPredicates(cosipredicate.AnyCreate()),
+			builder.WithPredicates(ctrlpredicate.Or(
+				cosipredicate.AnyCreate(),
+				cosipredicate.BucketReadinessStatusChanged(r.Scheme),
+			)),
 		).
 		Named("bucketclaim").
 		Complete(r)
@@ -255,16 +259,20 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 		}
 	}
 
-	// A set bucketID is not sufficient to consider the Bucket provisioned: the sidecar's
-	// DriverGenerateBucketId call persists bucketID before any backend bucket exists. Only
-	// readyToUse marks the bucket as provisioned.
-	if bucket.Status.BucketID == "" || !ptr.Deref(bucket.Status.ReadyToUse, false) {
-		// TODO: In the future, set up Bucket watcher to enqueue this BucketClaim when the Bucket
-		// is updated. For now, return error to requeue with backoff.
+	if !ptr.Deref(bucket.Status.ReadyToUse, false) {
+		// Bucket not yet provisioned by the driver. The Bucket watch (see SetupWithManager)
+		// re-enqueues this BucketClaim once the Bucket's status is updated.
 		logger.Info("waiting for Bucket to be provisioned")
-		return fmt.Errorf("waiting for Bucket to be provisioned")
+		return nil
 	}
 
+	// Can't provision Accesses if no bucket ID is recorded
+	if bucket.Status.BucketID == "" {
+		logger.Error(nil, "provisioned Bucket has no bucket ID")
+		return cosierr.NonRetryableError(fmt.Errorf("provisioned Bucket has no bucket ID"))
+	}
+
+	// Can't provision Accesses if no protocols are supported
 	if len(bucket.Status.Protocols) == 0 {
 		logger.Error(nil, "provisioned Bucket supports no protocols")
 		return cosierr.NonRetryableError(fmt.Errorf("provisioned Bucket supports no protocols"))

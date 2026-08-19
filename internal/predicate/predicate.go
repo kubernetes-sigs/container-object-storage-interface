@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -185,6 +186,30 @@ func handoffOccurred(logger logr.Logger, old, new *cosiapi.BucketAccess) bool {
 		return true
 	}
 	return false
+}
+
+// BucketReadinessStatusChanged returns a predicate that enqueues a reconcile for Bucket Update events
+// if the readiness status of a Bucket changes. A nil readiness is treated the same as false.
+//
+// The predicate does not enqueue requests for any Create/Delete/Generic events.
+// This ensures that other predicates can effectively filter out undesired non-Update events.
+func BucketReadinessStatusChanged(s *runtime.Scheme) predicate.Funcs {
+	funcs := allFalseFuncs()
+	funcs.UpdateFunc = func(e event.UpdateEvent) bool {
+		logger := ctrl.Log.WithName("predicate")
+
+		oldBucket, ok := toTypedOrLogError[*cosiapi.Bucket](logger.WithValues("oldOrNew", "old"), s, e.ObjectOld)
+		if !ok {
+			return false // not a Bucket, so don't manage it
+		}
+		newBucket, ok := toTypedOrLogError[*cosiapi.Bucket](logger.WithValues("oldOrNew", "new"), s, e.ObjectNew)
+		if !ok {
+			return false // not a Bucket, so don't manage it
+		}
+
+		return ptr.Deref(oldBucket.Status.ReadyToUse, false) != ptr.Deref(newBucket.Status.ReadyToUse, false)
+	}
+	return funcs
 }
 
 // BucketAccessManagedBySidecar implements a predicate that enqueues a BucketAccess reconcile for
