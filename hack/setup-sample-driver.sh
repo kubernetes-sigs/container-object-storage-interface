@@ -13,8 +13,8 @@ ROOT="${SCRIPT_DIR}/.."
 # shellcheck source=hack/kind-helpers.sh disable=SC1091
 source "${SCRIPT_DIR}/kind-helpers.sh"
 
-SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/kubernetes-sigs/cosi-driver-sample.git}"
-SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-master}"
+SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/BlaineEXE/cosi-driver-sample.git}" # testonly
+SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-update-rook-version}" # testonly
 SAMPLE_DRIVER_IMAGE="${SAMPLE_DRIVER_IMAGE:-cosi-driver-sample:latest}"
 SIDECAR_TAG="${SIDECAR_TAG:-cosi-provisioner-sidecar:latest}"
 DRIVER_NAMESPACE="${DRIVER_NAMESPACE:-cosi-driver-sample-system}"

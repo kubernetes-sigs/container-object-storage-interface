@@ -24,8 +24,8 @@ export KIND_LOOP_DEVICE_DIR="${KIND_LOOP_DEVICE_DIR:-/tmp/cosi-kind-${KIND_CLUST
 export CONTROLLER_TAG="${CONTROLLER_TAG:-cosi-controller:latest}"
 export SIDECAR_TAG="${SIDECAR_TAG:-cosi-provisioner-sidecar:latest}"
 export SAMPLE_DRIVER_IMAGE="${SAMPLE_DRIVER_IMAGE:-cosi-driver-sample:latest}"
-export SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/kubernetes-sigs/cosi-driver-sample.git}"
-export SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-master}"
+export SAMPLE_DRIVER_REPO="${SAMPLE_DRIVER_REPO:-https://github.com/BlaineEXE/cosi-driver-sample.git}" # testonly
+export SAMPLE_DRIVER_BRANCH="${SAMPLE_DRIVER_BRANCH:-update-rook-version}"
 export SAMPLE_DRIVER_PATH="${SAMPLE_DRIVER_PATH:-${ROOT}/../cosi-driver-sample}"
 export CREDS_FILE="${CREDS_FILE:-${ROOT}/.cache/s3-credentials.yaml}"
 
