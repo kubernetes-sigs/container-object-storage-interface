@@ -468,18 +468,48 @@ func ValidateAccessAgainstClass(
 	}
 
 	for _, claimRef := range access.BucketClaims {
-		if slices.Contains(class.DisallowedBucketAccessModes, claimRef.AccessMode) {
-			errs = append(errs,
-				fmt.Errorf("accessMode %q requested for BucketClaim %q is disallowed",
-					claimRef.AccessMode, claimRef.BucketClaimName),
-			)
-		}
+		errs = append(errs, validateClaimAccessModesAgainstClass(class.DisallowedBucketAccessModes, claimRef)...)
 	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("one or more features are disallowed by the BucketAccessClass: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// Return errors for any of claimRef's requested access modes that violate disallowed, or that
+// fail to set at least one access mode category at all.
+func validateClaimAccessModesAgainstClass(
+	disallowed cosiapi.DisallowedBucketAccessModes,
+	claimRef cosiapi.BucketClaimAccess,
+) []error {
+	errs := []error{}
+
+	if !bucketaccess.HasAnyAccessMode(claimRef.AccessModes) {
+		errs = append(errs, fmt.Errorf(
+			"BucketClaim %q must set at least one of accessModes.objectData, objectMetadata, or bucketMetadata",
+			claimRef.BucketClaimName))
+	}
+	if slices.Contains(disallowed.ObjectData, claimRef.AccessModes.ObjectData) {
+		errs = append(errs,
+			fmt.Errorf("objectData access mode %q requested for BucketClaim %q is disallowed",
+				claimRef.AccessModes.ObjectData, claimRef.BucketClaimName),
+		)
+	}
+	if slices.Contains(disallowed.ObjectMetadata, claimRef.AccessModes.ObjectMetadata) {
+		errs = append(errs,
+			fmt.Errorf("objectMetadata access mode %q requested for BucketClaim %q is disallowed",
+				claimRef.AccessModes.ObjectMetadata, claimRef.BucketClaimName),
+		)
+	}
+	if slices.Contains(disallowed.BucketMetadata, claimRef.AccessModes.BucketMetadata) {
+		errs = append(errs,
+			fmt.Errorf("bucketMetadata access mode %q requested for BucketClaim %q is disallowed",
+				claimRef.AccessModes.BucketMetadata, claimRef.BucketClaimName),
+		)
+	}
+
+	return errs
 }
 
 // Get all Buckets from the referenced BucketClaims.

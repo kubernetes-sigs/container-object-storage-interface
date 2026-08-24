@@ -240,7 +240,7 @@ func OpinionatedBucketAccessClass(identifier string) *cosiapi.BucketAccessClass 
 		Spec: cosiapi.BucketAccessClassSpec{
 			DriverName:                  bClass.Spec.DriverName, // use same driver as opinionated BucketClass
 			AuthenticationType:          cosiapi.BucketAccessAuthenticationTypeKey,
-			DisallowedBucketAccessModes: []cosiapi.BucketAccessMode{},             // all allowed
+			DisallowedBucketAccessModes: cosiapi.DisallowedBucketAccessModes{},    // all allowed
 			MultiBucketAccess:           cosiapi.MultiBucketAccessMultipleBuckets, // allow multi
 		},
 	}

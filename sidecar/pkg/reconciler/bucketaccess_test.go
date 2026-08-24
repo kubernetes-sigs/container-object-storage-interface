@@ -53,12 +53,12 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			BucketClaims: []cosiapi.BucketClaimAccess{
 				{
 					BucketClaimName:  "readwrite-bucket",
-					AccessMode:       cosiapi.BucketAccessModeReadWrite,
+					AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 					AccessSecretName: "readwrite-bucket-creds",
 				},
 				{
 					BucketClaimName:  "readonly-bucket",
-					AccessMode:       cosiapi.BucketAccessModeReadOnly,
+					AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 					AccessSecretName: "readonly-bucket-creds",
 				},
 			},
@@ -255,12 +255,16 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			)
 			require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
 			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-				BucketId:   "cosi-bc-my-ns-readwrite-bucket",
-				AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
+				BucketId:                 "cosi-bc-my-ns-readwrite-bucket",
+				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
+				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
+				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
 			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-				BucketId:   "cosi-bc-my-ns-readonly-bucket",
-				AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
+				BucketId:                 "cosi-bc-my-ns-readonly-bucket",
+				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
+				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
+				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
 		}
 
@@ -1011,6 +1015,80 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		})
 	})
 
+	t.Run("a BucketClaim has no access modes set", func(t *testing.T) {
+		fakeServer := cositest.FakeProvisionerServer{} // no RPC calls should be made
+
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
+
+		conn, err := cositest.RpcClientConn(tmpSock)
+		require.NoError(t, err)
+		rpcClient := cosiproto.NewProvisionerClient(conn)
+
+		testEmptyAccessModes := func(t *testing.T) (
+			bootstrapped *cositest.Dependencies,
+			reconciler *sidecar.BucketAccessReconciler,
+		) {
+			bootstrapped = cositest.MustBootstrap(t,
+				baseAccess.DeepCopy(),
+				baseClass.DeepCopy(),
+				baseReadWriteClaim.DeepCopy(),
+				baseReadOnlyClaim.DeepCopy(),
+				cositest.OpinionatedS3BucketClass(),
+			)
+			ctx := bootstrapped.ContextWithLogger
+
+			reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+			initAccess, initRwBucket, initRoBucket, _, _ := getAllResources(bootstrapped)
+
+			// clear access modes after Controller-side validation already passed
+			// e.g., what if COSI Controller has a bug
+			malformedAccess := initAccess.DeepCopy()
+			malformedAccess.Spec.BucketClaims[0].AccessModes = cosiapi.BucketAccessModes{}
+			require.NoError(t, bootstrapped.Client.Update(ctx, malformedAccess))
+
+			r := newReconciler(bootstrapped.Client, rpcClient)
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.Empty(t, res)
+
+			access, rwBucket, roBucket, _, _ := getAllResources(bootstrapped)
+
+			assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			assert.Equal(t, malformedAccess.Spec, access.Spec)
+			require.NotNil(t, access.Status.Error)
+			assert.NotNil(t, access.Status.Error.Time)
+			assert.NotNil(t, access.Status.Error.Message)
+			assert.Contains(t, *access.Status.Error.Message, "has no access modes set")
+			{ // non-error fields stay the same
+				accessNoError := access.DeepCopy()
+				accessNoError.Status.Error = nil
+				assert.Equal(t, malformedAccess.Status, accessNoError.Status)
+			}
+
+			// don't care if secrets exist
+
+			// buckets must not be changed
+			assert.Equal(t, initRwBucket, rwBucket)
+			assert.Equal(t, initRoBucket, roBucket)
+
+			return bootstrapped, &r
+		}
+
+		t.Run("reconcile", func(t *testing.T) {
+			testEmptyAccessModes(t)
+		})
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			bootstrapped, r := testEmptyAccessModes(t)
+			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+		})
+	})
+
 	t.Run("a bucket has deleting annotation", func(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{} // no RPC calls should be made
 
@@ -1618,12 +1696,16 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			assert.Empty(t, req.Parameters)
 			require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
 			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-				BucketId:   initRwBucket.Status.BucketID,
-				AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
+				BucketId:                 initRwBucket.Status.BucketID,
+				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
+				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
+				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
 			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-				BucketId:   initRoBucket.Status.BucketID,
-				AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
+				BucketId:                 initRoBucket.Status.BucketID,
+				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
+				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
+				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
 
 			access, rwBucket, roBucket, rwSec, roSec := getAllResources(bootstrapped)
@@ -1860,12 +1942,16 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			)
 			require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
 			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-				BucketId:   initRwBucket.Status.BucketID,
-				AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
+				BucketId:                 initRwBucket.Status.BucketID,
+				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
+				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
+				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
 			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
-				BucketId:   initRoBucket.Status.BucketID,
-				AccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
+				BucketId:                 initRoBucket.Status.BucketID,
+				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
+				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
+				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
 
 			access, initRwBucket, initRoBucket, rwSec, roSec := getAllResources(bootstrapped)
@@ -1962,7 +2048,9 @@ func accessedBucketRequestExists(
 	want *cosiproto.DriverGrantBucketAccessRequest_AccessedBucket,
 ) bool {
 	for _, ab := range requestList {
-		modeEq := ab.AccessMode.Mode == want.AccessMode.Mode
+		modeEq := ab.GetObjectDataAccessMode().GetMode() == want.GetObjectDataAccessMode().GetMode() &&
+			ab.GetObjectMetadataAccessMode().GetMode() == want.GetObjectMetadataAccessMode().GetMode() &&
+			ab.GetBucketMetadataAccessMode().GetMode() == want.GetBucketMetadataAccessMode().GetMode()
 		idEq := ab.BucketId == want.BucketId
 		if modeEq && idEq {
 			return true

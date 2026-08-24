@@ -42,12 +42,12 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 				BucketClaims: []cosiapi.BucketClaimAccess{
 					{
 						BucketClaimName:  "rw",
-						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 						AccessSecretName: "rw",
 					},
 					{
 						BucketClaimName:  "ro",
-						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 						AccessSecretName: "ro",
 					},
 				},
@@ -63,12 +63,12 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 				BucketClaims: []cosiapi.BucketClaimAccess{
 					{
 						BucketClaimName:  "rw",
-						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 						AccessSecretName: "rw",
 					},
 					{
 						BucketClaimName:  "ro",
-						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 						AccessSecretName: "ro",
 					},
 				},
@@ -85,38 +85,12 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 				BucketClaims: []cosiapi.BucketClaimAccess{
 					{
 						BucketClaimName:  "rw",
-						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 						AccessSecretName: "rw",
 					},
 					{
 						BucketClaimName:  "ro",
-						AccessMode:       cosiapi.BucketAccessModeReadOnly,
-						AccessSecretName: "ro",
-					},
-				},
-				ServiceAccountName: "",
-			},
-			true,
-		},
-		{"key auth, disallow write modes",
-			&cosiapi.BucketAccessClassSpec{
-				AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
-				MultiBucketAccess:  cosiapi.MultiBucketAccessMultipleBuckets,
-				DisallowedBucketAccessModes: []cosiapi.BucketAccessMode{
-					cosiapi.BucketAccessModeReadWrite,
-					cosiapi.BucketAccessModeWriteOnly,
-				},
-			},
-			&cosiapi.BucketAccessSpec{
-				BucketClaims: []cosiapi.BucketClaimAccess{
-					{
-						BucketClaimName:  "rw",
-						AccessMode:       cosiapi.BucketAccessModeReadWrite,
-						AccessSecretName: "rw",
-					},
-					{
-						BucketClaimName:  "ro",
-						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 						AccessSecretName: "ro",
 					},
 				},
@@ -133,12 +107,12 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 				BucketClaims: []cosiapi.BucketClaimAccess{
 					{
 						BucketClaimName:  "rw",
-						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 						AccessSecretName: "rw",
 					},
 					{
 						BucketClaimName:  "ro",
-						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 						AccessSecretName: "ro",
 					},
 				},
@@ -155,12 +129,12 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 				BucketClaims: []cosiapi.BucketClaimAccess{
 					{
 						BucketClaimName:  "rw",
-						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 						AccessSecretName: "rw",
 					},
 					{
 						BucketClaimName:  "ro",
-						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 						AccessSecretName: "ro",
 					},
 				},
@@ -176,12 +150,12 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 				BucketClaims: []cosiapi.BucketClaimAccess{
 					{
 						BucketClaimName:  "rw",
-						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 						AccessSecretName: "rw",
 					},
 					{
 						BucketClaimName:  "ro",
-						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 						AccessSecretName: "ro",
 					},
 				},
@@ -198,12 +172,12 @@ func Test_validateAccessAgainstClass(t *testing.T) {
 				BucketClaims: []cosiapi.BucketClaimAccess{
 					{
 						BucketClaimName:  "rw",
-						AccessMode:       cosiapi.BucketAccessModeReadWrite,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 						AccessSecretName: "rw",
 					},
 					{
 						BucketClaimName:  "ro",
-						AccessMode:       cosiapi.BucketAccessModeReadOnly,
+						AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 						AccessSecretName: "ro",
 					},
 				},

@@ -193,6 +193,8 @@ func AuthenticationTypeToRpc(a cosiapi.BucketAccessAuthenticationType) (cosiprot
 // Translate COSI API access mode to RPC access mode.
 func AccessModeToRpc(m cosiapi.BucketAccessMode) (cosiproto.AccessMode_Mode, error) {
 	switch m {
+	case "": // category wasn't requested; requester doesn't care what's granted
+		return cosiproto.AccessMode_ANY, nil
 	case cosiapi.BucketAccessModeReadOnly:
 		return cosiproto.AccessMode_READ_ONLY, nil
 	case cosiapi.BucketAccessModeReadWrite:

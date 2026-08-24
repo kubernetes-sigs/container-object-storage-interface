@@ -69,6 +69,12 @@ func ManagedBySidecar(ba *cosiapi.BucketAccess) bool {
 	return true
 }
 
+// HasAnyAccessMode returns true if at least one access mode category (objectData,
+// objectMetadata, bucketMetadata) is set.
+func HasAnyAccessMode(m cosiapi.BucketAccessModes) bool {
+	return m.ObjectData != "" || m.ObjectMetadata != "" || m.BucketMetadata != ""
+}
+
 // SidecarRequirementsPresent verifies that BucketAccess status information required by the Sidecar
 // to provision the BucketAccess is fully set.
 //

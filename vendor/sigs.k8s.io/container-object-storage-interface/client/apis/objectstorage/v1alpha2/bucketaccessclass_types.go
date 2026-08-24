@@ -51,17 +51,13 @@ type BucketAccessClassSpec struct {
 	// +kubebuilder:validation:MaxProperties=512
 	Parameters map[string]string `json:"parameters,omitempty"`
 
-	// disallowedBucketAccessModes is a list of disallowed Read/Write access modes. A BucketAccess
-	// using this class will not be allowed to request access to a BucketClaim with any access mode
-	// listed here.
+	// disallowedBucketAccessModes controls, per category, which Read/Write access modes are
+	// disallowed. A BucketAccess using this class will not be allowed to request access to a
+	// BucketClaim with any access mode listed here, per category.
 	// This is particularly useful for administrators to restrict access to a statically-provisioned
 	// bucket that is managed outside the BucketAccess Namespace or Kubernetes cluster.
-	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
 	// +optional
-	// +listType=set
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=3
-	DisallowedBucketAccessModes []BucketAccessMode `json:"disallowedBucketAccessModes,omitempty"`
+	DisallowedBucketAccessModes DisallowedBucketAccessModes `json:"disallowedBucketAccessModes,omitzero"`
 
 	// multiBucketAccess specifies whether a BucketAccess using this class can reference multiple
 	// BucketClaims. When omitted, this means no opinion, and COSI will choose a reasonable default,
@@ -71,6 +67,35 @@ type BucketAccessClassSpec struct {
 	//  - MultipleBuckets: A BucketAccess may reference multiple (1 or more) BucketClaims.
 	// +optional
 	MultiBucketAccess MultiBucketAccess `json:"multiBucketAccess,omitempty"`
+}
+
+// DisallowedBucketAccessModes explicitly lists, per category, which BucketAccessModes are forbidden
+// for BucketAccesses using this class.
+// +kubebuilder:validation:MinProperties=1
+type DisallowedBucketAccessModes struct {
+	// objectData values disallow the corresponding Read/Write access to the objects in a bucket.
+	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=3
+	ObjectData []BucketAccessMode `json:"objectData,omitempty"`
+
+	// objectMetadata values disallow the corresponding Read/Write access to the metadata on objects in a bucket.
+	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=3
+	ObjectMetadata []BucketAccessMode `json:"objectMetadata,omitempty"`
+
+	// bucketMetadata values disallow the corresponding Read/Write access to the metadata on the bucket itself.
+	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=3
+	BucketMetadata []BucketAccessMode `json:"bucketMetadata,omitempty"`
 }
 
 // MultiBucketAccess specifies whether a BucketAccess can reference multiple BucketClaims.

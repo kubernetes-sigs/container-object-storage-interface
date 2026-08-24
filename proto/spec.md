@@ -410,14 +410,17 @@ message AccessMode {
     enum Mode {
         UNKNOWN = 0;
 
+        // The Provisioner MAY grant any mode it wishes, including none (recommended).
+        ANY = 1;
+
         // Read/Write access mode.
-        READ_WRITE = 1;
+        READ_WRITE = 2;
 
         // Read-only access mode.
-        READ_ONLY = 2;
+        READ_ONLY = 3;
 
         // Write-only access mode.
-        WRITE_ONLY = 3;
+        WRITE_ONLY = 4;
     }
     Mode mode = 1;
 }
@@ -631,9 +634,32 @@ message DriverGrantBucketAccessRequest {
         // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
         string bucket_id = 1;
 
-        // REQUIRED. The read/write access mode that the Provisioner SHOULD provision for the bucket
-        // associated with `bucket_id`.
-        AccessMode access_mode = 2;
+        // REQUIRED. The read/write access mode that the Provisioner SHOULD provision for objects in
+        // the bucket associated with `bucket_id`. ANY means no access mode was requested for
+        // this category, and the driver may provision any mode it chooses.
+        // When ANY is specified, COSI's recommendation is that drivers provision with the least
+        // permissions possible for best security.
+        // COSI will not send UNKNOWN in any normal case, a Provisioner that receives UNKNOWN
+        // SHOULD treat it as an error.
+        AccessMode object_data_access_mode = 2;
+
+        // REQUIRED. The read/write access mode that the Provisioner SHOULD provision for object
+        // metadata (e.g. tags) in the bucket associated with `bucket_id`. ANY means no access mode
+        // was requested for this category, and the driver may provision any mode it chooses.
+        // When ANY is specified, COSI's recommendation is that drivers provision with the least
+        // permissions possible for best security.
+        // COSI will not send UNKNOWN in any normal case, a Provisioner that receives UNKNOWN
+        // SHOULD treat it as an error.
+        AccessMode object_metadata_access_mode = 3;
+
+        // REQUIRED. The read/write access mode that the Provisioner SHOULD provision for metadata
+        // (e.g. tags) on the bucket associated with `bucket_id` itself. ANY means no access mode
+        // was requested for this category, and the driver may provision any mode it chooses.
+        // When ANY is specified, COSI's recommendation is that drivers provision with the least
+        // permissions possible for best security.
+        // COSI will not send UNKNOWN in any normal case, a Provisioner that receives UNKNOWN
+        // SHOULD treat it as an error.
+        AccessMode bucket_metadata_access_mode = 4;
     }
 
     // REQUIRED. Access to at least one bucket MUST be requested.

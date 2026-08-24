@@ -45,12 +45,12 @@ var (
 			BucketClaims: []cosiapi.BucketClaimAccess{
 				{
 					BucketClaimName:  "readwrite-bucket",
-					AccessMode:       cosiapi.BucketAccessModeReadWrite,
+					AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadWrite},
 					AccessSecretName: "readwrite-bucket-creds",
 				},
 				{
 					BucketClaimName:  "readonly-bucket",
-					AccessMode:       cosiapi.BucketAccessModeReadOnly,
+					AccessModes:      cosiapi.BucketAccessModes{ObjectData: cosiapi.BucketAccessModeReadOnly},
 					AccessSecretName: "readonly-bucket-creds",
 				},
 			},
@@ -731,9 +731,11 @@ func TestBucketAccessReconcile(t *testing.T) {
 
 	t.Run("err bucketaccessclass disallows write modes", func(t *testing.T) {
 		class := baseAccessClass.DeepCopy()
-		class.Spec.DisallowedBucketAccessModes = []cosiapi.BucketAccessMode{
-			cosiapi.BucketAccessModeReadWrite,
-			cosiapi.BucketAccessModeWriteOnly,
+		class.Spec.DisallowedBucketAccessModes = cosiapi.DisallowedBucketAccessModes{
+			ObjectData: []cosiapi.BucketAccessMode{
+				cosiapi.BucketAccessModeReadWrite,
+				cosiapi.BucketAccessModeWriteOnly,
+			},
 		}
 
 		bootstrapped := cositest.MustBootstrap(t,
