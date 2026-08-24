@@ -16,4 +16,5 @@ resources:
   - resources/deployment.yaml
   - resources/namespace.yaml
   - resources/rbac.yaml
+  - resources/role.yaml
   - resources/sa.yaml

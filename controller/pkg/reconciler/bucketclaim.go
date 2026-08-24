@@ -47,10 +47,11 @@ type BucketClaimReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=bucketclaims,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=bucketclaims,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=bucketclaims/status,verbs=get;update
 // +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=bucketclaims/finalizers,verbs=update
-// +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=buckets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=buckets,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=objectstorage.k8s.io,resources=bucketclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
