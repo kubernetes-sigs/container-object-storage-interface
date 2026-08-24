@@ -169,7 +169,7 @@ func (r *BucketAccessReconciler) reconcile(
 		}
 	}
 
-	if err := getAndValidateAllAccessedBuckets(ctx, r.Client, access, r.DriverInfo.Name); err != nil {
+	if err := r.getAndValidateAllAccessedBuckets(ctx, access); err != nil {
 		logger.Error(err, "failed to validate accessed Buckets for BucketAccess")
 		return err
 	}
@@ -624,8 +624,8 @@ func (r *BucketAccessReconciler) updateSecretsWithGrantedInfo(
 
 // Get all Buckets from BucketAccess status. Error if any Bucket Get() fails.
 // Validate that all gotten buckets are ready for access.
-func getAndValidateAllAccessedBuckets(
-	ctx context.Context, client client.Client, access *cosiapi.BucketAccess, driverName string,
+func (r *BucketAccessReconciler) getAndValidateAllAccessedBuckets(
+	ctx context.Context, access *cosiapi.BucketAccess,
 ) error {
 	errs := []error{}
 
@@ -636,7 +636,7 @@ func getAndValidateAllAccessedBuckets(
 		}
 
 		bkt := &cosiapi.Bucket{}
-		err := client.Get(ctx, nsName, bkt)
+		err := r.Client.Get(ctx, nsName, bkt)
 		if err != nil {
 			if kerrors.IsNotFound(err) {
 				errs = append(errs, cosierr.NonRetryableError(err))
@@ -648,7 +648,7 @@ func getAndValidateAllAccessedBuckets(
 			continue
 		}
 
-		if err := validateBucketIsReadyForAccess(bkt, ab.BucketID, driverName); err != nil {
+		if err := r.validateBucketIsReadyForAccess(bkt, ab.BucketID); err != nil {
 			errs = append(errs, cosierr.NonRetryableError(err))
 			continue
 		}
@@ -661,7 +661,7 @@ func getAndValidateAllAccessedBuckets(
 	return nil
 }
 
-func validateBucketIsReadyForAccess(b *cosiapi.Bucket, expectedBucketID string, expectedDriverName string) error {
+func (r *BucketAccessReconciler) validateBucketIsReadyForAccess(b *cosiapi.Bucket, expectedBucketID string) error {
 	errs := []error{}
 
 	if _, ok := b.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation]; ok {
@@ -685,12 +685,12 @@ func validateBucketIsReadyForAccess(b *cosiapi.Bucket, expectedBucketID string, 
 			b.Name, b.Status.BucketID, expectedBucketID))
 	}
 
-	if b.Spec.DriverName != expectedDriverName {
+	if b.Spec.DriverName != r.DriverInfo.Name {
 		// A Bucket must never be granted access by a driver other than the one that
 		// provisioned it, even if a BucketAccessClass claims to use this driver.
 		//nolint:staticcheck // ST1005: okay to capitalize resource kind
 		errs = append(errs, fmt.Errorf("Bucket %q driverName %q does not match expected driverName %q",
-			b.Name, b.Spec.DriverName, expectedDriverName))
+			b.Name, b.Spec.DriverName, r.DriverInfo.Name))
 	}
 
 	if len(errs) > 0 {
