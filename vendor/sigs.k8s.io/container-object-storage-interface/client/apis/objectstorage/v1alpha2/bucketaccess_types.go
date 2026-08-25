@@ -40,7 +40,7 @@ const (
 // have for a bucket. At least one category must be set.
 // +kubebuilder:validation:MinProperties=1
 type BucketAccessModes struct {
-	// objectData requests Read/Write access to the objects in a bucket.
+	// objectData controls Read/Write access to the objects in a bucket.
 	// Unspecified means any access may be provisioned, including no access.
 	// Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
 	// +optional

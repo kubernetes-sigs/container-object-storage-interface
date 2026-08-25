@@ -216,7 +216,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `objectData` _[BucketAccessMode](#bucketaccessmode)_ | objectData requests Read/Write access to the objects in a bucket.<br />Unspecified means any access may be provisioned, including no access.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
+| `objectData` _[BucketAccessMode](#bucketaccessmode)_ | objectData controls Read/Write access to the objects in a bucket.<br />Unspecified means any access may be provisioned, including no access.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
 | `objectMetadata` _[BucketAccessMode](#bucketaccessmode)_ | objectMetadata controls Read/Write access to the metadata on objects in a bucket.<br />Unspecified means any access may be provisioned, including no access.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
 | `bucketMetadata` _[BucketAccessMode](#bucketaccessmode)_ | bucketMetadata controls Read/Write access to the metadata on the bucket itself.<br />Unspecified means any access may be provisioned, including no access.<br />Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'. |  | Enum: [ReadWrite ReadOnly WriteOnly] <br /> |
 
