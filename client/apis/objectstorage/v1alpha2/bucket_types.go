@@ -138,6 +138,16 @@ type BucketClaimReference struct {
 	UID types.UID `json:"uid,omitempty"`
 }
 
+// BucketIDPattern and BucketIDMaxLength give Go code (e.g. sidecar validation of a
+// driver-returned ID) the same constraint as the +kubebuilder:validation:Pattern and
+// +kubebuilder:validation:MaxLength markers on BucketStatus.BucketID below. kubebuilder markers
+// must be literals, so they can't reference these constants directly; keep the two in sync by
+// hand if either changes.
+const (
+	BucketIDPattern   = `^[a-zA-Z0-9/._-]+$`
+	BucketIDMaxLength = 2048
+)
+
 // BucketStatus defines the observed state of Bucket.
 // +kubebuilder:validation:XValidation:message="bucketID cannot be removed once set",rule="!has(oldSelf.bucketID) || has(self.bucketID)"
 // +kubebuilder:validation:XValidation:message="protocols cannot be removed once set",rule="!has(oldSelf.protocols) || has(self.protocols)"

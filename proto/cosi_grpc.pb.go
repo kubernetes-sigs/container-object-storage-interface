@@ -113,6 +113,7 @@ var Identity_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	Provisioner_DriverGenerateBucketId_FullMethodName   = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGenerateBucketId"
 	Provisioner_DriverCreateBucket_FullMethodName       = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverCreateBucket"
 	Provisioner_DriverGetBucket_FullMethodName          = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGetBucket"
 	Provisioner_DriverDeleteBucket_FullMethodName       = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverDeleteBucket"
@@ -124,7 +125,15 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ProvisionerClient interface {
+	// Generate the identifier that COSI will use for all subsequent calls related to a bucket.
+	// It MUST return the same bucket_id for every call with the same name.
+	// This is phase 1 of the 2-phase provisioning process. It is RECOMMENDED to only generate an ID
+	// and NOT RECOMMENDED to provision any backend resource.
+	// It MUST NOT result in backend resource leakage if this command fails and COSI subsequently
+	// deletes the resource without calling DriverDeleteBucket.
+	DriverGenerateBucketId(ctx context.Context, in *DriverGenerateBucketIdRequest, opts ...grpc.CallOption) (*DriverGenerateBucketIdResponse, error)
 	// Create the bucket in the backend.
+	// This is phase 2 of the 2-phase provisioning process.
 	//
 	// Important return codes:
 	// - MUST return OK if a backend bucket with matching identity and parameters already exists.
@@ -161,6 +170,15 @@ type provisionerClient struct {
 
 func NewProvisionerClient(cc grpc.ClientConnInterface) ProvisionerClient {
 	return &provisionerClient{cc}
+}
+
+func (c *provisionerClient) DriverGenerateBucketId(ctx context.Context, in *DriverGenerateBucketIdRequest, opts ...grpc.CallOption) (*DriverGenerateBucketIdResponse, error) {
+	out := new(DriverGenerateBucketIdResponse)
+	err := c.cc.Invoke(ctx, Provisioner_DriverGenerateBucketId_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *provisionerClient) DriverCreateBucket(ctx context.Context, in *DriverCreateBucketRequest, opts ...grpc.CallOption) (*DriverCreateBucketResponse, error) {
@@ -212,7 +230,15 @@ func (c *provisionerClient) DriverRevokeBucketAccess(ctx context.Context, in *Dr
 // All implementations must embed UnimplementedProvisionerServer
 // for forward compatibility
 type ProvisionerServer interface {
+	// Generate the identifier that COSI will use for all subsequent calls related to a bucket.
+	// It MUST return the same bucket_id for every call with the same name.
+	// This is phase 1 of the 2-phase provisioning process. It is RECOMMENDED to only generate an ID
+	// and NOT RECOMMENDED to provision any backend resource.
+	// It MUST NOT result in backend resource leakage if this command fails and COSI subsequently
+	// deletes the resource without calling DriverDeleteBucket.
+	DriverGenerateBucketId(context.Context, *DriverGenerateBucketIdRequest) (*DriverGenerateBucketIdResponse, error)
 	// Create the bucket in the backend.
+	// This is phase 2 of the 2-phase provisioning process.
 	//
 	// Important return codes:
 	// - MUST return OK if a backend bucket with matching identity and parameters already exists.
@@ -248,6 +274,9 @@ type ProvisionerServer interface {
 type UnimplementedProvisionerServer struct {
 }
 
+func (UnimplementedProvisionerServer) DriverGenerateBucketId(context.Context, *DriverGenerateBucketIdRequest) (*DriverGenerateBucketIdResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DriverGenerateBucketId not implemented")
+}
 func (UnimplementedProvisionerServer) DriverCreateBucket(context.Context, *DriverCreateBucketRequest) (*DriverCreateBucketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DriverCreateBucket not implemented")
 }
@@ -274,6 +303,24 @@ type UnsafeProvisionerServer interface {
 
 func RegisterProvisionerServer(s grpc.ServiceRegistrar, srv ProvisionerServer) {
 	s.RegisterService(&Provisioner_ServiceDesc, srv)
+}
+
+func _Provisioner_DriverGenerateBucketId_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DriverGenerateBucketIdRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProvisionerServer).DriverGenerateBucketId(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Provisioner_DriverGenerateBucketId_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProvisionerServer).DriverGenerateBucketId(ctx, req.(*DriverGenerateBucketIdRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Provisioner_DriverCreateBucket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -373,6 +420,10 @@ var Provisioner_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "sigs.k8s.io.cosi.v1alpha2.Provisioner",
 	HandlerType: (*ProvisionerServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "DriverGenerateBucketId",
+			Handler:    _Provisioner_DriverGenerateBucketId_Handler,
+		},
 		{
 			MethodName: "DriverCreateBucket",
 			Handler:    _Provisioner_DriverCreateBucket_Handler,
