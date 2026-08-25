@@ -86,7 +86,7 @@ spec:
                           type: string
                         objectData:
                           description: |-
-                            objectData requests Read/Write access to the objects in a bucket.
+                            objectData controls Read/Write access to the objects in a bucket.
                             Unspecified means any access may be provisioned, including no access.
                             Possible values: 'ReadWrite', 'ReadOnly', 'WriteOnly'.
                           enum:
