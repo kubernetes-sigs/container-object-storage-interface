@@ -91,7 +91,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// On success, clear any errors in the status.
-	if bucket.Status.Error != nil && !bucket.DeletionTimestamp.IsZero() {
+	if bucket.Status.Error != nil && bucket.DeletionTimestamp.IsZero() {
 		if bucket.Status.ReadyToUse == nil {
 			bucket.Status.ReadyToUse = ptr.To(false)
 		}

@@ -96,7 +96,7 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// On success, clear any errors in the status.
-	if claim.Status.Error != nil && !claim.DeletionTimestamp.IsZero() {
+	if claim.Status.Error != nil && claim.DeletionTimestamp.IsZero() {
 		if claim.Status.ReadyToUse == nil {
 			claim.Status.ReadyToUse = ptr.To(false)
 		}
