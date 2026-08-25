@@ -74,7 +74,9 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			Name: "s3-class",
 		},
 		Spec: cosiapi.BucketAccessClassSpec{
-			DriverName:         "cosi.s3.internal",
+			// must match the driver that provisions the Buckets used by these tests, i.e. the
+			// driver named by cositest.OpinionatedS3BucketClass()
+			DriverName:         cositest.OpinionatedS3BucketClass().Spec.DriverName,
 			AuthenticationType: cosiapi.BucketAccessAuthenticationTypeKey,
 			Parameters: map[string]string{
 				"maxSize": "100Gi",
@@ -95,7 +97,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			Client: api,
 			Scheme: api.Scheme(),
 			DriverInfo: sidecar.DriverInfo{
-				Name:               "cosi.s3.internal",
+				Name:               cositest.OpinionatedS3BucketClass().Spec.DriverName,
 				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
 				ProvisionerClient:  proto,
 			},
@@ -1160,6 +1162,82 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		t.Run("subsequent deletion", func(t *testing.T) {
 			bootstrapped, r := testBucketDeletingAnnotation(t)
+			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+		})
+	})
+
+	t.Run("a bucket was provisioned by a different driver", func(t *testing.T) {
+		fakeServer := cositest.FakeProvisionerServer{} // no RPC calls should be made
+
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
+
+		conn, err := cositest.RpcClientConn(tmpSock)
+		require.NoError(t, err)
+		rpcClient := cosiproto.NewProvisionerClient(conn)
+
+		testBucketDriverNameMismatch := func(t *testing.T) (
+			bootstrapped *cositest.Dependencies,
+			reconciler *sidecar.BucketAccessReconciler,
+		) {
+			bootstrapped = cositest.MustBootstrap(t,
+				baseAccess.DeepCopy(),
+				baseClass.DeepCopy(),
+				baseReadWriteClaim.DeepCopy(),
+				baseReadOnlyClaim.DeepCopy(),
+				cositest.OpinionatedS3BucketClass(),
+			)
+			ctx := bootstrapped.ContextWithLogger
+
+			reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+			initAccess, initRwBucket, initRoBucket, _, _ := getAllResources(bootstrapped)
+
+			// Simulate a Bucket that was actually provisioned by a different driver than the one
+			// named by the BucketAccessClass/BucketAccess. This must never be granted access by
+			// this reconciler's driver.
+			mismatchedBucket := initRwBucket.DeepCopy()
+			mismatchedBucket.Spec.DriverName = "some-other-driver"
+			require.NoError(t, bootstrapped.Client.Update(ctx, mismatchedBucket))
+
+			r := newReconciler(bootstrapped.Client, rpcClient)
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.Empty(t, res)
+
+			access, rwBucket, roBucket, _, _ := getAllResources(bootstrapped)
+
+			assert.Contains(t, access.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			assert.Equal(t, baseAccess.Spec, access.Spec)
+			require.NotNil(t, access.Status.Error)
+			assert.NotNil(t, access.Status.Error.Time)
+			assert.NotNil(t, access.Status.Error.Message)
+			assert.Contains(t, *access.Status.Error.Message, mismatchedBucket.Name)
+			assert.Contains(t, *access.Status.Error.Message, "some-other-driver")
+			{ // non-error fields stay the same
+				accessNoError := access.DeepCopy()
+				accessNoError.Status.Error = nil
+				assert.Equal(t, initAccess.Status, accessNoError.Status)
+			}
+
+			// don't care if secrets exist
+
+			// buckets must not be changed
+			assert.Equal(t, mismatchedBucket, rwBucket)
+			assert.Equal(t, initRoBucket, roBucket)
+
+			return bootstrapped, &r
+		}
+
+		t.Run("reconcile", func(t *testing.T) {
+			testBucketDriverNameMismatch(t)
+		})
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			bootstrapped, r := testBucketDriverNameMismatch(t)
 			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
 		})
 	})
