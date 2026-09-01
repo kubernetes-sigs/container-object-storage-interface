@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/status"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -137,17 +138,20 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 	}
 
 	if !bucket.GetDeletionTimestamp().IsZero() {
-		logger.V(1).Info("beginning Bucket deletion cleanup")
+		logger.Info("beginning Bucket deletion")
+		return r.reconcileDelete(ctx, logger, bucket)
+	}
 
-		// TODO: deletion logic
-
-		ctrlutil.RemoveFinalizer(bucket, cosiapi.ProtectionFinalizer)
-		if err := r.Update(ctx, bucket); err != nil {
-			logger.Error(err, "failed to remove finalizer")
-			return fmt.Errorf("failed to remove finalizer: %w", err)
+	// BucketClaim is deleting, but Bucket not marked for deletion
+	if _, claimDeleting := bucket.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation]; claimDeleting {
+		logger.Info("not reconciling Bucket whose BucketClaim is being deleted")
+		bucket.Status.ReadyToUse = ptr.To(false)
+		bucket.Status.Error = nil // previous error is no longer relevant
+		if err := r.Status().Update(ctx, bucket); err != nil {
+			logger.Error(err, "failed to update Bucket status before deletion")
+			return fmt.Errorf("failed to update Bucket status before deletion: %w", err)
 		}
-
-		return cosierr.NonRetryableError(fmt.Errorf("deletion is not yet implemented")) // TODO
+		return nil
 	}
 
 	requiredProtos, err := objectProtocolListFromApiList(bucket.Spec.Protocols)
@@ -220,6 +224,72 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 	if err := r.Status().Update(ctx, bucket); err != nil {
 		logger.Error(err, "failed to update Bucket status after successful bucket creation")
 		return fmt.Errorf("failed to update Bucket status after successful bucket creation: %w", err)
+	}
+
+	return nil
+}
+
+func (r *BucketReconciler) reconcileDelete(
+	ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket,
+) error {
+	logger = logger.WithValues("deletionPolicy", bucket.Spec.DeletionPolicy)
+	if bucket.Spec.DeletionPolicy != cosiapi.BucketDeletionPolicyDelete {
+		logger.Error(nil, "will not delete Bucket with non-delete deletion policy")
+		return cosierr.NonRetryableError(
+			fmt.Errorf("will not delete Bucket with non-delete deletion policy %q", bucket.Spec.DeletionPolicy))
+	}
+
+	_, claimDeleting := bucket.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation]
+	claimRef := bucket.Spec.BucketClaimRef
+	logger = logger.WithValues("bucketClaimBeingDeleted", claimDeleting, "bucketClaimRef", claimRef)
+	if !claimDeleting {
+		// Annotation means deletion should proceed. Not present, needs more checking.
+		if claimRef.UID != types.UID("") {
+			// Bucket is bound to a BucketClaim, so cannot delete
+			// BucketClaim controller will apply the annotation when it cleans up the claim
+			logger.Error(nil, "will not delete Bucket bound to a non-deleting BucketClaim")
+			return cosierr.NonRetryableError(
+				fmt.Errorf("will not delete Bucket bound to a non-deleting BucketClaim: %#v", claimRef))
+		}
+		// claimRef.UID == "": not bound to a BucketClaim, so can delete
+	}
+
+	logger.Info("proceeding with Bucket deletion")
+
+	bucket.Status.ReadyToUse = ptr.To(false)
+	bucket.Status.Error = nil // previous error is no longer relevant
+	if err := r.Status().Update(ctx, bucket); err != nil {
+		logger.Error(err, "failed to update Bucket status before deletion")
+		return fmt.Errorf("failed to update Bucket status before deletion: %w", err)
+	}
+
+	if bucket.Status.BucketID != "" {
+		logger.Info("calling driver to delete bucket", "bucketID", bucket.Status.BucketID)
+		_, err := r.DriverInfo.ProvisionerClient.DriverDeleteBucket(ctx,
+			&cosiproto.DriverDeleteBucketRequest{
+				BucketId:   bucket.Status.BucketID,
+				Parameters: bucket.Spec.Parameters,
+			},
+		)
+		if err != nil {
+			logger.Error(err, "DriverDeleteBucket error")
+			if rpcErrorIsRetryable(status.Code(err)) {
+				return err
+			}
+			// Do not proceed with k8s resource cleanup after a non-retryable error. Proceeding would
+			// risk leaving backend resources orphaned without any clear indication to administrators
+			// that they need to do manual cleanup if desired. If this is a sidecar or driver error, an
+			// update could resolve the issue to allow a future deletion to succeed.
+			return cosierr.NonRetryableError(err)
+		}
+	} else {
+		logger.Info("not calling driver to delete bucket with no recorded bucketID")
+	}
+
+	ctrlutil.RemoveFinalizer(bucket, cosiapi.ProtectionFinalizer)
+	if err := r.Update(ctx, bucket); err != nil {
+		logger.Error(err, "failed to remove finalizer")
+		return fmt.Errorf("failed to remove finalizer: %w", err)
 	}
 
 	return nil

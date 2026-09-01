@@ -30,24 +30,60 @@ import (
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cositest "sigs.k8s.io/container-object-storage-interface/internal/test"
+	controllertest "sigs.k8s.io/container-object-storage-interface/internal/test/controller"
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 )
 
-func TestBucketReconciler_Reconcile(t *testing.T) {
-	baseBucket := cosiapi.Bucket{
+var (
+	// use the opinionated S3 class's driver name so we can use test utils to simulate sidecar
+	// behavior tests that depend on Bucket reconciliation
+	s3DriverName = cositest.OpinionatedS3BucketClass().Spec.DriverName
+
+	// valid claim used for generating dynamic buckets
+	baseDynamicClaim = cosiapi.BucketClaim{
 		ObjectMeta: meta.ObjectMeta{
-			Name: "bc-qwerty",
+			Name:      "my-bucket",
+			Namespace: "my-ns",
+			UID:       "dynamicuid",
+		},
+		Spec: cosiapi.BucketClaimSpec{
+			BucketClassName: "s3-class",
+			Protocols:       []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
+		},
+	}
+
+	// valid class compatible with dynamic claim above
+	baseBucketClass = cosiapi.BucketClass{
+		ObjectMeta: meta.ObjectMeta{
+			Name: "s3-class",
+		},
+		Spec: cosiapi.BucketClassSpec{
+			DriverName:     s3DriverName,
+			DeletionPolicy: cosiapi.BucketDeletionPolicyRetain,
+			Parameters: map[string]string{
+				"maxSize": "100Gi",
+			},
+		},
+	}
+
+	baseStaticBucket = cosiapi.Bucket{
+		ObjectMeta: meta.ObjectMeta{
+			Name: "static-bucket",
 		},
 		Spec: cosiapi.BucketSpec{
-			DriverName:     "cosi.s3.corp.net",
-			DeletionPolicy: cosiapi.BucketDeletionPolicyRetain,
-			// Protocols intentionally nil/empty
-			// Parameters intentionally nil/empty
+			DriverName:       s3DriverName,
+			DeletionPolicy:   cosiapi.BucketDeletionPolicyRetain,
+			ExistingBucketID: "static-bucket",
+			Protocols:        []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
+			Parameters: map[string]string{
+				"maxSize": "100Gi",
+			},
 			BucketClaimRef: cosiapi.BucketClaimReference{
 				Name:      "my-bucket",
 				Namespace: "my-ns",
@@ -55,800 +91,819 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 			},
 		},
 	}
+)
 
-	bucketNsName := types.NamespacedName{Name: "bc-qwerty"}
+func bucketReconcilerForClient(client client.Client, driverInfo DriverInfo) *BucketReconciler {
+	return &BucketReconciler{
+		Client:     client,
+		Scheme:     client.Scheme(),
+		DriverInfo: driverInfo,
+	}
+}
 
-	t.Run("dynamic provisioning, happy path", func(t *testing.T) {
-		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		var requestError error
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				seenReq = append(seenReq, dcbr)
-				ret := &cosiproto.DriverCreateBucketResponse{
-					BucketId: "cosi-" + dcbr.Name,
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						S3: &cosiproto.S3BucketInfo{
-							Endpoint:        "s3.corp.net",
-							BucketId:        "corp-cosi-" + dcbr.Name,
-							Region:          "us-east-1",
-							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
-						},
+type bucketTestHelper interface {
+	// Get the Bucket resource from dependencies for this test.
+	GetBucket(deps *cositest.Dependencies) *cosiapi.Bucket
+
+	// Return the BucketID that should be expected for this test.
+	ExpectBucketId() string
+
+	// Validate the expected RPC request parameters for this test.
+	ValidateDriverRequest(t *testing.T,
+		createBucketReq []*cosiproto.DriverCreateBucketRequest,
+		getBucketReq []*cosiproto.DriverGetBucketRequest,
+	)
+}
+
+// dynamicBucketTestHelper knows how to get get and validate resources for dynamically-provisioned
+// Bucket tests.
+type dynamicBucketTestHelper struct{}
+
+func (d *dynamicBucketTestHelper) GetBucket(deps *cositest.Dependencies) *cosiapi.Bucket {
+	dynamicBucket := &cosiapi.Bucket{}
+	err := deps.Client.Get(deps.ContextWithLogger, types.NamespacedName{Name: "bc-dynamicuid"}, dynamicBucket)
+	if err != nil {
+		dynamicBucket = nil
+	}
+	return dynamicBucket
+}
+
+func (d *dynamicBucketTestHelper) ExpectBucketId() string {
+	return "cosi-bc-dynamicuid"
+}
+
+func (d *dynamicBucketTestHelper) ValidateDriverRequest(t *testing.T, createBucketReq []*cosiproto.DriverCreateBucketRequest, getBucketReq []*cosiproto.DriverGetBucketRequest) {
+	require.Len(t, createBucketReq, 1)
+	require.Len(t, getBucketReq, 0)
+	req := createBucketReq[0]
+	assert.Equal(t, "bc-dynamicuid", req.Name)
+	assert.Equal(t,
+		[]*cosiproto.ObjectProtocol{{Type: cosiproto.ObjectProtocol_S3}},
+		req.Protocols,
+	)
+	assert.Equal(t,
+		map[string]string{"maxSize": "100Gi"},
+		req.Parameters,
+	)
+}
+
+// staticBucketTestHelper knows how to get get and validate resources for statically-provisioned
+// Bucket tests.
+type staticBucketTestHelper struct{}
+
+func (s *staticBucketTestHelper) GetBucket(deps *cositest.Dependencies) *cosiapi.Bucket {
+	staticBucket := &cosiapi.Bucket{}
+	err := deps.Client.Get(deps.ContextWithLogger, types.NamespacedName{Name: "static-bucket"}, staticBucket)
+	if err != nil {
+		staticBucket = nil
+	}
+	return staticBucket
+}
+
+func (s *staticBucketTestHelper) ExpectBucketId() string {
+	return "cosi-static-bucket"
+}
+
+func (s *staticBucketTestHelper) ValidateDriverRequest(t *testing.T, createBucketReq []*cosiproto.DriverCreateBucketRequest, getBucketReq []*cosiproto.DriverGetBucketRequest) {
+	require.Len(t, createBucketReq, 0)
+	require.Len(t, getBucketReq, 1)
+	req := getBucketReq[0]
+	assert.Equal(t, "static-bucket", req.BucketId)
+	assert.Equal(t,
+		[]*cosiproto.ObjectProtocol{{Type: cosiproto.ObjectProtocol_S3}},
+		req.Protocols,
+	)
+	assert.Equal(t,
+		map[string]string{"maxSize": "100Gi"},
+		req.Parameters,
+	)
+}
+
+// Except for rare corner cases or nonstandard unit tests, deleting a Bucket should always work.
+func bucketDeletionTestSuite(t *testing.T,
+	previousTestDeps *cositest.Dependencies,
+	driverInfo DriverInfo,
+	helper bucketTestHelper,
+) {
+	ctx := previousTestDeps.ContextWithLogger
+
+	// To allow the deletion test to be portable and avoid passing an overwhelming number of args
+	// to this func, run a new fake server just for deletion testing. Deletion should not need
+	// Get/Create bucket calls.
+	deleteBucketReq := []*cosiproto.DriverDeleteBucketRequest{}
+	fakeServer := cositest.FakeProvisionerServer{
+		DeleteBucketFunc: func(ctx context.Context, ddbr *cosiproto.DriverDeleteBucketRequest) (*cosiproto.DriverDeleteBucketResponse, error) {
+			deleteBucketReq = append(deleteBucketReq, ddbr)
+			return &cosiproto.DriverDeleteBucketResponse{}, nil
+		},
+	}
+
+	cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+	defer cleanup()
+	require.NoError(t, err)
+	go serve()
+
+	conn, err := cositest.RpcClientConn(tmpSock)
+	require.NoError(t, err)
+	rpcClient := cosiproto.NewProvisionerClient(conn)
+
+	driverInfo.ProvisionerClient = rpcClient
+
+	t.Run("deletionPolicy=Retain", func(t *testing.T) {
+		bootstrapped := previousTestDeps.MustCopy() // copy prior test world state
+		initBucket := helper.GetBucket(bootstrapped)
+		require.NotNil(t, initBucket)
+
+		initBucket.Spec.DeletionPolicy = cosiapi.BucketDeletionPolicyRetain
+		require.NoError(t, bootstrapped.Client.Update(ctx, initBucket))
+
+		t.Run("delete with claim deleting annotation", func(t *testing.T) {
+			// e.g., admin deleted the Bucket resource after BucketClaim deletion
+			deleteBucketReq = []*cosiproto.DriverDeleteBucketRequest{} // reset seen rpc calls
+
+			bootstrapped := bootstrapped.MustCopy() // copy prior test world state
+			ctx := bootstrapped.ContextWithLogger
+			r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+			initBucket := helper.GetBucket(bootstrapped)
+			if initBucket.Annotations == nil {
+				initBucket.Annotations = map[string]string{}
+			}
+			initBucket.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation] = ""
+			require.NoError(t, r.Update(ctx, initBucket))
+			require.NoError(t, r.Delete(ctx, initBucket))
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
+			assert.ErrorContains(t, err, "will not delete Bucket with non-delete deletion policy")
+			assert.Empty(t, res)
+
+			assert.Empty(t, deleteBucketReq) // should not call driver to delete
+
+			bucket := helper.GetBucket(bootstrapped)
+			require.NotNil(t, bucket)
+			assert.Equal(t, initBucket.Annotations, bucket.Annotations)
+			assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer) // finalizer should not be removed
+			assert.Equal(t, initBucket.Spec, bucket.Spec)
+			assert.Equal(t, initBucket.Status.BucketID, bucket.Status.BucketID)
+			assert.Equal(t, initBucket.Status.Protocols, bucket.Status.Protocols)
+			assert.Equal(t, initBucket.Status.BucketInfo, bucket.Status.BucketInfo)
+			assert.Equal(t, initBucket.Status.ReadyToUse, bucket.Status.ReadyToUse)
+			assert.NotNil(t, bucket.Status.Error)
+			assert.Contains(t, *bucket.Status.Error.Message, "will not delete Bucket with non-delete deletion policy")
+		})
+
+		t.Run("delete without claim deleting annotation", func(t *testing.T) {
+			// e.g., admin deleted the Bucket before BucketClaim deletion
+			deleteBucketReq = []*cosiproto.DriverDeleteBucketRequest{} // reset seen rpc calls
+
+			bootstrapped := bootstrapped.MustCopy() // copy prior test world state
+			ctx := bootstrapped.ContextWithLogger
+			r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+			initBucket := helper.GetBucket(bootstrapped)
+			require.NoError(t, r.Delete(ctx, initBucket))
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
+			assert.ErrorContains(t, err, "will not delete Bucket with non-delete deletion policy")
+			assert.Empty(t, res)
+
+			assert.Empty(t, deleteBucketReq) // should not call driver to delete
+
+			bucket := helper.GetBucket(bootstrapped)
+			require.NotNil(t, bucket)
+			assert.Empty(t, bucket.Annotations)
+			assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer) // finalizer should not be removed
+			assert.Equal(t, initBucket.Spec, bucket.Spec)
+			assert.Equal(t, initBucket.Status.BucketID, bucket.Status.BucketID)
+			assert.Equal(t, initBucket.Status.Protocols, bucket.Status.Protocols)
+			assert.Equal(t, initBucket.Status.BucketInfo, bucket.Status.BucketInfo)
+			assert.Equal(t, initBucket.Status.ReadyToUse, bucket.Status.ReadyToUse)
+			assert.NotNil(t, bucket.Status.Error)
+			assert.Contains(t, *bucket.Status.Error.Message, "will not delete Bucket with non-delete deletion policy")
+		})
+
+		t.Run("claim deleting annotation without delete", func(t *testing.T) {
+			// standard Retain policy behavior
+			deleteBucketReq = []*cosiproto.DriverDeleteBucketRequest{} // reset seen rpc calls
+
+			bootstrapped := previousTestDeps.MustCopy() // copy prior test world state
+			ctx := bootstrapped.ContextWithLogger
+			r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+			initBucket := helper.GetBucket(bootstrapped)
+			if initBucket.Annotations == nil {
+				initBucket.Annotations = map[string]string{}
+			}
+			initBucket.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation] = ""
+			require.NoError(t, r.Update(ctx, initBucket))
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			assert.Empty(t, deleteBucketReq) // should not call driver to delete
+
+			bucket := helper.GetBucket(bootstrapped)
+			require.NotNil(t, bucket)
+			assert.Equal(t, initBucket.Annotations, bucket.Annotations)
+			assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer) // finalizer should not be removed
+			assert.Equal(t, initBucket.Spec, bucket.Spec)
+			assert.Equal(t, initBucket.Status.BucketID, bucket.Status.BucketID)
+			assert.Equal(t, initBucket.Status.Protocols, bucket.Status.Protocols)
+			assert.Equal(t, initBucket.Status.BucketInfo, bucket.Status.BucketInfo)
+			assert.False(t, *bucket.Status.ReadyToUse)
+			assert.Nil(t, bucket.Status.Error)
+		})
+	})
+
+	t.Run("deletionPolicy=Delete", func(t *testing.T) {
+		bootstrapped := previousTestDeps.MustCopy() // copy prior test world state
+		initBucket := helper.GetBucket(bootstrapped)
+		require.NotNil(t, initBucket)
+
+		initBucket.Spec.DeletionPolicy = cosiapi.BucketDeletionPolicyDelete
+		require.NoError(t, bootstrapped.Client.Update(ctx, initBucket))
+
+		t.Run("delete with claim deleting annotation", func(t *testing.T) {
+			// standard Delete policy behavior
+			deleteBucketReq = []*cosiproto.DriverDeleteBucketRequest{} // reset seen rpc calls
+
+			bootstrapped := bootstrapped.MustCopy() // copy prior test world state
+			ctx := bootstrapped.ContextWithLogger
+			r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+			initBucket := helper.GetBucket(bootstrapped)
+			if initBucket.Annotations == nil {
+				initBucket.Annotations = map[string]string{}
+			}
+			initBucket.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation] = ""
+			require.NoError(t, r.Update(ctx, initBucket))
+			require.NoError(t, r.Delete(ctx, initBucket))
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			if initBucket.Status.BucketID == "" {
+				// If bucket has no recorded BucketID, we cannot delete it
+				// This assumes status.bucketID is being applied by the sidecar when needed, and
+				// calling test/suite should verify that before this suite.
+				assert.Len(t, deleteBucketReq, 0)
+			} else {
+				// Otherwise, we must call the driver to delete the bucket
+				require.Len(t, deleteBucketReq, 1)
+				deleteReq := deleteBucketReq[0]
+				assert.Equal(t, initBucket.Status.BucketID, deleteReq.BucketId)
+				assert.Equal(t, initBucket.Spec.Parameters, deleteReq.Parameters)
+			}
+
+			bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(initBucket), &cosiapi.Bucket{})
+		})
+
+		t.Run("delete without claim deleting annotation", func(t *testing.T) {
+			// e.g., admin deleted the Bucket before BucketClaim deletion
+			deleteBucketReq = []*cosiproto.DriverDeleteBucketRequest{} // reset seen rpc calls
+
+			bootstrapped := bootstrapped.MustCopy() // copy prior test world state
+			ctx := bootstrapped.ContextWithLogger
+			r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+			initBucket := helper.GetBucket(bootstrapped)
+			require.NoError(t, r.Delete(ctx, initBucket))
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
+			assert.ErrorContains(t, err, "will not delete Bucket bound to a non-deleting BucketClaim")
+			assert.Empty(t, res)
+
+			assert.Empty(t, deleteBucketReq) // should not call driver to delete
+
+			bucket := helper.GetBucket(bootstrapped)
+			require.NotNil(t, bucket)
+			assert.Empty(t, bucket.Annotations)
+			assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer) // finalizer should not be removed
+			assert.Equal(t, initBucket.Spec, bucket.Spec)
+			assert.Equal(t, initBucket.Status.BucketID, bucket.Status.BucketID)
+			assert.Equal(t, initBucket.Status.Protocols, bucket.Status.Protocols)
+			assert.Equal(t, initBucket.Status.BucketInfo, bucket.Status.BucketInfo)
+			assert.Equal(t, initBucket.Status.ReadyToUse, bucket.Status.ReadyToUse)
+			assert.NotNil(t, bucket.Status.Error)
+			assert.Contains(t, *bucket.Status.Error.Message, "will not delete Bucket bound to a non-deleting BucketClaim")
+		})
+
+		t.Run("claim deleting annotation without delete", func(t *testing.T) {
+			// BucketClaim reconcile may have been interrupted before it could delete the Bucket
+			deleteBucketReq = []*cosiproto.DriverDeleteBucketRequest{} // reset seen rpc calls
+
+			bootstrapped := previousTestDeps.MustCopy() // copy prior test world state
+			ctx := bootstrapped.ContextWithLogger
+			r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+			initBucket := helper.GetBucket(bootstrapped)
+			if initBucket.Annotations == nil {
+				initBucket.Annotations = map[string]string{}
+			}
+			initBucket.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation] = ""
+			require.NoError(t, r.Update(ctx, initBucket))
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			assert.Empty(t, deleteBucketReq) // should not call driver to delete
+
+			bucket := helper.GetBucket(bootstrapped)
+			require.NotNil(t, bucket)
+			assert.Equal(t, initBucket.Annotations, bucket.Annotations)
+			assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer) // finalizer should not be removed
+			assert.Equal(t, initBucket.Spec, bucket.Spec)
+			assert.Equal(t, initBucket.Status.BucketID, bucket.Status.BucketID)
+			assert.Equal(t, initBucket.Status.Protocols, bucket.Status.Protocols)
+			assert.Equal(t, initBucket.Status.BucketInfo, bucket.Status.BucketInfo)
+			assert.False(t, *bucket.Status.ReadyToUse)
+			assert.Nil(t, bucket.Status.Error)
+		})
+	})
+}
+
+// run a Bucket test suite, reusable for both dynamic and static provisioning tests
+type bucketTestSuiteFunc func(t *testing.T, initBucket *cosiapi.Bucket, helper bucketTestHelper)
+
+func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket, helper bucketTestHelper) {
+	requestErr := error(nil) // inject an error into driver return
+	getBucketReq := []*cosiproto.DriverGetBucketRequest{}
+	createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
+	fakeServer := cositest.FakeProvisionerServer{
+		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+			createBucketReq = append(createBucketReq, dcbr)
+			if requestErr != nil {
+				return nil, requestErr
+			}
+			ret := &cosiproto.DriverCreateBucketResponse{
+				BucketId: "cosi-" + dcbr.Name,
+				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					S3: &cosiproto.S3BucketInfo{
+						Endpoint:        "s3.corp.net",
+						BucketId:        "corp-cosi-" + dcbr.Name,
+						Region:          "us-east-1",
+						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
-				}
-				return ret, requestError
-			},
-		}
+				},
+			}
+			return ret, nil
+		},
+		GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
+			getBucketReq = append(getBucketReq, dgebr)
+			if requestErr != nil {
+				return nil, requestErr
+			}
+			ret := cosiproto.DriverGetBucketResponse{
+				BucketId: "cosi-" + dgebr.BucketId,
+				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					S3: &cosiproto.S3BucketInfo{
+						Endpoint:        "s3.corp.net",
+						BucketId:        "corp-cosi-" + dgebr.BucketId,
+						Region:          "us-east-1",
+						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
+					},
+				},
+			}
+			return &ret, nil
+		},
+	}
 
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
+	cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+	defer cleanup()
+	require.NoError(t, err)
+	go serve()
 
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
+	conn, err := cositest.RpcClientConn(tmpSock)
+	require.NoError(t, err)
+	rpcClient := cosiproto.NewProvisionerClient(conn)
 
-		b := baseBucket.DeepCopy()
-		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
-		b.Spec.Parameters = map[string]string{
-			"maxSize": "10Gi",
-		}
-		bootstrapped := cositest.MustBootstrap(t, b)
+	driverInfo := DriverInfo{
+		Name:               s3DriverName,
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+		ProvisionerClient:  rpcClient,
+	}
+
+	// the test
+
+	bootstrapped := cositest.MustBootstrap(t, initBucket)
+	ctx := bootstrapped.ContextWithLogger
+
+	r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+	assert.NoError(t, err)
+	assert.Empty(t, res)
+
+	// validate RPC request params
+	helper.ValidateDriverRequest(t, createBucketReq, getBucketReq)
+
+	bucket := helper.GetBucket(bootstrapped)
+	require.NotNil(t, bucket)
+
+	assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
+	assert.Equal(t, initBucket.Spec, bucket.Spec) // spec should not change
+	assert.True(t, *bucket.Status.ReadyToUse)
+	assert.Equal(t, helper.ExpectBucketId(), bucket.Status.BucketID)
+	assert.Equal(t,
+		[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
+		bucket.Status.Protocols,
+	)
+	assert.NotEmpty(t, bucket.Status.BucketInfo)
+	assert.Equal(t, "corp-"+helper.ExpectBucketId(), bucket.Status.BucketInfo["COSI_S3_BUCKET_ID"])
+	for k := range bucket.Status.BucketInfo {
+		assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
+	}
+
+	t.Run("reconcile again", func(t *testing.T) {
+		createBucketReq = []*cosiproto.DriverCreateBucketRequest{} // reset seen rpc calls
+		getBucketReq = []*cosiproto.DriverGetBucketRequest{}       // reset seen rpc calls
+
+		bootstrapped := bootstrapped.MustCopy() // copy prior test world state
 		ctx := bootstrapped.ContextWithLogger
+		r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
 
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
+		initBucket := helper.GetBucket(bootstrapped)
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
 		assert.NoError(t, err)
 		assert.Empty(t, res)
 
-		// ensure the expected RPC call was made
-		require.Len(t, seenReq, 1)
-		req := seenReq[0]
-		assert.Equal(t, "bc-qwerty", req.Name)
-		assert.Equal(t,
-			[]*cosiproto.ObjectProtocol{{Type: cosiproto.ObjectProtocol_S3}},
-			req.Protocols,
-		)
-		assert.Equal(t,
-			map[string]string{"maxSize": "10Gi"},
-			req.Parameters,
-		)
+		// RPC requests happen on re-reconcile also
+		helper.ValidateDriverRequest(t, createBucketReq, getBucketReq)
 
-		// ensure bucket changes
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
-		assert.Equal(t, b.Spec, bucket.Spec) // spec should not change
-		assert.True(t, *bucket.Status.ReadyToUse)
-		assert.Equal(t, "cosi-bc-qwerty", bucket.Status.BucketID)
-		assert.Equal(t,
-			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
-			bucket.Status.Protocols,
-		)
-		assert.NotEmpty(t, bucket.Status.BucketInfo)
-		assert.Equal(t, "corp-cosi-bc-qwerty", bucket.Status.BucketInfo["COSI_S3_BUCKET_ID"])
-		for k := range bucket.Status.BucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-		}
+		bucket := helper.GetBucket(bootstrapped)
+		require.NotNil(t, bucket)
 
-		t.Log("run Reconcile() a second time to ensure nothing is modified")
+		// no change to Bucket
+		assert.Equal(t, initBucket.Finalizers, bucket.Finalizers)
+		assert.Equal(t, initBucket.Spec, bucket.Spec)
+		assert.Equal(t, initBucket.Status, bucket.Status)
+	})
 
-		seenReq = []*cosiproto.DriverCreateBucketRequest{} // empty the seen rpc requests
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
+	t.Run("subsequent deletion", func(t *testing.T) {
+		bucketDeletionTestSuite(t, bootstrapped, driverInfo, helper)
+	})
 
-		// ensure the expected RPC call was made
-		require.Len(t, seenReq, 1)
-		req = seenReq[0]
-		assert.Equal(t, "bc-qwerty", req.Name)
+	t.Run("rpc error reported", func(t *testing.T) {
+		// Even though this is part of the successful provision suite, this test should be
+		// sufficient to exercise RPC error handling code enough to also validate initial errors,
+		// not just subsequent errors.
+		requestErr = fmt.Errorf("fake rpc error") // unspecified rpc err should always be retryable
 
-		// ensure bucket doesn't change
-		secondBucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, secondBucket)
-		require.NoError(t, err)
-		assert.Equal(t, bucket.Finalizers, secondBucket.Finalizers)
-		assert.Equal(t, bucket.Spec, secondBucket.Spec)
-		assert.Equal(t, bucket.Status, secondBucket.Status)
+		createBucketReq = []*cosiproto.DriverCreateBucketRequest{} // reset seen rpc calls
+		getBucketReq = []*cosiproto.DriverGetBucketRequest{}       // reset seen rpc calls
 
-		t.Log("run Reconcile() that fails a third time to ensure status error")
+		bootstrapped := bootstrapped.MustCopy() // copy prior test world state
+		ctx := bootstrapped.ContextWithLogger
+		r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
 
-		seenReq = []*cosiproto.DriverCreateBucketRequest{} // empty the seen rpc requests
-		requestError = fmt.Errorf("fake rpc error")
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
+		initBucket := helper.GetBucket(bootstrapped)
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 		assert.Empty(t, res)
 
-		// ensure the expected RPC call was made
-		require.Len(t, seenReq, 1)
-		req = seenReq[0]
-		assert.Equal(t, "bc-qwerty", req.Name)
+		// Func needs to be called to return err
+		helper.ValidateDriverRequest(t, createBucketReq, getBucketReq)
 
 		// ensure bucket status has error but no other status changes
-		thirdBucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, thirdBucket)
-		require.NoError(t, err)
-		assert.Equal(t, secondBucket.Finalizers, thirdBucket.Finalizers)
-		assert.Equal(t, secondBucket.Spec, thirdBucket.Spec)
-		assert.Equal(t, secondBucket.Status.BucketID, thirdBucket.Status.BucketID)
-		assert.Equal(t, secondBucket.Status.BucketInfo, thirdBucket.Status.BucketInfo)
-		assert.Equal(t, secondBucket.Status.Protocols, thirdBucket.Status.Protocols)
-		serr := thirdBucket.Status.Error
+		bucket := helper.GetBucket(bootstrapped)
+		require.NotNil(t, bucket)
+
+		assert.Equal(t, initBucket.Finalizers, bucket.Finalizers)
+		assert.Equal(t, initBucket.Spec, bucket.Spec)
+		assert.Equal(t, initBucket.Status.ReadyToUse, bucket.Status.ReadyToUse)
+		assert.Equal(t, initBucket.Status.BucketID, bucket.Status.BucketID)
+		assert.Equal(t, initBucket.Status.BucketInfo, bucket.Status.BucketInfo)
+		assert.Equal(t, initBucket.Status.Protocols, bucket.Status.Protocols)
+		serr := bucket.Status.Error
 		require.NotNil(t, serr)
 		assert.NotNil(t, serr.Time)
 		assert.NotNil(t, serr.Message)
 		assert.Contains(t, *serr.Message, "fake rpc error")
 
-		t.Log("run Reconcile() that passes a fourth time to ensure status error cleared")
+		requestErr = nil
 
-		seenReq = []*cosiproto.DriverCreateBucketRequest{} // empty the seen rpc requests
-		requestError = nil
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
+		t.Run("error cleared", func(t *testing.T) {
+			createBucketReq = []*cosiproto.DriverCreateBucketRequest{} // reset seen rpc calls
+			getBucketReq = []*cosiproto.DriverGetBucketRequest{}       // reset seen rpc calls
 
-		// ensure the expected RPC call was made
-		require.Len(t, seenReq, 1)
-		req = seenReq[0]
-		assert.Equal(t, "bc-qwerty", req.Name)
+			bootstrapped := bootstrapped.MustCopy() // copy prior test world state
+			ctx := bootstrapped.ContextWithLogger
+			r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
 
-		// ensure bucket status has error but no other status changes
-		fourthBucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, fourthBucket)
+			initBucket := helper.GetBucket(bootstrapped)
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			// RPC requests happen on re-reconcile also
+			helper.ValidateDriverRequest(t, createBucketReq, getBucketReq)
+
+			bucket := helper.GetBucket(bootstrapped)
+			require.NotNil(t, bucket)
+
+			// no change to Bucket
+			assert.Equal(t, initBucket.Finalizers, bucket.Finalizers)
+			assert.Equal(t, initBucket.Spec, bucket.Spec)
+			assert.Equal(t, initBucket.Status.BucketID, bucket.Status.BucketID)
+			assert.Equal(t, initBucket.Status.BucketInfo, bucket.Status.BucketInfo)
+			assert.Equal(t, initBucket.Status.Protocols, bucket.Status.Protocols)
+			require.Nil(t, bucket.Status.Error)
+		})
+
+		t.Run("subsequent deletion", func(t *testing.T) {
+			bucketDeletionTestSuite(t, bootstrapped, driverInfo, helper)
+		})
+	})
+}
+
+func bucketDriverNameMismatchTestSuite(t *testing.T, baseBucket *cosiapi.Bucket, helper bucketTestHelper) {
+	fakeServer := cositest.FakeProvisionerServer{} // panic on any call
+
+	cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+	defer cleanup()
+	require.NoError(t, err)
+	go serve()
+
+	conn, err := cositest.RpcClientConn(tmpSock)
+	require.NoError(t, err)
+	rpcClient := cosiproto.NewProvisionerClient(conn)
+
+	driverInfo := DriverInfo{
+		Name:               s3DriverName,
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+		ProvisionerClient:  rpcClient,
+	}
+
+	initBucket := baseBucket.DeepCopy()
+	initBucket.Spec.DriverName = "cosi.NOMATCH.corp.net"
+	bootstrapped := cositest.MustBootstrap(t, initBucket)
+	ctx := bootstrapped.ContextWithLogger
+	r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+	assert.NoError(t, err)
+	assert.Empty(t, res)
+
+	// ensure bucket hasn't been changed at all
+	bucket := helper.GetBucket(bootstrapped)
+	assert.Empty(t, bucket.Finalizers)
+	assert.Equal(t, initBucket.Spec, bucket.Spec)
+	assert.Equal(t, initBucket.Status, bucket.Status)
+
+	// Deletion tests don't apply here because no finalizers present
+}
+
+func bucketProtoNotSupportedTestSuite(t *testing.T, baseBucket *cosiapi.Bucket, helper bucketTestHelper) {
+	fakeServer := cositest.FakeProvisionerServer{} // panic on any call
+
+	cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+	defer cleanup()
+	require.NoError(t, err)
+	go serve()
+
+	conn, err := cositest.RpcClientConn(tmpSock)
+	require.NoError(t, err)
+	rpcClient := cosiproto.NewProvisionerClient(conn)
+
+	driverInfo := DriverInfo{
+		Name:               s3DriverName,
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+		ProvisionerClient:  rpcClient,
+	}
+
+	initBucket := baseBucket.DeepCopy()
+	initBucket.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs} // not supported
+	bootstrapped := cositest.MustBootstrap(t, initBucket)
+	ctx := bootstrapped.ContextWithLogger
+	r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+	assert.ErrorContains(t, err, "does not support protocols")
+	assert.ErrorContains(t, err, "GCS") // the unsupported protocol is listed
+	assert.Empty(t, res)
+
+	bucket := helper.GetBucket(bootstrapped)
+	assert.Empty(t, bucket.Finalizers)
+	assert.Equal(t, initBucket.Spec, bucket.Spec)
+	assert.Equal(t, initBucket.Status.BucketID, bucket.Status.BucketID)
+	assert.Equal(t, initBucket.Status.BucketInfo, bucket.Status.BucketInfo)
+	assert.Equal(t, initBucket.Status.Protocols, bucket.Status.Protocols)
+	require.NotNil(t, bucket.Status.Error)
+	assert.Contains(t, *bucket.Status.Error.Message, "does not support protocols")
+	assert.Contains(t, *bucket.Status.Error.Message, "GCS")
+	assert.NotNil(t, bucket.Status.Error.Time)
+
+	// Deletion tests don't apply here because no finalizers present
+}
+
+func bucketProvisionedWithWrongProtoTestSuite(t *testing.T, initBucket *cosiapi.Bucket, helper bucketTestHelper) {
+	getBucketReq := []*cosiproto.DriverGetBucketRequest{}
+	createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
+	fakeServer := cositest.FakeProvisionerServer{
+		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+			createBucketReq = append(createBucketReq, dcbr)
+			ret := &cosiproto.DriverCreateBucketResponse{
+				BucketId: "cosi-" + dcbr.Name,
+				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					Azure: &cosiproto.AzureBucketInfo{}, // bucket.spec wants S3
+				},
+			}
+			return ret, nil
+		},
+		GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
+			getBucketReq = append(getBucketReq, dgebr)
+			ret := cosiproto.DriverGetBucketResponse{
+				BucketId: "cosi-" + dgebr.BucketId,
+				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					Azure: &cosiproto.AzureBucketInfo{}, // bucket.spec wants S3
+				},
+			}
+			return &ret, nil
+		},
+	}
+
+	cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+	defer cleanup()
+	require.NoError(t, err)
+	go serve()
+
+	conn, err := cositest.RpcClientConn(tmpSock)
+	require.NoError(t, err)
+	rpcClient := cosiproto.NewProvisionerClient(conn)
+
+	driverInfo := DriverInfo{
+		Name:               s3DriverName,
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+		ProvisionerClient:  rpcClient,
+	}
+
+	bootstrapped := cositest.MustBootstrap(t, initBucket)
+	ctx := bootstrapped.ContextWithLogger
+	r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+	assert.ErrorContains(t, err, "protocols are not supported")
+	assert.ErrorContains(t, err, "S3") // required proto
+	assert.Empty(t, res)
+
+	// validate RPC request params
+	helper.ValidateDriverRequest(t, createBucketReq, getBucketReq)
+
+	bucket := helper.GetBucket(bootstrapped)
+	require.NotNil(t, bucket)
+
+	assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
+	assert.Equal(t, initBucket.Spec, bucket.Spec)
+	assert.False(t, *bucket.Status.ReadyToUse)
+	assert.Empty(t, bucket.Status.BucketID)
+	assert.Empty(t, bucket.Status.BucketInfo)
+	assert.Empty(t, bucket.Status.Protocols)
+	serr := bucket.Status.Error
+	require.NotNil(t, serr)
+	assert.NotNil(t, serr.Time)
+	assert.NotNil(t, serr.Message)
+	assert.Contains(t, *serr.Message, "protocols are not supported")
+	assert.Contains(t, *serr.Message, "S3") // required proto
+
+	t.Run("subsequent deletion", func(t *testing.T) {
+		bucketDeletionTestSuite(t, bootstrapped, driverInfo, helper)
+	})
+}
+
+func bucketResourceMissingTestSuite(t *testing.T, initBucket *cosiapi.Bucket, helper bucketTestHelper) {
+	fakeServer := cositest.FakeProvisionerServer{} // panic on any call
+
+	cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+	defer cleanup()
+	require.NoError(t, err)
+	go serve()
+
+	conn, err := cositest.RpcClientConn(tmpSock)
+	require.NoError(t, err)
+	rpcClient := cosiproto.NewProvisionerClient(conn)
+
+	driverInfo := DriverInfo{
+		Name:               s3DriverName,
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+		ProvisionerClient:  rpcClient,
+	}
+
+	bootstrapped := cositest.MustBootstrap(t) // no bucket!
+	ctx := bootstrapped.ContextWithLogger
+	r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+	assert.NoError(t, err)
+	assert.Empty(t, res)
+
+	// Deletion tests don't apply here because no bucket resource exists
+}
+
+func TestBucketReconciler_Reconcile(t *testing.T) {
+	// generate the dynamically-provisioned bucket's starting state
+	var baseDynamicBucket *cosiapi.Bucket
+	{
+		bootstrapped := cositest.MustBootstrap(t,
+			baseDynamicClaim.DeepCopy(),
+			baseBucketClass.DeepCopy(),
+		)
+
+		_, err := controllertest.ReconcileBucketClaim(t, bootstrapped, cositest.NsName(&baseDynamicClaim))
 		require.NoError(t, err)
-		assert.Equal(t, secondBucket.Finalizers, fourthBucket.Finalizers)
-		assert.Equal(t, secondBucket.Spec, fourthBucket.Spec)
-		assert.Equal(t, secondBucket.Status, fourthBucket.Status) // reverts back to 2nd iteration
+
+		baseDynamicBucket = new(dynamicBucketTestHelper).GetBucket(bootstrapped)
+		require.NotNil(t, baseDynamicBucket)
+	}
+
+	type testDef struct {
+		name          string
+		testSuiteFunc bucketTestSuiteFunc
+	}
+	tests := []testDef{
+		{"successful provision", bucketSuccessfulProvisionTestSuite},
+		{"driver name mismatch", bucketDriverNameMismatchTestSuite},
+		{"proto not supported", bucketProtoNotSupportedTestSuite},
+		{"provisioned with wrong proto", bucketProvisionedWithWrongProtoTestSuite},
+		{"bucket resource missing", bucketResourceMissingTestSuite},
+	}
+
+	t.Run("dynamic provisioning", func(t *testing.T) {
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				test.testSuiteFunc(t, baseDynamicBucket.DeepCopy(), &dynamicBucketTestHelper{})
+			})
+		}
 	})
 
-	t.Run("dynamic provisioning, bucket missing", func(t *testing.T) {
-		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				seenReq = append(seenReq, dcbr)
-				ret := &cosiproto.DriverCreateBucketResponse{
-					BucketId: "cosi-" + dcbr.Name,
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						S3: &cosiproto.S3BucketInfo{
-							Endpoint:        "s3.corp.net",
-							BucketId:        "corp-cosi-" + dcbr.Name,
-							Region:          "us-east-1",
-							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
-						},
-					},
-				}
-				return ret, nil
-			},
+	t.Run("static provisioning", func(t *testing.T) {
+		for _, test := range tests {
+			test.testSuiteFunc(t, baseStaticBucket.DeepCopy(), &staticBucketTestHelper{})
 		}
 
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
+		// unique condition for static provisioning
+		t.Run("backend bucket not found", func(t *testing.T) {
+			getBucketReq := []*cosiproto.DriverGetBucketRequest{}
+			fakeServer := cositest.FakeProvisionerServer{
+				GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
+					getBucketReq = append(getBucketReq, dgebr)
+					return nil, status.Error(codes.NotFound, "bucket does not exist in backend")
+				},
+			}
 
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
+			cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+			defer cleanup()
+			require.NoError(t, err)
+			go serve()
 
-		bootstrapped := cositest.MustBootstrap(t) // no bucket
-		ctx := bootstrapped.ContextWithLogger
+			conn, err := cositest.RpcClientConn(tmpSock)
+			require.NoError(t, err)
+			rpcClient := cosiproto.NewProvisionerClient(conn)
 
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
+			driverInfo := DriverInfo{
+				Name:               s3DriverName,
 				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
 				ProvisionerClient:  rpcClient,
-			},
-		}
+			}
 
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
+			bootstrapped := cositest.MustBootstrap(t, baseStaticBucket.DeepCopy())
+			ctx := bootstrapped.ContextWithLogger
+			r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
 
-		// ensure the expected RPC call was made
-		require.Len(t, seenReq, 0)
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticBucket)})
+			assert.Error(t, err)
+			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.Empty(t, res)
+			require.Len(t, getBucketReq, 1)
+			assert.Equal(t, "static-bucket", getBucketReq[0].BucketId)
+
+			bucket := new(staticBucketTestHelper).GetBucket(bootstrapped)
+			require.NotNil(t, bucket)
+			assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			assert.Equal(t, baseStaticBucket.Spec, bucket.Spec)
+			serr := bucket.Status.Error
+			require.NotNil(t, serr)
+			assert.NotNil(t, serr.Time)
+			assert.NotNil(t, serr.Message)
+			assert.Contains(t, *serr.Message, "waiting for backend bucket to exist")
+		})
 	})
-
-	t.Run("dynamic provisioning, driver name mismatch", func(t *testing.T) {
-		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				seenReq = append(seenReq, dcbr)
-				ret := &cosiproto.DriverCreateBucketResponse{
-					BucketId: "cosi-" + dcbr.Name,
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						S3: &cosiproto.S3BucketInfo{
-							Endpoint:        "s3.corp.net",
-							BucketId:        "corp-cosi-" + dcbr.Name,
-							Region:          "us-east-1",
-							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
-						},
-					},
-				}
-				return ret, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		b := baseBucket.DeepCopy()
-		b.Spec.DriverName = "cosi.NOMATCH.corp.net"
-		bootstrapped := cositest.MustBootstrap(t, b)
-		ctx := bootstrapped.ContextWithLogger
-
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
-
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
-
-		// ensure the expected RPC call was made
-		require.Len(t, seenReq, 0)
-
-		// ensure bucket doesn't change
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Equal(t, b.Finalizers, bucket.Finalizers)
-		assert.Equal(t, b.Spec, bucket.Spec)
-		assert.Equal(t, b.Status, bucket.Status)
-	})
-
-	t.Run("dynamic provisioning, proto not supported", func(t *testing.T) {
-		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				seenReq = append(seenReq, dcbr)
-				ret := &cosiproto.DriverCreateBucketResponse{
-					BucketId: "cosi-" + dcbr.Name,
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						S3: &cosiproto.S3BucketInfo{
-							Endpoint:        "s3.corp.net",
-							BucketId:        "corp-cosi-" + dcbr.Name,
-							Region:          "us-east-1",
-							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
-						},
-					},
-				}
-				return ret, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		b := baseBucket.DeepCopy()
-		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}
-		bootstrapped := cositest.MustBootstrap(t, b)
-		ctx := bootstrapped.ContextWithLogger
-
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
-
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
-
-		// ensure the expected RPC call was made
-		require.Len(t, seenReq, 0)
-
-		// ensure bucket error
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Equal(t, b.Finalizers, bucket.Finalizers)
-		assert.Equal(t, b.Spec, bucket.Spec)
-		assert.False(t, *bucket.Status.ReadyToUse) // assume this means no other statuses were set
-		serr := bucket.Status.Error
-		require.NotNil(t, serr)
-		assert.NotNil(t, serr.Time)
-		assert.NotNil(t, serr.Message)
-		assert.Contains(t, *serr.Message, "GCS")
-	})
-
-	t.Run("dynamic provisioning, provisioned bucket supports wrong proto", func(t *testing.T) {
-		seenReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				seenReq = append(seenReq, dcbr)
-				ret := &cosiproto.DriverCreateBucketResponse{
-					BucketId: "cosi-" + dcbr.Name,
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						Azure: &cosiproto.AzureBucketInfo{}, // bucket.spec wants S3
-					},
-				}
-				return ret, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		b := baseBucket.DeepCopy()
-		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
-		b.Spec.Parameters = map[string]string{
-			"maxSize": "10Gi",
-		}
-		bootstrapped := cositest.MustBootstrap(t, b)
-		ctx := bootstrapped.ContextWithLogger
-
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
-
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
-
-		// ensure the expected RPC call was made
-		require.Len(t, seenReq, 1)
-		req := seenReq[0]
-		assert.Equal(t, "bc-qwerty", req.Name)
-
-		// ensure bucket error
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
-		assert.Equal(t, b.Spec, bucket.Spec)
-		assert.False(t, *bucket.Status.ReadyToUse) // assume this means no other statuses were set
-		serr := bucket.Status.Error
-		require.NotNil(t, serr)
-		assert.NotNil(t, serr.Time)
-		assert.NotNil(t, serr.Message)
-		assert.Contains(t, *serr.Message, "protocols are not supported")
-		assert.Contains(t, *serr.Message, "S3") // required proto
-	})
-
-	t.Run("static provisioning, happy path", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
-		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
-		var requestError error
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				createBucketReq = append(createBucketReq, dcbr)
-				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
-			},
-			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
-				getBucketReq = append(getBucketReq, dgebr)
-				if requestError != nil {
-					return nil, requestError
-				}
-				ret := &cosiproto.DriverGetBucketResponse{
-					BucketId: dgebr.BucketId,
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						S3: &cosiproto.S3BucketInfo{
-							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.BucketId,
-							Region:          "us-east-1",
-							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
-						},
-					},
-				}
-				return ret, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		b := baseBucket.DeepCopy()
-		b.Spec.ExistingBucketID = "static-bucket"
-		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
-		b.Spec.Parameters = map[string]string{
-			"maxSize": "10Gi",
-		}
-		bootstrapped := cositest.MustBootstrap(t, b)
-		ctx := bootstrapped.ContextWithLogger
-
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
-
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
-
-		require.Len(t, getBucketReq, 1)
-		req := getBucketReq[0]
-		assert.Equal(t, "static-bucket", req.BucketId)
-		assert.Equal(t, []*cosiproto.ObjectProtocol{{Type: cosiproto.ObjectProtocol_S3}}, req.Protocols)
-		assert.Equal(t, map[string]string{"maxSize": "10Gi"}, req.Parameters)
-		// "DriverCreateBucket" must not be called for static provisioning
-		require.Len(t, createBucketReq, 0)
-
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
-		assert.Equal(t, b.Spec, bucket.Spec)
-		assert.True(t, *bucket.Status.ReadyToUse)
-		assert.Equal(t, "static-bucket", bucket.Status.BucketID)
-		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, bucket.Status.Protocols)
-		assert.NotEmpty(t, bucket.Status.BucketInfo)
-		for k := range bucket.Status.BucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-		}
-
-		t.Log("run Reconcile() a second time to ensure nothing is modified")
-
-		getBucketReq = nil
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
-		require.Len(t, getBucketReq, 1)
-		assert.Equal(t, "static-bucket", getBucketReq[0].BucketId)
-		require.Len(t, createBucketReq, 0)
-
-		secondBucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, secondBucket)
-		require.NoError(t, err)
-		assert.Equal(t, bucket.Finalizers, secondBucket.Finalizers)
-		assert.Equal(t, bucket.Spec, secondBucket.Spec)
-		assert.Equal(t, bucket.Status, secondBucket.Status)
-
-		t.Log("run Reconcile() that fails a third time to ensure status error")
-
-		getBucketReq = nil
-		requestError = fmt.Errorf("fake rpc error")
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
-		require.Len(t, getBucketReq, 1)
-		require.Len(t, createBucketReq, 0)
-
-		thirdBucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, thirdBucket)
-		require.NoError(t, err)
-		assert.Equal(t, secondBucket.Finalizers, thirdBucket.Finalizers)
-		assert.Equal(t, secondBucket.Spec, thirdBucket.Spec)
-		assert.Equal(t, secondBucket.Status.BucketID, thirdBucket.Status.BucketID)
-		assert.Equal(t, secondBucket.Status.BucketInfo, thirdBucket.Status.BucketInfo)
-		assert.Equal(t, secondBucket.Status.Protocols, thirdBucket.Status.Protocols)
-		serr := thirdBucket.Status.Error
-		require.NotNil(t, serr)
-		assert.NotNil(t, serr.Time)
-		assert.NotNil(t, serr.Message)
-		assert.Contains(t, *serr.Message, "fake rpc error")
-
-		t.Log("run Reconcile() that passes a fourth time to ensure status error cleared")
-
-		getBucketReq = nil
-		requestError = nil
-		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
-		require.Len(t, getBucketReq, 1)
-		require.Len(t, createBucketReq, 0)
-
-		fourthBucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, fourthBucket)
-		require.NoError(t, err)
-		assert.Equal(t, secondBucket.Finalizers, fourthBucket.Finalizers)
-		assert.Equal(t, secondBucket.Spec, fourthBucket.Spec)
-		assert.Equal(t, secondBucket.Status, fourthBucket.Status)
-	})
-
-	t.Run("static provisioning, driver name mismatch", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
-		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				createBucketReq = append(createBucketReq, dcbr)
-				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
-			},
-			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
-				getBucketReq = append(getBucketReq, dgebr)
-				return &cosiproto.DriverGetBucketResponse{
-					BucketId: dgebr.BucketId,
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						S3: &cosiproto.S3BucketInfo{
-							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.BucketId,
-							Region:          "us-east-1",
-							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
-						},
-					},
-				}, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		b := baseBucket.DeepCopy()
-		b.Spec.DriverName = "cosi.NOMATCH.corp.net"
-		b.Spec.ExistingBucketID = "static-bucket"
-		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
-		bootstrapped := cositest.MustBootstrap(t, b)
-		ctx := bootstrapped.ContextWithLogger
-
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
-
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.NoError(t, err)
-		assert.Empty(t, res)
-		require.Len(t, getBucketReq, 0)
-		require.Len(t, createBucketReq, 0)
-
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Equal(t, b.Finalizers, bucket.Finalizers)
-		assert.Equal(t, b.Spec, bucket.Spec)
-		assert.Equal(t, b.Status, bucket.Status)
-	})
-
-	t.Run("static provisioning, proto not supported", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
-		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				createBucketReq = append(createBucketReq, dcbr)
-				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
-			},
-			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
-				getBucketReq = append(getBucketReq, dgebr)
-				return &cosiproto.DriverGetBucketResponse{}, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		b := baseBucket.DeepCopy()
-		b.Spec.ExistingBucketID = "static-bucket"
-		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}
-		bootstrapped := cositest.MustBootstrap(t, b)
-		ctx := bootstrapped.ContextWithLogger
-
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
-
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
-		require.Len(t, getBucketReq, 0)
-		require.Len(t, createBucketReq, 0)
-
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Equal(t, b.Finalizers, bucket.Finalizers)
-		assert.Equal(t, b.Spec, bucket.Spec)
-		assert.False(t, *bucket.Status.ReadyToUse)
-		serr := bucket.Status.Error
-		require.NotNil(t, serr)
-		assert.NotNil(t, serr.Time)
-		assert.NotNil(t, serr.Message)
-		assert.Contains(t, *serr.Message, "GCS")
-	})
-
-	t.Run("static provisioning, backend bucket not found (error with retry)", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
-		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				createBucketReq = append(createBucketReq, dcbr)
-				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
-			},
-			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
-				getBucketReq = append(getBucketReq, dgebr)
-				return nil, status.Error(codes.NotFound, "bucket does not exist in backend")
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		b := baseBucket.DeepCopy()
-		b.Spec.ExistingBucketID = "static-bucket"
-		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
-		bootstrapped := cositest.MustBootstrap(t, b)
-		ctx := bootstrapped.ContextWithLogger
-
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
-
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
-		require.Len(t, getBucketReq, 1)
-		assert.Equal(t, "static-bucket", getBucketReq[0].BucketId)
-		require.Len(t, createBucketReq, 0)
-
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
-		assert.Equal(t, b.Spec, bucket.Spec)
-		serr := bucket.Status.Error
-		require.NotNil(t, serr)
-		assert.NotNil(t, serr.Time)
-		assert.NotNil(t, serr.Message)
-		assert.Contains(t, *serr.Message, "waiting for backend bucket to exist")
-	})
-
-	t.Run("static provisioning, provisioned bucket supports wrong proto", func(t *testing.T) {
-		getBucketReq := []*cosiproto.DriverGetBucketRequest{}
-		createBucketReq := []*cosiproto.DriverCreateBucketRequest{}
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				createBucketReq = append(createBucketReq, dcbr)
-				return nil, fmt.Errorf("DriverCreateBucket must not be called for static provisioning")
-			},
-			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
-				getBucketReq = append(getBucketReq, dgebr)
-				ret := &cosiproto.DriverGetBucketResponse{
-					BucketId: dgebr.BucketId,
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						Azure: &cosiproto.AzureBucketInfo{}, // bucket.spec wants S3
-					},
-				}
-				return ret, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		rpcClient := cosiproto.NewProvisionerClient(conn)
-
-		b := baseBucket.DeepCopy()
-		b.Spec.ExistingBucketID = "static-bucket"
-		b.Spec.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}
-		b.Spec.Parameters = map[string]string{
-			"maxSize": "10Gi",
-		}
-		bootstrapped := cositest.MustBootstrap(t, b)
-		ctx := bootstrapped.ContextWithLogger
-
-		r := BucketReconciler{
-			Client: bootstrapped.Client,
-			Scheme: bootstrapped.Client.Scheme(),
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  rpcClient,
-			},
-		}
-
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: bucketNsName})
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.Empty(t, res)
-		require.Len(t, getBucketReq, 1)
-		require.Len(t, createBucketReq, 0)
-
-		bucket := &cosiapi.Bucket{}
-		err = r.Get(ctx, bucketNsName, bucket)
-		require.NoError(t, err)
-		assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
-		assert.Equal(t, b.Spec, bucket.Spec)
-		assert.False(t, *bucket.Status.ReadyToUse)
-		serr := bucket.Status.Error
-		require.NotNil(t, serr)
-		assert.NotNil(t, serr.Time)
-		assert.NotNil(t, serr.Message)
-		assert.Contains(t, *serr.Message, "protocols are not supported")
-		assert.Contains(t, *serr.Message, "S3")
-	})
-
-	// TODO: deletion (dynamic and static, Retain/Delete)
 }
 
 func TestBucketReconciler_dynamicProvision(t *testing.T) {
