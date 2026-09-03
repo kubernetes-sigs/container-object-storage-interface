@@ -115,8 +115,11 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // SetupWithManager sets up the controller with the Manager.
 func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&cosiapi.BucketClaim{}).
-		WithEventFilter(
+		// Each watch below scopes its own predicates via builder.WithPredicates rather than the
+		// controller-wide WithEventFilter. WithEventFilter ANDs into every watch on this controller
+		// regardless of source type, so a predicate meaningful for one watched type can silently
+		// block (or spuriously affect) another; keeping predicates local avoids that cross-talk.
+		For(&cosiapi.BucketClaim{}, builder.WithPredicates(
 			ctrlpredicate.Or( //
 				// this is the only bucketclaim controller and should reconcile ALL Create/Delete/Generic events
 				cosipredicate.AnyCreate(),
@@ -127,13 +130,19 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				cosipredicate.DeletionTimestampAdded(),
 				cosipredicate.ProtectionFinalizerRemoved(r.Scheme), // re-add protection finalizer if removed
 			),
-		).
+		)).
 		// Bucket has no OwnerReference back to BucketClaim, so .Owns() can't be used; map Bucket
-		// events to the referencing BucketClaim instead.
+		// events to the referencing BucketClaim instead. Fires on Create (Bucket just created) or
+		// on any Update that changes a status field the BucketClaim mirrors (bucketID, readyToUse,
+		// protocols). Reconciles that return nil while waiting on the Bucket rely on these events
+		// to eventually fire; there is no backoff-based retry behind them.
 		Watches(
 			&cosiapi.Bucket{},
 			handler.EnqueueRequestsFromMapFunc(mapBucketToBucketClaim),
-			builder.WithPredicates(cosipredicate.AnyCreate()),
+			builder.WithPredicates(ctrlpredicate.Or(
+				cosipredicate.AnyCreate(),
+				cosipredicate.BucketStatusChanged(r.Scheme),
+			)),
 		).
 		Named("bucketclaim").
 		Complete(r)
@@ -256,10 +265,10 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 	}
 
 	if bucket.Status.BucketID == "" {
-		// TODO: In the future, set up Bucket watcher to enqueue this BucketClaim when the Bucket
-		// is updated. For now, return error to requeue with backoff.
+		// Bucket not yet provisioned by the driver. The Bucket watch (see SetupWithManager)
+		// re-enqueues this BucketClaim once the Bucket's status is updated.
 		logger.Info("waiting for Bucket to be provisioned")
-		return fmt.Errorf("waiting for Bucket to be provisioned")
+		return nil
 	}
 
 	readyToUse := ptr.Deref(bucket.Status.ReadyToUse, false)
