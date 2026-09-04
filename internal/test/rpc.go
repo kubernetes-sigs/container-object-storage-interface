@@ -108,11 +108,22 @@ func RpcClientConn(tmpSockUri string) (*grpc.ClientConn, error) {
 type FakeProvisionerServer struct {
 	cosiproto.UnimplementedProvisionerServer
 
+	GenerateBucketIdFunc   func(context.Context, *cosiproto.DriverGenerateBucketIdRequest) (*cosiproto.DriverGenerateBucketIdResponse, error)
 	CreateBucketFunc       func(context.Context, *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error)
 	GetBucketFunc          func(context.Context, *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error)
 	DeleteBucketFunc       func(context.Context, *cosiproto.DriverDeleteBucketRequest) (*cosiproto.DriverDeleteBucketResponse, error)
 	GrantBucketAccessFunc  func(context.Context, *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error)
 	RevokeBucketAccessFunc func(context.Context, *cosiproto.DriverRevokeBucketAccessRequest) (*cosiproto.DriverRevokeBucketAccessResponse, error)
+}
+
+func (s *FakeProvisionerServer) DriverGenerateBucketId(
+	ctx context.Context, req *cosiproto.DriverGenerateBucketIdRequest,
+) (*cosiproto.DriverGenerateBucketIdResponse, error) {
+	if s.GenerateBucketIdFunc != nil {
+		return s.GenerateBucketIdFunc(ctx, req)
+	}
+	// unit tests must set an expectation if they expect the call to be made
+	panic("GenerateBucketIdFunc not implemented in FakeProvisionerServer")
 }
 
 func (s *FakeProvisionerServer) DriverCreateBucket(

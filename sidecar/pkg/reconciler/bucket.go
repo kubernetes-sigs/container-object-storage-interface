@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"time"
 
@@ -43,6 +44,27 @@ import (
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/translator"
 )
+
+var bucketIDPattern = regexp.MustCompile(cosiapi.BucketIDPattern)
+
+// validateBucketID checks a bucket ID against the length and character constraints shared by the
+// bucket_id fields of the DriverGenerateBucketId and DriverCreateBucket RPCs (see proto/spec.md).
+func validateBucketID(id string) error {
+	allErrs := []string{}
+
+	if len(id) > cosiapi.BucketIDMaxLength {
+		allErrs = append(allErrs, fmt.Sprintf("must be no more than %d characters: length=%d", cosiapi.BucketIDMaxLength, len(id)))
+	}
+
+	if !bucketIDPattern.MatchString(id) {
+		allErrs = append(allErrs, fmt.Sprintf("must match pattern %q", cosiapi.BucketIDPattern))
+	}
+
+	if len(allErrs) > 0 {
+		return fmt.Errorf("bucket ID %q is invalid: %v", id, allErrs)
+	}
+	return nil
+}
 
 // BucketReconciler reconciles a Bucket object
 type BucketReconciler struct {
@@ -182,6 +204,45 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 		}
 	}
 
+	// Phase 1 of dynamic provisioning. Static provisioning has no phase 1 because the bucket ID
+	// is given by the user in spec.existingBucketID.
+	if !isStaticProvisioning && bucket.Status.BucketID == "" {
+		foreignReadyToUse := ptr.Deref(bucket.Status.ReadyToUse, false)
+
+		if err := r.generateBucketID(ctx, logger, bucket, requiredProtos); err != nil {
+			return err
+		}
+
+		// A Bucket that has not been assigned an ID cannot have been provisioned, so readyToUse must
+		// not be true here. This sidecar never writes that combination, so record the incorrect state
+		// in status.error and log it, in addition to correcting it (generateBucketID already reset it
+		// to false). Self-clears if phase 2 succeeds in this reconcile, since the final status write
+		// resets status.error to nil.
+		if foreignReadyToUse {
+			logger.Error(nil, "readyToUse was true before the bucket ID was generated; overwriting it as false")
+			bucket.Status.Error = cosiapi.NewTimestampedError(time.Now(),
+				"readyToUse was true before a bucket ID was assigned; this sidecar never produces that "+
+					"combination, so it was reset to false and provisioning continues")
+		}
+
+		// Persist status.bucketID before phase 2 (dynamicProvision) provisions the backend bucket;
+		// see the generateBucketID doc comment for why this ordering matters.
+		if err := r.Status().Update(ctx, bucket); err != nil {
+			logger.Error(err, "failed to update Bucket status after bucket ID generation")
+			if kerrors.IsInvalid(err) {
+				// The API server rejected the object itself; retrying with the same content cannot
+				// succeed.
+				return cosierr.NonRetryableError(fmt.Errorf("failed to update Bucket status after bucket ID generation: %w", err))
+			}
+			return fmt.Errorf("failed to update Bucket status after bucket ID generation: %w", err)
+		}
+		logger.Info("generated bucket ID", "bucketID", bucket.Status.BucketID)
+	}
+
+	if !isStaticProvisioning {
+		logger = logger.WithValues("bucketID", bucket.Status.BucketID)
+	}
+
 	var provisionedBucket *provisionedBucketDetails
 	if isStaticProvisioning {
 		provisionedBucket, err = r.staticProvision(ctx, logger, staticProvisionParams{
@@ -192,7 +253,7 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 		})
 	} else {
 		provisionedBucket, err = r.dynamicProvision(ctx, logger, dynamicProvisionParams{
-			bucketName:     bucket.Name,
+			bucketID:       bucket.Status.BucketID,
 			requiredProtos: requiredProtos,
 			parameters:     bucket.Spec.Parameters,
 			claimRef:       bucket.Spec.BucketClaimRef,
@@ -304,11 +365,71 @@ type provisionedBucketDetails struct {
 	allProtoBucketInfo map[string]string
 }
 
+// Run phase 1 of the 2-phase dynamic provisioning workflow.
+// The driver generates the bucket ID without provisioning any backend resource. The caller is
+// responsible for persisting the returned status.bucketID before running phase 2
+// (dynamicProvision), which provisions the backend bucket: this guarantees that any backend
+// bucket created in phase 2 is reachable by an ID that is already recorded in Kubernetes, even if
+// the sidecar crashes between the two phases.
+func (r *BucketReconciler) generateBucketID(
+	ctx context.Context,
+	logger logr.Logger,
+	bucket *cosiapi.Bucket,
+	requiredProtos []*cosiproto.ObjectProtocol,
+) error {
+	// The input parameters given here are the same parameters later used for phase-2 provisioning,
+	// so a driver may use any of them when determining bucket_id. See proto/spec.md.
+	resp, err := r.DriverInfo.ProvisionerClient.DriverGenerateBucketId(ctx,
+		&cosiproto.DriverGenerateBucketIdRequest{
+			Name:       bucket.Name,
+			Protocols:  requiredProtos,
+			Parameters: bucket.Spec.Parameters,
+		},
+	)
+	if err != nil {
+		logger.Error(err, "DriverGenerateBucketIdRequest error")
+		if rpcErrorIsRetryable(status.Code(err)) {
+			return err
+		}
+		if status.Code(err) == codes.Unimplemented {
+			// A driver upgrade alone will not retry this Bucket: controller-runtime never
+			// requeues a TerminalError, so make the required remedy (restart the sidecar)
+			// discoverable from status.error rather than only from drivers.md.
+			return cosierr.NonRetryableError(fmt.Errorf(
+				"driver does not implement DriverGenerateBucketId; upgrade the driver, then restart the sidecar to retry this Bucket: %w", err))
+		}
+		return cosierr.NonRetryableError(err)
+	}
+
+	if resp.BucketId == "" {
+		logger.Error(nil, "generated bucket ID missing")
+		// driver behavior is unlikely to change if the request is retried
+		return cosierr.NonRetryableError(fmt.Errorf("generated bucket ID missing"))
+	}
+
+	if err := validateBucketID(resp.BucketId); err != nil {
+		// proto/spec.md constrains DriverGenerateBucketIdResponse.bucket_id to this length and
+		// pattern; this is a driver bug, not a Bucket API validation failure, so fail clearly here
+		// rather than let it surface later as an API server rejection, and so a persistently
+		// non-conforming ID does not get retried forever.
+		logger.Error(err, "driver-returned bucket ID does not satisfy the DriverGenerateBucketIdResponse.bucket_id schema", "bucketID", resp.BucketId)
+		return cosierr.NonRetryableError(err)
+	}
+
+	// readyToUse is a required field and must not report true until phase 2 succeeds.
+	bucket.Status.ReadyToUse = ptr.To(false)
+	// status.bucketID is immutable once set, so this write reserves the ID for the life of the
+	// Bucket. The caller must persist this before running phase 2; see the doc comment above.
+	bucket.Status.BucketID = resp.BucketId
+
+	return nil
+}
+
 // Parameters for dynamic provisioning workflow.
 // A struct with named params allows for future expansion easily.
 // When param lists get long, named fields help with readability, review, and maintenance.
 type dynamicProvisionParams struct {
-	bucketName     string
+	bucketID       string
 	requiredProtos []*cosiproto.ObjectProtocol
 	parameters     map[string]string
 	claimRef       cosiapi.BucketClaimReference
@@ -331,9 +452,15 @@ func (r *BucketReconciler) dynamicProvision(
 			fmt.Errorf("all bucketClaimRef fields must be set for dynamic provisioning: %#v", cr))
 	}
 
+	if dynamic.bucketID == "" {
+		// phase 1 (generateBucketID) must persist the bucket ID before phase 2 runs
+		logger.Error(nil, "bucket ID missing before bucket creation")
+		return nil, cosierr.NonRetryableError(fmt.Errorf("bucket ID missing before bucket creation"))
+	}
+
 	resp, err := r.DriverInfo.ProvisionerClient.DriverCreateBucket(ctx,
 		&cosiproto.DriverCreateBucketRequest{
-			Name:       dynamic.bucketName,
+			BucketId:   dynamic.bucketID,
 			Protocols:  dynamic.requiredProtos,
 			Parameters: dynamic.parameters,
 		},
@@ -344,12 +471,6 @@ func (r *BucketReconciler) dynamicProvision(
 			return nil, err
 		}
 		return nil, cosierr.NonRetryableError(err)
-	}
-
-	if resp.BucketId == "" {
-		logger.Error(nil, "created bucket ID missing")
-		// driver behavior is unlikely to change if the request is retried
-		return nil, cosierr.NonRetryableError(fmt.Errorf("created bucket ID missing"))
 	}
 
 	protoResp := resp.Protocols
@@ -366,7 +487,7 @@ func (r *BucketReconciler) dynamicProvision(
 	}
 
 	details = &provisionedBucketDetails{
-		bucketId:           resp.BucketId,
+		bucketId:           dynamic.bucketID,
 		supportedProtos:    supportedProtos,
 		allProtoBucketInfo: allBucketInfo,
 	}

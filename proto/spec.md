@@ -106,7 +106,16 @@ service Identity {
 }
 
 service Provisioner {
+    // Generate the identifier that COSI will use for all subsequent calls related to a bucket.
+    // It MUST return the same bucket_id for every call with the same name.
+    // This is phase 1 of the 2-phase provisioning process. It is RECOMMENDED to only generate an ID
+    // and NOT RECOMMENDED to provision any backend resource.
+    // It MUST NOT result in backend resource leakage if this command fails and COSI subsequently
+    // deletes the resource without calling DriverDeleteBucket.
+    rpc DriverGenerateBucketId (DriverGenerateBucketIdRequest) returns (DriverGenerateBucketIdResponse) {}
+
     // Create the bucket in the backend.
+    // This is phase 2 of the 2-phase provisioning process.
     //
     // Important return codes:
     // - MUST return OK if a backend bucket with matching identity and parameters already exists.
@@ -426,11 +435,88 @@ message AccessMode {
 }
 ```
 
+#### Bucket Provisioning
+
+COSI provisions a bucket in two phases:
+
+1. `DriverGenerateBucketId` returns a persistent `bucket_id` without provisioning backend resources.
+   COSI persists this identifier before proceeding.
+2. `DriverCreateBucket` provisions the backend bucket using the persisted `bucket_id`.
+
+COSI WILL use the `bucket_id` returned by phase 1 for all subsequent gRPC calls related to the
+bucket, including the phase 2 `DriverCreateBucket` call. The Plugin MUST be able to correlate that
+`bucket_id` to the backend bucket it provisions in phase 2.
+
+If the corresponding Kubernetes resource is deleted before COSI can persist `bucket_id`,
+`DriverDeleteBucket` WILL NOT be called for that identifier. Plugins MUST NOT leak backend resources
+in this case. If possible, COSI RECOMMENDS that each Driver use a deterministic rule for generating the
+`bucket_id` without provisioning backend resources.
+
+#### DriverGenerateBucketId
+
+A Plugin MUST implement this RPC call.
+
+This operation MUST be idempotent. This operation SHOULD NOT provision, reserve, or otherwise mutate
+any backend resource.
+
+Other parameters (`protocols` and `parameters`) given in this gRPC call are the same later used for
+phase-2 provisioning. This ensures Plugins may use any of the creation parameters they desire when
+determining `bucket_id`.
+
+The Provisioner is NOT REQUIRED to do input parameter validation for OPTIONAL inputs.
+The Provisioner MAY do so, and SHOULD follow DriverCreateBucket requirements if so.
+
+```protobuf
+message DriverGenerateBucketIdRequest {
+    // REQUIRED. The suggested name for the backend bucket.
+    // It serves two purposes:
+    // 1) Suggested name - COSI WILL suggest a name that includes a UID component that is
+    //    statistically likely to be globally unique, even between multiple Kubernetes clusters.
+    //    The COSI Sidecar uses the name of the Bucket resource as the input value for this field.
+    //    This WILL be "bc-<BucketClaim.UID>" for dynamically-provisioned Buckets.
+    // 2) Idempotency - COSI uses this name as an idempotency key. If COSI is unable to
+    //    persistently store the returned bucket_id, COSI WILL retry DriverGenerateBucketId with
+    //    the same name later.
+    //    Using or appending random identifiers can lead to multiple unused buckets being created in
+    //    the storage backend in the event of timing-related Driver/Sidecar failures or restarts.
+    // COSI WILL use DNS subdomain format (https://datatracker.ietf.org/doc/html/rfc1123).
+    // It WILL contain no more than 253 characters, contain only lowercase alphanumeric
+    // characters, '-' or '.', start with an alphanumeric character, and end with an alphanumeric
+    // character.
+    string name = 1;
+
+    // OPTIONAL. A preview of the protocols to be sent to DriverCreateBucket for later
+    // bucket provisioning. This represents a list of all object storage protocols the
+    // provisioned bucket MUST support.
+    // The Provisioner MAY use values to determine part of the generated ID.
+    // The Provisioner MAY ignore these values.
+    repeated ObjectProtocol protocols = 2;
+
+    // OPTIONAL. A preview of the parameters to be sent to DriverCreateBucket for later
+    // bucket provisioning. This represents Plugin-specific parameters passed in as opaque
+    // key-value pairs.
+    // The Provisioner MAY use values to determine part of the generated ID.
+    // The Provisioner MAY ignore these values.
+    map<string, string> parameters = 4;
+}
+
+message DriverGenerateBucketIdResponse {
+    // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
+    // This value WILL be used by COSI to make subsequent calls related to the bucket, including
+    // DriverCreateBucketRequest. Therefore, the Provisioner MUST be able to correlate
+    // `bucket_id` to the backend bucket created later.
+    // It is RECOMMENDED to generate an ID usable as the backend storage system's bucket ID.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), dots (.), underscores (_), and forward slash (/).
+    string bucket_id = 1;
+}
+```
+
 #### DriverCreateBucket
 
 A Plugin MUST implement this RPC call.
 
-This operation MUST be idempotent. If a bucket corresponding to the specified name already exists
+This operation MUST be idempotent. If a bucket corresponding to the specified ID already exists
 and is compatible with the given parameters, the Plugin MUST reply OK.
 
 Important return codes:
@@ -439,22 +525,12 @@ Important return codes:
 
 ```protobuf
 message DriverCreateBucketRequest {
-    // REQUIRED. The suggested name for the backend bucket.
-    // It serves two purposes:
-    // 1) Suggested name - COSI WILL suggest a name that includes a UID component that is
-    //    statistically likely to be globally unique.
-    // 2) Idempotency - This name is generated by COSI to achieve idempotency. The Plugin SHOULD
-    //    ensure that multiple DriverCreateBucket calls for the same name do not result in more
-    //    than one Bucket being provisioned corresponding to the name.
-    //    The COSI Sidecar WILL call DriverCreateBucket, with the same name, periodically to ensure
-    //    the bucket exists.
-    //    Using or appending random identifiers can lead to multiple unused buckets being created in
-    //    the storage backend in the event of timing-related Driver/Sidecar failures or restarts.
-    // COSI WILL use DNS subdomain format (https://datatracker.ietf.org/doc/html/rfc1123).
-    // It WILL contain contain no more than 253 characters, contain only lowercase alphanumeric
-    // characters, '-' or '.', start with an alphanumeric character, and end with an alphanumeric
-    // character.
-    string name = 1;
+
+    // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
+    // The Plugin MUST provision a backend bucket that it can correlate to this `bucket_id`.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), dots (.), underscores (_), and forward slash (/).
+    string bucket_id = 1;
 
     // OPTIONAL. A list of all object storage protocols the provisioned bucket MUST support.
     // If none are given, the provisioner MAY provision with a set of default protocol(s) or return
@@ -468,14 +544,6 @@ message DriverCreateBucketRequest {
 }
 
 message DriverCreateBucketResponse {
-    // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
-    // This value WILL be used by COSI to make subsequent calls related to the bucket, so the
-    // Provisioner MUST be able to correlate `bucket_id` to the backend bucket.
-    // It is RECOMMENDED to use the backend storage system's bucket ID.
-    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
-    // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
-    string bucket_id = 1;
-
     // REQUIRED: At least one protocol bucket info result MUST be non-nil.
     //
     // The primary purpose of this response is to indicate which protocols are supported for
@@ -607,7 +675,7 @@ message DriverGrantBucketAccessRequest {
     //    Using or appending random identifiers can lead to multiple unused buckets being created in
     //    the storage backend in the event of timing-related Driver/Sidecar failures or restarts.
     // COSI WILL use DNS subdomain format (https://datatracker.ietf.org/doc/html/rfc1123).
-    // It WILL contain contain no more than 253 characters, contain only lowercase alphanumeric
+    // It WILL contain no more than 253 characters, contain only lowercase alphanumeric
     // characters, '-' or '.', start with an alphanumeric character, and end with an alphanumeric
     // character.
     string account_name = 1;

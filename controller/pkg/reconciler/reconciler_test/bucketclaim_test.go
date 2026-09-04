@@ -461,6 +461,87 @@ func TestBucketClaimReconcile(t *testing.T) {
 					})
 				})
 
+				t.Run("still waiting after Bucket ID generated but not provisioned", func(t *testing.T) {
+					// Phase 1 of the sidecar's 2-phase provisioning persists status.bucketID
+					// before any backend bucket exists. A set bucketID alone must not advance
+					// the claim to ready.
+
+					// Set up: put the Bucket in a phase-1-only state (bucketID persisted,
+					// readyToUse still false), as the sidecar would leave it between phase 1
+					// and phase 2.
+					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
+					ctx := bootstrapped.ContextWithLogger
+					r := claimReconcilerForClient(bootstrapped.Client)
+
+					_, phase1Bucket := getClaimAndBucket(bootstrapped)
+					phase1Bucket.Status.BucketID = "cosi-" + phase1Bucket.Name
+					phase1Bucket.Status.ReadyToUse = ptr.To(false)
+					require.NoError(t, bootstrapped.Client.Status().Update(ctx, phase1Bucket))
+
+					initClaim, initBucket := getClaimAndBucket(bootstrapped)
+
+					// Act: reconcile the BucketClaim against that phase-1-only Bucket.
+					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+
+					// Expect: a retryable "still waiting" error, not success and not terminal,
+					// since bucketID alone isn't provisioning-complete.
+					assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
+					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					assert.Empty(t, res)
+
+					// Validate: the claim was left untouched (spec, binding, readiness, and
+					// protocols all unchanged), and the controller did not write to the Bucket
+					// it doesn't own the status of.
+					claim, bucket := getClaimAndBucket(bootstrapped)
+
+					assert.Equal(t, initClaim.Spec, claim.Spec)
+					assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
+					assert.False(t, ptr.Deref(claim.Status.ReadyToUse, false))
+					assert.Empty(t, claim.Status.Protocols)
+
+					// the sidecar owns the Bucket status; the controller must not touch it
+					assert.Equal(t, initBucket.Status, bucket.Status)
+				})
+
+				t.Run("still waiting when Bucket has no ID", func(t *testing.T) {
+					// The mirror of the case above: readyToUse is set, but no bucketID was ever
+					// persisted. Neither half of the provisioning gate may advance the claim on
+					// its own, so this must also be "still waiting".
+
+					// Set up: mark the Bucket ready while leaving status.bucketID empty.
+					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
+					ctx := bootstrapped.ContextWithLogger
+					r := claimReconcilerForClient(bootstrapped.Client)
+
+					_, noIdBucket := getClaimAndBucket(bootstrapped)
+					require.Empty(t, noIdBucket.Status.BucketID)
+					noIdBucket.Status.ReadyToUse = ptr.To(true)
+					require.NoError(t, bootstrapped.Client.Status().Update(ctx, noIdBucket))
+
+					initClaim, initBucket := getClaimAndBucket(bootstrapped)
+
+					// Act: reconcile the BucketClaim against that Bucket.
+					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+
+					// Expect: the same retryable "still waiting" error, not success and not
+					// terminal, since readyToUse alone isn't provisioning-complete either.
+					assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
+					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					assert.Empty(t, res)
+
+					// Validate: the claim was left untouched, and the controller did not write to
+					// the Bucket it doesn't own the status of.
+					claim, bucket := getClaimAndBucket(bootstrapped)
+
+					assert.Equal(t, initClaim.Spec, claim.Spec)
+					assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
+					assert.False(t, ptr.Deref(claim.Status.ReadyToUse, false))
+					assert.Empty(t, claim.Status.Protocols)
+
+					// the sidecar owns the Bucket status; the controller must not touch it
+					assert.Equal(t, initBucket.Status, bucket.Status)
+				})
+
 				t.Run("still waiting after Bucket error", func(t *testing.T) {
 					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
 					ctx := bootstrapped.ContextWithLogger

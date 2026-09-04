@@ -255,15 +255,17 @@ func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logge
 		}
 	}
 
-	if bucket.Status.BucketID == "" {
+	// A set bucketID is not sufficient to consider the Bucket provisioned: phase 1 of the sidecar's
+	// 2-phase provisioning process (DriverGenerateBucketId) persists bucketID before any backend
+	// bucket exists. Only readyToUse marks the end of phase 2.
+	if bucket.Status.BucketID == "" || !ptr.Deref(bucket.Status.ReadyToUse, false) {
 		// TODO: In the future, set up Bucket watcher to enqueue this BucketClaim when the Bucket
 		// is updated. For now, return error to requeue with backoff.
 		logger.Info("waiting for Bucket to be provisioned")
 		return fmt.Errorf("waiting for Bucket to be provisioned")
 	}
 
-	readyToUse := ptr.Deref(bucket.Status.ReadyToUse, false)
-	if readyToUse && len(bucket.Status.Protocols) == 0 {
+	if len(bucket.Status.Protocols) == 0 {
 		logger.Error(nil, "provisioned Bucket supports no protocols")
 		return cosierr.NonRetryableError(fmt.Errorf("provisioned Bucket supports no protocols"))
 	}
