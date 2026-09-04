@@ -288,14 +288,17 @@ func deletionTestSuite(t *testing.T,
 		assert.Equal(t, initBucket.Status, bucket.Status)
 	})
 
-	t.Run("deletionPolicy=Delete", func(t *testing.T) {
+	// generateIntermediateBucket deliberately creates the Bucket without a finalizer so an
+	// untouched Bucket can be deleted immediately if the sidecar never runs; the sidecar adds the
+	// protection finalizer once it starts provisioning. Both shapes are exercised below.
+
+	t.Run("deletionPolicy=Delete, Bucket without finalizer", func(t *testing.T) {
 		bootstrapped := deps.MustCopy() // copy prior test world state
 		ctx := bootstrapped.ContextWithLogger
 		r := claimReconcilerForClient(bootstrapped.Client)
 
 		initClaim, initBucket := getClaimAndBucket(bootstrapped)
 		require.NotNil(t, initBucket)
-		bucketHasFinalizer := len(initBucket.GetFinalizers()) > 0
 
 		initBucket.Spec.DeletionPolicy = cosiapi.BucketDeletionPolicyDelete
 		require.NoError(t, r.Update(ctx, initBucket))
@@ -303,9 +306,7 @@ func deletionTestSuite(t *testing.T,
 		require.NoError(t, r.Delete(ctx, initClaim))
 
 		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-		assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.ErrorContains(t, err, "waiting for Bucket to be deleted")
+		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		claim, bucket := getClaimAndBucket(bootstrapped)
@@ -314,17 +315,59 @@ func deletionTestSuite(t *testing.T,
 		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		assert.Equal(t, initClaim.Spec, claim.Spec)
 		assert.Equal(t, false, *claim.Status.ReadyToUse)
-		require.NotNil(t, claim.Status.Error)
-		assert.Contains(t, *claim.Status.Error.Message, "waiting for Bucket to be deleted")
+		assert.Nil(t, claim.Status.Error)
 		assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
 		assert.Equal(t, initClaim.Status.Protocols, claim.Status.Protocols)
 
-		if !bucketHasFinalizer {
-			// If Bucket had no finalizer before deletion, Bucket will delete immediately.
-			assert.Nil(t, bucket)
-			return
-		}
+		// Bucket had no finalizer before deletion, so it deleted immediately.
+		assert.Nil(t, bucket)
+	})
 
+	t.Run("deletionPolicy=Delete, Bucket with protection finalizer", func(t *testing.T) {
+		bootstrapped := deps.MustCopy() // copy prior test world state
+		ctx := bootstrapped.ContextWithLogger
+		r := claimReconcilerForClient(bootstrapped.Client)
+
+		initClaim, initBucket := getClaimAndBucket(bootstrapped)
+		require.NotNil(t, initBucket)
+
+		initBucket.Spec.DeletionPolicy = cosiapi.BucketDeletionPolicyDelete
+		initBucket.Finalizers = append(initBucket.Finalizers, cosiapi.ProtectionFinalizer)
+		require.NoError(t, r.Update(ctx, initBucket))
+
+		require.NoError(t, r.Delete(ctx, initClaim))
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+		assert.NoError(t, err)
+		assert.Empty(t, res)
+
+		claim, bucket := getClaimAndBucket(bootstrapped)
+
+		// claim waiting for Bucket deletion
+		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+		assert.Equal(t, initClaim.Spec, claim.Spec)
+		assert.Equal(t, false, *claim.Status.ReadyToUse)
+		assert.Nil(t, claim.Status.Error)
+		assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
+		assert.Equal(t, initClaim.Status.Protocols, claim.Status.Protocols)
+
+		require.NotNil(t, bucket)
+		assert.Contains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
+		assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
+		assert.NotZero(t, bucket.GetDeletionTimestamp())
+		assert.Equal(t, initBucket.Spec, bucket.Spec)
+		assert.Equal(t, initBucket.Status, bucket.Status)
+
+		// The Bucket watch's delete event (see SetupWithManager) re-enqueues the claim once
+		// the Bucket is gone; no backoff behind it. This re-reconcile, while the Bucket's
+		// own finalizer is still present, exercises the already-deleting branch directly.
+		res, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+		assert.NoError(t, err)
+		assert.Empty(t, res)
+
+		claim, bucket = getClaimAndBucket(bootstrapped)
+		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+		assert.Nil(t, claim.Status.Error)
 		require.NotNil(t, bucket)
 		assert.Contains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
 		assert.Contains(t, bucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
@@ -348,7 +391,7 @@ func deletionTestSuiteWithoutBucket(t *testing.T,
 	require.NoError(t, r.Delete(ctx, initClaim))
 
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-	assert.NoError(t, err) // TODO: should be NoError when Bucket watcher is set up
+	assert.NoError(t, err)
 	assert.Empty(t, res)
 
 	bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(&baseDynamicClaim), &cosiapi.BucketClaim{})
