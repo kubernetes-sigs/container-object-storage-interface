@@ -129,11 +129,17 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			),
 		).
 		// Bucket has no OwnerReference back to BucketClaim, so .Owns() can't be used; map Bucket
-		// events to the referencing BucketClaim instead.
+		// events to the referencing BucketClaim instead. Fires on Create (Bucket just created) and
+		// on Delete (re-enqueues a BucketClaim waiting on Bucket deletion). Reconciles that return
+		// nil while waiting on Bucket deletion rely on the Delete event to eventually fire; there
+		// is no backoff-based retry behind it.
 		Watches(
 			&cosiapi.Bucket{},
 			handler.EnqueueRequestsFromMapFunc(mapBucketToBucketClaim),
-			builder.WithPredicates(cosipredicate.AnyCreate()),
+			builder.WithPredicates(ctrlpredicate.Or(
+				cosipredicate.AnyCreate(),
+				cosipredicate.AnyDelete(),
+			)),
 		).
 		Named("bucketclaim").
 		Complete(r)
@@ -341,8 +347,7 @@ func (r *BucketClaimReconciler) reconcileDelete(
 	case cosiapi.BucketDeletionPolicyDelete:
 		if !bucket.DeletionTimestamp.IsZero() {
 			logger.Info("still waiting for Bucket to be deleted")
-			// TODO: return nil when Bucket watcher is set up
-			return fmt.Errorf("still waiting for Bucket to be deleted")
+			return nil
 		}
 
 		if err := r.applyBucketClaimIsDeletingAnnotation(ctx, logger, bucket); err != nil {
@@ -354,10 +359,10 @@ func (r *BucketClaimReconciler) reconcileDelete(
 			return fmt.Errorf("failed to delete Bucket: %w", err)
 		}
 
+		// The Bucket watch's delete event (see SetupWithManager) re-enqueues this BucketClaim once
+		// the Bucket is gone, so the finalizer is removed on a future reconcile; no backoff behind it.
 		logger.Info("waiting for Bucket to be deleted")
-		// TODO: return nil when Bucket watcher is set up
-		return fmt.Errorf("waiting for Bucket to be deleted")
-		// once Bucket is deleted, a future reconcile will remove the BucketClaim finalizer
+		return nil
 
 	default:
 		logger.Error(nil, "unknown Bucket deletion policy", "deletionPolicy", bucket.Spec.DeletionPolicy)
