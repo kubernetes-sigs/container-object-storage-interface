@@ -339,14 +339,14 @@ func (r *BucketClaimReconciler) reconcileDelete(
 		return r.removeClaimFinalizer(ctx, logger, claim)
 
 	case cosiapi.BucketDeletionPolicyDelete:
+		if err := r.applyBucketClaimIsDeletingAnnotation(ctx, logger, bucket); err != nil {
+			return err
+		}
+
 		if !bucket.DeletionTimestamp.IsZero() {
 			logger.Info("still waiting for Bucket to be deleted")
 			// TODO: return nil when Bucket watcher is set up
 			return fmt.Errorf("still waiting for Bucket to be deleted")
-		}
-
-		if err := r.applyBucketClaimIsDeletingAnnotation(ctx, logger, bucket); err != nil {
-			return err
 		}
 
 		if err := r.Delete(ctx, bucket); err != nil {
@@ -379,6 +379,10 @@ func (r *BucketClaimReconciler) removeClaimFinalizer(
 func (r *BucketClaimReconciler) applyBucketClaimIsDeletingAnnotation(
 	ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket,
 ) error {
+	if _, ok := bucket.Annotations[cosiapi.BucketClaimBeingDeletedAnnotation]; ok {
+		return nil
+	}
+
 	if bucket.Annotations == nil {
 		bucket.Annotations = map[string]string{}
 	}

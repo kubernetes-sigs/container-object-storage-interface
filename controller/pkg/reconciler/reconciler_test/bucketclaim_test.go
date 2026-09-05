@@ -334,6 +334,44 @@ func deletionTestSuite(t *testing.T,
 	})
 }
 
+// Regression test for #392: Bucket already deleting before BucketClaim delete reconciles.
+func TestBucketClaimReconcileDeleteRace(t *testing.T) {
+	initBootstrapped := dynamicInitializationTest(t)
+	bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
+	ctx := bootstrapped.ContextWithLogger
+	r := claimReconcilerForClient(bootstrapped.Client)
+
+	initClaim, initBucket := getClaimAndBucket(bootstrapped)
+	require.NotNil(t, initBucket)
+
+	// give Bucket a finalizer like the Sidecar would
+	initBucket, err := sidecartest.ReconcileOpinionatedS3Bucket(t, bootstrapped, cositest.NsName(initBucket))
+	require.NoError(t, err)
+	require.Contains(t, initBucket.GetFinalizers(), cosiapi.ProtectionFinalizer)
+
+	initBucket.Spec.DeletionPolicy = cosiapi.BucketDeletionPolicyDelete
+	require.NoError(t, r.Update(ctx, initBucket))
+
+	require.NoError(t, r.Delete(ctx, initBucket)) // delete Bucket first
+
+	bucket := &cosiapi.Bucket{}
+	require.NoError(t, r.Get(ctx, cositest.NsName(initBucket), bucket))
+	assert.NotZero(t, bucket.GetDeletionTimestamp())
+	assert.NotContains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
+
+	require.NoError(t, r.Delete(ctx, initClaim)) // delete BucketClaim second
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+	assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
+	assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+	assert.ErrorContains(t, err, "still waiting for Bucket to be deleted")
+	assert.Empty(t, res)
+
+	bucket = &cosiapi.Bucket{}
+	require.NoError(t, r.Get(ctx, cositest.NsName(initBucket), bucket))
+	assert.Contains(t, bucket.GetAnnotations(), cosiapi.BucketClaimBeingDeletedAnnotation)
+}
+
 func deletionTestSuiteWithoutBucket(t *testing.T,
 	deps *cositest.Dependencies,
 ) {
