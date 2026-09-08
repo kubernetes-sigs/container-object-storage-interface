@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -105,4 +106,93 @@ func Test_handoffOccurred(t *testing.T) {
 		assert.True(t, handoffOccurred(logger, old, new))
 	})
 
+}
+
+func Test_bucketStatusChanged(t *testing.T) {
+	t.Run("no status change", func(t *testing.T) {
+		old := &cosiapi.Bucket{}
+		new := &cosiapi.Bucket{}
+
+		assert.False(t, bucketStatusChanged(old, new))
+	})
+
+	t.Run("bucketID set", func(t *testing.T) {
+		old := &cosiapi.Bucket{}
+		new := &cosiapi.Bucket{
+			Status: cosiapi.BucketStatus{
+				BucketID: "some-bucket-id",
+			},
+		}
+
+		assert.True(t, bucketStatusChanged(old, new))
+	})
+
+	t.Run("readyToUse becomes true, bucketID unchanged", func(t *testing.T) {
+		old := &cosiapi.Bucket{
+			Status: cosiapi.BucketStatus{
+				BucketID:   "some-bucket-id",
+				ReadyToUse: ptr.To(false),
+			},
+		}
+		new := &cosiapi.Bucket{
+			Status: cosiapi.BucketStatus{
+				BucketID:   "some-bucket-id",
+				ReadyToUse: ptr.To(true),
+			},
+		}
+
+		assert.True(t, bucketStatusChanged(old, new))
+	})
+
+	t.Run("readyToUse set from nil", func(t *testing.T) {
+		old := &cosiapi.Bucket{}
+		new := &cosiapi.Bucket{
+			Status: cosiapi.BucketStatus{
+				ReadyToUse: ptr.To(false),
+			},
+		}
+
+		assert.True(t, bucketStatusChanged(old, new))
+	})
+
+	t.Run("protocols change, bucketID and readyToUse unchanged", func(t *testing.T) {
+		old := &cosiapi.Bucket{
+			Status: cosiapi.BucketStatus{
+				BucketID:   "some-bucket-id",
+				ReadyToUse: ptr.To(true),
+				Protocols:  []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
+			},
+		}
+		new := old.DeepCopy()
+		new.Status.Protocols = []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3, cosiapi.ObjectProtocolAzure}
+
+		assert.True(t, bucketStatusChanged(old, new))
+	})
+
+	t.Run("fully provisioned, no change", func(t *testing.T) {
+		old := &cosiapi.Bucket{
+			Status: cosiapi.BucketStatus{
+				BucketID:   "some-bucket-id",
+				ReadyToUse: ptr.To(true),
+				Protocols:  []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
+			},
+		}
+		new := old.DeepCopy()
+
+		assert.False(t, bucketStatusChanged(old, new))
+	})
+
+	t.Run("irrelevant status change is ignored", func(t *testing.T) {
+		old := &cosiapi.Bucket{
+			Status: cosiapi.BucketStatus{
+				BucketID:   "some-bucket-id",
+				ReadyToUse: ptr.To(true),
+				Protocols:  []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
+			},
+		}
+		new := old.DeepCopy()
+		new.Status.BucketInfo = map[string]string{"endpoint": "https://s3.example.com"}
+
+		assert.False(t, bucketStatusChanged(old, new))
+	})
 }
