@@ -13,6 +13,12 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+# The CI image ships whatever Go k/k master uses, and GOTOOLCHAIN=auto never downgrades to
+# go.mod's toolchain. Use that toolchain like a local build would, still upgrading for tools
+# that require a newer Go.
+GOTOOLCHAIN="$(sed -n "s/^toolchain //p" go.mod)+auto"
+export GOTOOLCHAIN
+
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 ROOT="${SCRIPT_DIR}/.."
 
