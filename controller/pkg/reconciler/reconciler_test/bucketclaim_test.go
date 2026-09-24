@@ -17,10 +17,13 @@ limitations under the License.
 package reconciler_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -32,6 +35,7 @@ import (
 	controller "sigs.k8s.io/container-object-storage-interface/controller/pkg/reconciler"
 	cositest "sigs.k8s.io/container-object-storage-interface/internal/test"
 	sidecartest "sigs.k8s.io/container-object-storage-interface/internal/test/sidecar"
+	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 )
 
 var (
@@ -459,6 +463,105 @@ func TestBucketClaimReconcile(t *testing.T) {
 					t.Run("subsequent deletion", func(t *testing.T) {
 						deletionTestSuite(t, initBootstrapped)
 					})
+				})
+
+				t.Run("still waiting after Bucket ID generated but not provisioned", func(t *testing.T) {
+					// The sidecar's DriverGenerateBucketId call persists status.bucketID before
+					// any backend bucket exists. A set bucketID alone must not advance the claim
+					// to ready.
+
+					// Set up: run the real sidecar Bucket reconciler against a driver that
+					// implements DriverGenerateBucketId but fails DriverCreateBucket, so the
+					// Bucket is left with an ID but unprovisioned by the production code path
+					// rather than by the test writing status directly.
+					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
+					ctx := bootstrapped.ContextWithLogger
+					r := claimReconcilerForClient(bootstrapped.Client)
+
+					_, bucketToProvision := getClaimAndBucket(bootstrapped)
+					idOnlyServer := cositest.FakeProvisionerServer{
+						GenerateBucketIdFunc: sidecartest.OpinionatedGenerateBucketIdFunc,
+						// nolint:lll
+						CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+							return nil, status.Error(codes.Unavailable, "backend not ready")
+						},
+					}
+					_, err := sidecartest.ReconcileBucket(t, bootstrapped, &idOnlyServer,
+						sidecartest.OpinionatedS3DriverInfo(), cositest.NsName(bucketToProvision))
+					require.Error(t, err) // DriverCreateBucket failed, so the Bucket never became ready
+
+					initClaim, initBucket := getClaimAndBucket(bootstrapped)
+					require.NotEmpty(t, initBucket.Status.BucketID) // DriverGenerateBucketId's ID was persisted
+					require.False(t, ptr.Deref(initBucket.Status.ReadyToUse, false))
+
+					// Act: reconcile the BucketClaim against that unprovisioned Bucket.
+					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+
+					// Expect: a retryable "still waiting" error, not success and not terminal,
+					// since bucketID alone isn't provisioning-complete.
+					assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
+					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					assert.Empty(t, res)
+
+					// Validate: the claim was left untouched (spec, binding, readiness, and
+					// protocols all unchanged), and the controller did not write to the Bucket
+					// it doesn't own the status of.
+					claim, bucket := getClaimAndBucket(bootstrapped)
+
+					assert.Equal(t, initClaim.Spec, claim.Spec)
+					assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
+					assert.False(t, ptr.Deref(claim.Status.ReadyToUse, false))
+					assert.Empty(t, claim.Status.Protocols)
+
+					// the sidecar owns the Bucket status; the controller must not touch it
+					assert.Equal(t, initBucket.Status, bucket.Status)
+				})
+
+				t.Run("still waiting when Bucket has no ID", func(t *testing.T) {
+					// The mirror of the case above: readyToUse is set, but bucketID is absent.
+					// Neither half of the provisioning gate may advance the claim on its own, so
+					// this must also be "still waiting".
+
+					// Set up: fully provision the Bucket with the sidecar reconciler, then clear
+					// status.bucketID (this should stall the reconcile).
+					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
+					ctx := bootstrapped.ContextWithLogger
+					r := claimReconcilerForClient(bootstrapped.Client)
+
+					_, bucketToProvision := getClaimAndBucket(bootstrapped)
+					noIdBucket, err := sidecartest.ReconcileOpinionatedS3Bucket(
+						t, bootstrapped, cositest.NsName(bucketToProvision))
+					require.NoError(t, err)
+					require.True(t, ptr.Deref(noIdBucket.Status.ReadyToUse, false))
+
+					// clear the BucketID
+					noIdBucket.Status.BucketID = ""
+					require.NoError(t, bootstrapped.Client.Status().Update(ctx, noIdBucket))
+
+					initClaim, initBucket := getClaimAndBucket(bootstrapped)
+					require.Empty(t, initBucket.Status.BucketID)
+					require.True(t, ptr.Deref(initBucket.Status.ReadyToUse, false))
+
+					// Act: reconcile the BucketClaim against that Bucket.
+					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+
+					// Expect: the same retryable "still waiting" error, not success and not
+					// terminal, since readyToUse alone isn't provisioning-complete either.
+					assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
+					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					assert.Empty(t, res)
+
+					// Validate: the claim was left untouched, and the controller did not write to
+					// the Bucket it doesn't own the status of.
+					claim, bucket := getClaimAndBucket(bootstrapped)
+
+					assert.Equal(t, initClaim.Spec, claim.Spec)
+					assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
+					assert.False(t, ptr.Deref(claim.Status.ReadyToUse, false))
+					assert.Empty(t, claim.Status.Protocols)
+
+					// the sidecar owns the Bucket status; the controller must not touch it
+					assert.Equal(t, initBucket.Status, bucket.Status)
 				})
 
 				t.Run("still waiting after Bucket error", func(t *testing.T) {

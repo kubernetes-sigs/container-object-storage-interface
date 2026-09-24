@@ -71,6 +71,14 @@ func ReconcileBucket(
 	return bucket, nil
 }
 
+// OpinionatedGenerateBucketIdFunc is the DriverGenerateBucketId behavior shared by all opinionated
+// fake drivers: it deterministically derives the bucket ID from the requested name.
+func OpinionatedGenerateBucketIdFunc(
+	ctx context.Context, dgbir *cosiproto.DriverGenerateBucketIdRequest,
+) (*cosiproto.DriverGenerateBucketIdResponse, error) {
+	return &cosiproto.DriverGenerateBucketIdResponse{BucketId: "cosi-" + dgbir.Name}, nil
+}
+
 // OpinionatedS3DriverInfo returns DriverInfo compatible with the opinionated S3 driver,
 // BucketClass, and BucketAccessClass.
 // It is suitable for unit testing behavior that relies on a Bucket to be reconciled as a
@@ -94,14 +102,14 @@ func ReconcileOpinionatedS3Bucket(
 	nsName types.NamespacedName,
 ) (*cosiapi.Bucket, error) {
 	fakeServer := cositest.FakeProvisionerServer{
+		GenerateBucketIdFunc: OpinionatedGenerateBucketIdFunc,
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				BucketId: "cosi-" + dcbr.Name,
 				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        cositest.OpinionatedS3BucketClass().Spec.DriverName,
-						BucketId:        "cosi-" + dcbr.Name,
+						BucketId:        dcbr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -139,14 +147,14 @@ func ReconcileOpinionatedGcsBucket(
 	nsName types.NamespacedName,
 ) (*cosiapi.Bucket, error) {
 	fakeServer := cositest.FakeProvisionerServer{
+		GenerateBucketIdFunc: OpinionatedGenerateBucketIdFunc,
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				BucketId: "cosi-" + dcbr.Name,
 				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 					Gcs: &cosiproto.GcsBucketInfo{
 						ProjectId:  "cosi",
-						BucketName: "cosi-" + dcbr.Name,
+						BucketName: "backend-" + dcbr.BucketId,
 					},
 				},
 			}
@@ -236,10 +244,10 @@ func ReconcileOpinionatedAzureBucket(
 	nsName types.NamespacedName,
 ) (*cosiapi.Bucket, error) {
 	fakeServer := cositest.FakeProvisionerServer{
+		GenerateBucketIdFunc: OpinionatedGenerateBucketIdFunc,
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				BucketId: "cosi-" + dcbr.Name,
 				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
 					Azure: &cosiproto.AzureBucketInfo{
 						StorageAccount: "cosi",

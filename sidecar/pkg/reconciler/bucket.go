@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"time"
 
@@ -43,6 +44,37 @@ import (
 	cosiproto "sigs.k8s.io/container-object-storage-interface/proto"
 	"sigs.k8s.io/container-object-storage-interface/sidecar/internal/translator"
 )
+
+// These duplicate the +kubebuilder:validation:MaxLength and :Pattern markers on
+// BucketStatus.BucketID in client/apis/objectstorage/v1alpha2/bucket_types.go; markers must be
+// literals, so keep the two in sync by hand.
+const (
+	bucketIDPatternStr = `^[a-zA-Z0-9/._-]+$`
+	bucketIDMaxLength  = 2048
+)
+
+var bucketIDPattern = regexp.MustCompile(bucketIDPatternStr)
+
+// validateBucketID checks a bucket ID against the length and character constraints shared by the
+// bucket_id fields of the DriverGenerateBucketId and DriverCreateBucket RPCs (see proto/spec.md).
+// Checking here reports a non-conforming driver ID as a driver bug, rather than letting it surface
+// later as an API server rejection of the status write.
+func validateBucketID(id string) error {
+	allErrs := []string{}
+
+	if len(id) > bucketIDMaxLength {
+		allErrs = append(allErrs, fmt.Sprintf("must be no more than %d characters: length=%d", bucketIDMaxLength, len(id)))
+	}
+
+	if !bucketIDPattern.MatchString(id) {
+		allErrs = append(allErrs, fmt.Sprintf("must match pattern %q", bucketIDPatternStr))
+	}
+
+	if len(allErrs) > 0 {
+		return fmt.Errorf("bucket ID %q is invalid: %v", id, allErrs)
+	}
+	return nil
+}
 
 // BucketReconciler reconciles a Bucket object
 type BucketReconciler struct {
@@ -182,17 +214,53 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 		}
 	}
 
+	// status.bucketID is always persisted before the backend bucket is provisioned, for both
+	// provisioning strategies, so every backend bucket that might exist is reachable by an ID
+	// Kubernetes already holds. Dynamic provisioning mints the ID with DriverGenerateBucketId;
+	// static provisioning takes it from spec.existingBucketID.
+	bucketID, err := getBucketIdIfSet(bucket)
+	if err != nil {
+		logger.Error(err, "failed to determine the bucket ID")
+		return err
+	}
+
+	if bucketID == "" {
+		bucketID, err = r.generateBucketID(ctx, logger, generateIdParams{
+			name:           bucket.Name,
+			requiredProtos: requiredProtos,
+			parameters:     bucket.Spec.Parameters,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	logger = logger.WithValues("bucketID", bucketID)
+
+	if bucketID == "" {
+		// Having a bucketId is a hard requirement for provisioning.
+		logger.Error(nil, "internal error: no bucket ID determined before provisioning")
+		return cosierr.NonRetryableError(
+			fmt.Errorf("internal error: no bucket ID determined before provisioning"))
+	}
+
+	if bucket.Status.BucketID == "" {
+		if err := r.recordBucketId(ctx, logger, bucket, bucketID); err != nil {
+			return err
+		}
+	}
+
 	var provisionedBucket *provisionedBucketDetails
 	if isStaticProvisioning {
 		provisionedBucket, err = r.staticProvision(ctx, logger, staticProvisionParams{
-			existingBucketID: bucket.Spec.ExistingBucketID,
+			existingBucketID: bucketID,
 			requiredProtos:   requiredProtos,
 			parameters:       bucket.Spec.Parameters,
 			claimRef:         bucket.Spec.BucketClaimRef,
 		})
 	} else {
 		provisionedBucket, err = r.dynamicProvision(ctx, logger, dynamicProvisionParams{
-			bucketName:     bucket.Name,
+			bucketID:       bucketID,
 			requiredProtos: requiredProtos,
 			parameters:     bucket.Spec.Parameters,
 			claimRef:       bucket.Spec.BucketClaimRef,
@@ -216,7 +284,8 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 
 	bucket.Status = cosiapi.BucketStatus{
 		ReadyToUse: ptr.To(true),
-		BucketID:   provisionedBucket.bucketId,
+		// already persisted before provisioning; carried forward because status is replaced whole
+		BucketID:   bucketID,
 		Protocols:  provisionedBucket.supportedProtos,
 		BucketInfo: provisionedBucket.allProtoBucketInfo,
 		Error:      nil,
@@ -295,20 +364,107 @@ func (r *BucketReconciler) reconcileDelete(
 	return nil
 }
 
+// getBucketIdIfSet returns the bucket ID that Kubernetes already holds for this Bucket, or an
+// empty string when it holds none and the driver must generate one. `status.bucketID` takes precedence
+// over `spec.existingBucketID`.
+func getBucketIdIfSet(bucket *cosiapi.Bucket) (string, error) {
+	if bucket.Status.BucketID == "" && ptr.Deref(bucket.Status.ReadyToUse, false) {
+		// A Bucket that has not been assigned an ID cannot have been provisioned, so this sidecar
+		// never writes this combination. Since COSI cannot tell how this situation came about,
+		// return a NonRetryableError.
+		return "", cosierr.NonRetryableError(
+			fmt.Errorf("invalid Bucket status: readyToUse is true but no bucket ID is assigned"))
+	}
+
+	if bucket.Status.BucketID != "" {
+		return bucket.Status.BucketID, nil
+	}
+
+	return bucket.Spec.ExistingBucketID, nil
+}
+
+// recordBucketId persists the bucket ID to status.bucketID. This runs before any backend bucket
+// exists, so readyToUse is hard coded to false.
+func (r *BucketReconciler) recordBucketId(
+	ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket, bucketID string,
+) error {
+	bucket.Status.BucketID = bucketID
+	bucket.Status.ReadyToUse = ptr.To(false)
+
+	if err := r.Status().Update(ctx, bucket); err != nil {
+		logger.Error(err, "failed to update Bucket status with the bucket ID")
+		return fmt.Errorf("failed to update Bucket status with the bucket ID: %w", err)
+	}
+	logger.Info("recorded bucket ID")
+
+	return nil
+}
+
 // Details about provisioned bucket for both dynamic and static provisioning.
 // A struct with named params allows for future expansion easily.
 // When param lists get long, named fields help with readability, review, and maintenance.
 type provisionedBucketDetails struct {
-	bucketId           string
 	supportedProtos    []cosiapi.ObjectProtocol
 	allProtoBucketInfo map[string]string
+}
+
+// Parameters for the DriverGenerateBucketId step of the dynamic provisioning workflow.
+// A struct with named params allows for future expansion easily.
+// When param lists get long, named fields help with readability, review, and maintenance.
+type generateIdParams struct {
+	name           string
+	requiredProtos []*cosiproto.ObjectProtocol
+	parameters     map[string]string
+}
+
+// Call DriverGenerateBucketId and return the generated bucket ID. The driver generates the ID
+// without provisioning any backend resource. The caller is responsible for persisting the
+// returned ID to status.bucketID before provisioning the backend bucket (dynamicProvision): this
+// guarantees that any backend bucket created there is reachable by an ID that is already recorded
+// in Kubernetes, even if the sidecar crashes between the two calls.
+func (r *BucketReconciler) generateBucketID(
+	ctx context.Context,
+	logger logr.Logger,
+	generate generateIdParams,
+) (string, error) {
+	// The input parameters given here are the same parameters later used to provision the bucket,
+	// so a driver may use any of them when determining bucket_id. See proto/spec.md.
+	resp, err := r.DriverInfo.ProvisionerClient.DriverGenerateBucketId(ctx,
+		&cosiproto.DriverGenerateBucketIdRequest{
+			Name:       generate.name,
+			Protocols:  generate.requiredProtos,
+			Parameters: generate.parameters,
+		},
+	)
+	if err != nil {
+		logger.Error(err, "DriverGenerateBucketIdRequest error")
+		if rpcErrorIsRetryable(status.Code(err)) {
+			return "", err
+		}
+		return "", cosierr.NonRetryableError(err)
+	}
+
+	if resp.BucketId == "" {
+		logger.Error(nil, "generated bucket ID missing")
+		// driver behavior is unlikely to change if the request is retried
+		return "", cosierr.NonRetryableError(fmt.Errorf("generated bucket ID missing"))
+	}
+
+	if err := validateBucketID(resp.BucketId); err != nil {
+		// A driver that returns a non-conforming ID will keep returning it, and the ID would
+		// otherwise surface later as an API server rejection of the status write.
+		logger.Error(err, "generated bucket ID is invalid", "bucketID", resp.BucketId)
+		return "", cosierr.NonRetryableError(err)
+	}
+
+	return resp.BucketId, nil
 }
 
 // Parameters for dynamic provisioning workflow.
 // A struct with named params allows for future expansion easily.
 // When param lists get long, named fields help with readability, review, and maintenance.
 type dynamicProvisionParams struct {
-	bucketName     string
+	bucketID       string
 	requiredProtos []*cosiproto.ObjectProtocol
 	parameters     map[string]string
 	claimRef       cosiapi.BucketClaimReference
@@ -333,7 +489,7 @@ func (r *BucketReconciler) dynamicProvision(
 
 	resp, err := r.DriverInfo.ProvisionerClient.DriverCreateBucket(ctx,
 		&cosiproto.DriverCreateBucketRequest{
-			Name:       dynamic.bucketName,
+			BucketId:   dynamic.bucketID,
 			Protocols:  dynamic.requiredProtos,
 			Parameters: dynamic.parameters,
 		},
@@ -344,12 +500,6 @@ func (r *BucketReconciler) dynamicProvision(
 			return nil, err
 		}
 		return nil, cosierr.NonRetryableError(err)
-	}
-
-	if resp.BucketId == "" {
-		logger.Error(nil, "created bucket ID missing")
-		// driver behavior is unlikely to change if the request is retried
-		return nil, cosierr.NonRetryableError(fmt.Errorf("created bucket ID missing"))
 	}
 
 	protoResp := resp.Protocols
@@ -366,7 +516,6 @@ func (r *BucketReconciler) dynamicProvision(
 	}
 
 	details = &provisionedBucketDetails{
-		bucketId:           resp.BucketId,
 		supportedProtos:    supportedProtos,
 		allProtoBucketInfo: allBucketInfo,
 	}
@@ -415,11 +564,6 @@ func (r *BucketReconciler) staticProvision(
 		return nil, cosierr.NonRetryableError(err)
 	}
 
-	if resp.BucketId == "" {
-		logger.Error(nil, "existing bucket ID missing in response")
-		return nil, cosierr.NonRetryableError(fmt.Errorf("existing bucket ID missing in response"))
-	}
-
 	protoResp := resp.Protocols
 	if protoResp == nil {
 		logger.Error(nil, "existing bucket protocol response missing")
@@ -434,7 +578,6 @@ func (r *BucketReconciler) staticProvision(
 	}
 
 	return &provisionedBucketDetails{
-		bucketId:           resp.BucketId,
 		supportedProtos:    supportedProtos,
 		allProtoBucketInfo: allBucketInfo,
 	}, nil
