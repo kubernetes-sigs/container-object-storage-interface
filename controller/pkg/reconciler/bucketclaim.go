@@ -133,7 +133,10 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&cosiapi.Bucket{},
 			handler.EnqueueRequestsFromMapFunc(mapBucketToBucketClaim),
-			builder.WithPredicates(cosipredicate.AnyCreate()),
+			builder.WithPredicates(ctrlpredicate.Or(
+				cosipredicate.AnyCreate(),
+				cosipredicate.AnyDelete(),
+			)),
 		).
 		Named("bucketclaim").
 		Complete(r)
@@ -350,8 +353,7 @@ func (r *BucketClaimReconciler) reconcileDelete(
 
 		if !bucket.DeletionTimestamp.IsZero() {
 			logger.Info("still waiting for Bucket to be deleted")
-			// TODO: return nil when Bucket watcher is set up
-			return fmt.Errorf("still waiting for Bucket to be deleted")
+			return nil
 		}
 
 		if err := r.Delete(ctx, bucket); err != nil {
@@ -359,10 +361,10 @@ func (r *BucketClaimReconciler) reconcileDelete(
 			return fmt.Errorf("failed to delete Bucket: %w", err)
 		}
 
+		// The Bucket watch's delete event (see SetupWithManager) re-enqueues this BucketClaim once
+		// the Bucket is gone, so the finalizer is removed on a future reconcile; no backoff behind it.
 		logger.Info("waiting for Bucket to be deleted")
-		// TODO: return nil when Bucket watcher is set up
-		return fmt.Errorf("waiting for Bucket to be deleted")
-		// once Bucket is deleted, a future reconcile will remove the BucketClaim finalizer
+		return nil
 
 	default:
 		logger.Error(nil, "unknown Bucket deletion policy", "deletionPolicy", bucket.Spec.DeletionPolicy)
