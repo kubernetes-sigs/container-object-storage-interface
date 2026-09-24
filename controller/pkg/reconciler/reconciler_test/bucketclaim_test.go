@@ -604,6 +604,26 @@ func TestBucketClaimReconcile(t *testing.T) {
 					})
 				})
 
+				t.Run("bucket deleted before claim", func(t *testing.T) {
+					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
+					ctx := bootstrapped.ContextWithLogger
+					r := claimReconcilerForClient(bootstrapped.Client)
+
+					_, initBucket := getClaimAndBucket(bootstrapped)
+					require.NotNil(t, initBucket)
+
+					// Add the protection finalizer as the Sidecar would, so the Bucket lingers in
+					// a deleting state instead of disappearing immediately.
+					initBucket.Finalizers = append(initBucket.Finalizers, cosiapi.ProtectionFinalizer)
+					require.NoError(t, r.Update(ctx, initBucket))
+					require.NoError(t, r.Delete(ctx, initBucket)) // delete Bucket before BucketClaim
+
+					// Deleting the claim afterwards must behave the same as the normal orderings.
+					// Notably, the Bucket still has to be annotated, or the Sidecar will never
+					// release it and both resources stay stuck.
+					deletionTestSuite(t, bootstrapped)
+				})
+
 				t.Run("err bucket force-deleted", func(t *testing.T) {
 					// note: this is also equivalent to the BucketClaim `boundBucketName` not
 					// matching the previous/intended bucket.

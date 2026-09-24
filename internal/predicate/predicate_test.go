@@ -82,6 +82,19 @@ func TestDeletionTimestampAdded(t *testing.T) {
 	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: deleting, ObjectNew: deleting.DeepCopy()}))
 }
 
+func TestBucketClaimBeingDeletedAnnotationAdded(t *testing.T) {
+	old := &cosiapi.Bucket{}
+	annotated := old.DeepCopy()
+	annotated.Annotations = map[string]string{cosiapi.BucketClaimBeingDeletedAnnotation: ""}
+
+	predicate := BucketClaimBeingDeletedAnnotationAdded()
+
+	assert.True(t, predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: annotated}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: annotated, ObjectNew: annotated.DeepCopy()}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: old.DeepCopy()}))
+	assert.False(t, predicate.Update(event.UpdateEvent{ObjectOld: annotated, ObjectNew: old}))
+}
+
 func Test_handoffOccurred(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 	logger := ctrl.Log.WithName("predicate")

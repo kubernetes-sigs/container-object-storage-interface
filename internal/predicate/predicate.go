@@ -94,6 +94,21 @@ func DeletionTimestampAdded() predicate.Funcs {
 	return funcs
 }
 
+// BucketClaimBeingDeletedAnnotationAdded implements a predicate that enqueues a reconcile for
+// Update events where the BucketClaim-being-deleted annotation is added.
+//
+// The predicate does not enqueue requests for any Create/Delete/Generic events.
+// This ensures that other predicates can effectively filter out undesired non-Update events.
+func BucketClaimBeingDeletedAnnotationAdded() predicate.Funcs {
+	funcs := allFalseFuncs()
+	funcs.UpdateFunc = func(e event.UpdateEvent) bool {
+		_, oldHas := e.ObjectOld.GetAnnotations()[cosiapi.BucketClaimBeingDeletedAnnotation]
+		_, newHas := e.ObjectNew.GetAnnotations()[cosiapi.BucketClaimBeingDeletedAnnotation]
+		return !oldHas && newHas
+	}
+	return funcs
+}
+
 // ProtectionFinalizerRemoved implements a predicate that enqueues a reconcile for Update events
 // where the protection finalizer has been removed. This helps ensure that COSI always has a chance
 // to re-apply the protection finalizer when it's needed.
