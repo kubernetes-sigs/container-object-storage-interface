@@ -2191,9 +2191,9 @@ type accountIdDriver struct {
 type reconcileErrKind int
 
 const (
-	errNone reconcileErrKind = iota
-	errTerminal
-	errRetryable
+	reconcileOK reconcileErrKind = iota
+	reconcileTerminal
+	reconcileRetryable
 )
 
 // accountIdReconcile is one reconcile of the BucketAccess and its expected result.
@@ -2266,13 +2266,13 @@ func (env *bucketAccessAccountIdTestEnv) reconcile(
 func assertReconcileErr(t *testing.T, err error, kind reconcileErrKind, msg string) {
 	t.Helper()
 	switch kind {
-	case errNone:
+	case reconcileOK:
 		require.NoError(t, err)
 		return
-	case errTerminal:
+	case reconcileTerminal:
 		require.Error(t, err)
 		assert.ErrorIs(t, err, reconcile.TerminalError(nil))
-	case errRetryable:
+	case reconcileRetryable:
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
 	}
@@ -2369,7 +2369,7 @@ func bucketAccessAccountIdPersistenceTestSuite(t *testing.T, env *bucketAccessAc
 			name:       "Grant failure keeps the ID and the retry skips Generate",
 			generateId: "id-1",
 			reconciles: []accountIdReconcile{
-				{grantErr: grantUnavailableErr, wantErr: errRetryable, wantErrMsg: "fake grant failure"},
+				{grantErr: grantUnavailableErr, wantErr: reconcileRetryable, wantErrMsg: "fake grant failure"},
 				okReconcile,
 			},
 			wantGenerateCalls: 1,
@@ -2390,7 +2390,7 @@ func bucketAccessAccountIdPersistenceTestSuite(t *testing.T, env *bucketAccessAc
 			name:       "deleting a phase-1-only access revokes the generated ID",
 			generateId: "phase1-id",
 			reconciles: []accountIdReconcile{
-				{grantErr: grantUnavailableErr, wantErr: errRetryable, wantErrMsg: "fake grant failure"},
+				{grantErr: grantUnavailableErr, wantErr: reconcileRetryable, wantErrMsg: "fake grant failure"},
 			},
 			wantGenerateCalls: 1,
 			wantGrantCalls:    1,
@@ -2411,7 +2411,7 @@ func bucketAccessReadyWithoutAccountIdTestSuite(t *testing.T, env *bucketAccessA
 	access.Status.ReadyToUse = ptr.To(true)
 	require.NoError(t, bootstrapped.Client.Status().Update(bootstrapped.ContextWithLogger, access))
 
-	assertReconcileErr(t, env.reconcile(bootstrapped, r), errTerminal,
+	assertReconcileErr(t, env.reconcile(bootstrapped, r), reconcileTerminal,
 		"readyToUse is true but no account ID is assigned")
 
 	assert.Empty(t, d.generateReqs, "DriverGenerateBucketAccessId calls")
@@ -2431,41 +2431,41 @@ func bucketAccessGenerateIdFailureTestSuite(t *testing.T, env *bucketAccessAccou
 		{
 			name:              "empty generated ID",
 			generateId:        "",
-			reconciles:        []accountIdReconcile{{wantErr: errTerminal, wantErrMsg: "missing"}},
+			reconciles:        []accountIdReconcile{{wantErr: reconcileTerminal, wantErrMsg: "missing"}},
 			wantGenerateCalls: 1,
 			wantStatusErrMsg:  "missing",
 		},
 		{
 			name:              "generated ID violates pattern",
 			generateId:        "has space!",
-			reconciles:        []accountIdReconcile{{wantErr: errTerminal, wantErrMsg: "pattern"}},
+			reconciles:        []accountIdReconcile{{wantErr: reconcileTerminal, wantErrMsg: "pattern"}},
 			wantGenerateCalls: 1,
 			wantStatusErrMsg:  "pattern",
 		},
 		{
 			name:              "generated ID exceeds max length",
 			generateId:        strings.Repeat("a", 2049),
-			reconciles:        []accountIdReconcile{{wantErr: errTerminal, wantErrMsg: "no more than"}},
+			reconciles:        []accountIdReconcile{{wantErr: reconcileTerminal, wantErrMsg: "no more than"}},
 			wantGenerateCalls: 1,
 			wantStatusErrMsg:  "no more than",
 		},
 		{
 			name:              "retryable Generate error",
 			generateErr:       grpcstatus.Error(codes.Unavailable, "fake generate unavailable"),
-			reconciles:        []accountIdReconcile{{wantErr: errRetryable, wantErrMsg: "fake generate unavailable"}},
+			reconciles:        []accountIdReconcile{{wantErr: reconcileRetryable, wantErrMsg: "fake generate unavailable"}},
 			wantGenerateCalls: 1,
 		},
 		{
 			name:              "non-retryable Generate error",
 			generateErr:       grpcstatus.Error(codes.InvalidArgument, "fake generate invalid"),
-			reconciles:        []accountIdReconcile{{wantErr: errTerminal, wantErrMsg: "fake generate invalid"}},
+			reconciles:        []accountIdReconcile{{wantErr: reconcileTerminal, wantErrMsg: "fake generate invalid"}},
 			wantGenerateCalls: 1,
 			wantStatusErrMsg:  "fake generate invalid",
 		},
 		{
 			name:              "Generate OutOfRange means no multi-bucket support",
 			generateErr:       grpcstatus.Error(codes.OutOfRange, "fake one bucket only"),
-			reconciles:        []accountIdReconcile{{wantErr: errTerminal, wantErrMsg: "driver does not support multi-bucket access"}},
+			reconciles:        []accountIdReconcile{{wantErr: reconcileTerminal, wantErrMsg: "driver does not support multi-bucket access"}},
 			wantGenerateCalls: 1,
 			wantStatusErrMsg:  "driver does not support multi-bucket access",
 		},
@@ -2498,6 +2498,8 @@ func bucketAccessGenerateGrantConsistencyTestSuite(t *testing.T, env *bucketAcce
 	for _, b := range gen.Buckets {
 		assert.True(t, accessedBucketRequestExists(grant.Buckets, b), "bucket %q missing from Grant", b.BucketId)
 	}
+
+	bucketAccessAccountDeletionTestSuite(t, env, bootstrapped, r, d, "shared-id")
 }
 
 func accessedBucketRequestExists(
