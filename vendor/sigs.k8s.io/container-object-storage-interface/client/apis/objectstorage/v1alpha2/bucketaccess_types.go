@@ -130,7 +130,7 @@ type BucketAccessStatus struct {
 	ReadyToUse *bool `json:"readyToUse,omitempty"`
 
 	// accountID is the unique identifier for the backend access known to the driver.
-	// This field is populated by the COSI Sidecar once access has been successfully granted.
+	// The COSI Sidecar populates this field with the driver-generated ID before access is granted.
 	// Must be at most 2048 characters and consist only of alphanumeric characters ([a-z0-9A-Z]),
 	// dashes (-), dots (.), underscores (_), and forward slash (/).
 	// +optional
