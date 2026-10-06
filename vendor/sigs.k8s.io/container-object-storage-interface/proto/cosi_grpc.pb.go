@@ -113,12 +113,13 @@ var Identity_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	Provisioner_DriverGenerateBucketId_FullMethodName   = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGenerateBucketId"
-	Provisioner_DriverCreateBucket_FullMethodName       = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverCreateBucket"
-	Provisioner_DriverGetBucket_FullMethodName          = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGetBucket"
-	Provisioner_DriverDeleteBucket_FullMethodName       = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverDeleteBucket"
-	Provisioner_DriverGrantBucketAccess_FullMethodName  = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGrantBucketAccess"
-	Provisioner_DriverRevokeBucketAccess_FullMethodName = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverRevokeBucketAccess"
+	Provisioner_DriverGenerateBucketId_FullMethodName       = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGenerateBucketId"
+	Provisioner_DriverCreateBucket_FullMethodName           = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverCreateBucket"
+	Provisioner_DriverGetBucket_FullMethodName              = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGetBucket"
+	Provisioner_DriverDeleteBucket_FullMethodName           = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverDeleteBucket"
+	Provisioner_DriverGenerateBucketAccessId_FullMethodName = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGenerateBucketAccessId"
+	Provisioner_DriverGrantBucketAccess_FullMethodName      = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverGrantBucketAccess"
+	Provisioner_DriverRevokeBucketAccess_FullMethodName     = "/sigs.k8s.io.cosi.v1alpha2.Provisioner/DriverRevokeBucketAccess"
 )
 
 // ProvisionerClient is the client API for Provisioner service.
@@ -150,7 +151,15 @@ type ProvisionerClient interface {
 	// Important return codes:
 	// - MUST return OK if the bucket has already been deleted.
 	DriverDeleteBucket(ctx context.Context, in *DriverDeleteBucketRequest, opts ...grpc.CallOption) (*DriverDeleteBucketResponse, error)
+	// Generate the identifier that COSI will use for all subsequent calls related to a bucket access.
+	// It MUST return the same account_id for every call with the same account_name.
+	// This is phase 1 of the 2-phase provisioning process. It is RECOMMENDED to only generate an ID
+	// and NOT RECOMMENDED to provision any backend resource.
+	// It MUST NOT result in backend resource leakage if this command fails and COSI subsequently
+	// deletes the resource without calling DriverRevokeBucketAccess.
+	DriverGenerateBucketAccessId(ctx context.Context, in *DriverGenerateBucketAccessIdRequest, opts ...grpc.CallOption) (*DriverGenerateBucketAccessIdResponse, error)
 	// Grant access to a bucket.
+	// This is phase 2 of the 2-phase provisioning process.
 	//
 	// Important return codes:
 	// - MUST return OK if a principal with matching identity and parameters already exists.
@@ -208,6 +217,15 @@ func (c *provisionerClient) DriverDeleteBucket(ctx context.Context, in *DriverDe
 	return out, nil
 }
 
+func (c *provisionerClient) DriverGenerateBucketAccessId(ctx context.Context, in *DriverGenerateBucketAccessIdRequest, opts ...grpc.CallOption) (*DriverGenerateBucketAccessIdResponse, error) {
+	out := new(DriverGenerateBucketAccessIdResponse)
+	err := c.cc.Invoke(ctx, Provisioner_DriverGenerateBucketAccessId_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *provisionerClient) DriverGrantBucketAccess(ctx context.Context, in *DriverGrantBucketAccessRequest, opts ...grpc.CallOption) (*DriverGrantBucketAccessResponse, error) {
 	out := new(DriverGrantBucketAccessResponse)
 	err := c.cc.Invoke(ctx, Provisioner_DriverGrantBucketAccess_FullMethodName, in, out, opts...)
@@ -255,7 +273,15 @@ type ProvisionerServer interface {
 	// Important return codes:
 	// - MUST return OK if the bucket has already been deleted.
 	DriverDeleteBucket(context.Context, *DriverDeleteBucketRequest) (*DriverDeleteBucketResponse, error)
+	// Generate the identifier that COSI will use for all subsequent calls related to a bucket access.
+	// It MUST return the same account_id for every call with the same account_name.
+	// This is phase 1 of the 2-phase provisioning process. It is RECOMMENDED to only generate an ID
+	// and NOT RECOMMENDED to provision any backend resource.
+	// It MUST NOT result in backend resource leakage if this command fails and COSI subsequently
+	// deletes the resource without calling DriverRevokeBucketAccess.
+	DriverGenerateBucketAccessId(context.Context, *DriverGenerateBucketAccessIdRequest) (*DriverGenerateBucketAccessIdResponse, error)
 	// Grant access to a bucket.
+	// This is phase 2 of the 2-phase provisioning process.
 	//
 	// Important return codes:
 	// - MUST return OK if a principal with matching identity and parameters already exists.
@@ -285,6 +311,9 @@ func (UnimplementedProvisionerServer) DriverGetBucket(context.Context, *DriverGe
 }
 func (UnimplementedProvisionerServer) DriverDeleteBucket(context.Context, *DriverDeleteBucketRequest) (*DriverDeleteBucketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DriverDeleteBucket not implemented")
+}
+func (UnimplementedProvisionerServer) DriverGenerateBucketAccessId(context.Context, *DriverGenerateBucketAccessIdRequest) (*DriverGenerateBucketAccessIdResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DriverGenerateBucketAccessId not implemented")
 }
 func (UnimplementedProvisionerServer) DriverGrantBucketAccess(context.Context, *DriverGrantBucketAccessRequest) (*DriverGrantBucketAccessResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DriverGrantBucketAccess not implemented")
@@ -377,6 +406,24 @@ func _Provisioner_DriverDeleteBucket_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Provisioner_DriverGenerateBucketAccessId_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DriverGenerateBucketAccessIdRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProvisionerServer).DriverGenerateBucketAccessId(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Provisioner_DriverGenerateBucketAccessId_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProvisionerServer).DriverGenerateBucketAccessId(ctx, req.(*DriverGenerateBucketAccessIdRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Provisioner_DriverGrantBucketAccess_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DriverGrantBucketAccessRequest)
 	if err := dec(in); err != nil {
@@ -435,6 +482,10 @@ var Provisioner_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DriverDeleteBucket",
 			Handler:    _Provisioner_DriverDeleteBucket_Handler,
+		},
+		{
+			MethodName: "DriverGenerateBucketAccessId",
+			Handler:    _Provisioner_DriverGenerateBucketAccessId_Handler,
 		},
 		{
 			MethodName: "DriverGrantBucketAccess",

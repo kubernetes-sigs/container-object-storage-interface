@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -189,9 +190,36 @@ func (r *BucketAccessReconciler) reconcile(
 		return fmt.Errorf("failed to build internal representation of grant-access configuration: %w", err)
 	}
 
+	accountID, err := getAccountIdIfSet(access)
+	if err != nil {
+		logger.Error(err, "failed to determine the account ID")
+		return err
+	}
+
+	if accountID == "" {
+		accountID, err = r.generateAccountID(ctx, logger, grantCfg)
+		if err != nil {
+			return err
+		}
+	}
+	logger = logger.WithValues("accountID", accountID)
+
+	if accountID == "" {
+		// Having an accountId is a hard requirement for granting access.
+		logger.Error(nil, "internal error: no account ID determined before granting access")
+		return cosierr.NonRetryableError(
+			fmt.Errorf("internal error: no account ID determined before granting access"))
+	}
+
+	if access.Status.AccountID == "" {
+		if err := r.recordAccountId(ctx, logger, access, accountID); err != nil {
+			return err
+		}
+	}
+
 	resp, err := r.DriverInfo.ProvisionerClient.DriverGrantBucketAccess(ctx,
 		&cosiproto.DriverGrantBucketAccessRequest{
-			AccountName:        grantCfg.AccountName,
+			AccountId:          accountID,
 			Protocol:           &cosiproto.ObjectProtocol{Type: grantCfg.Protocol},
 			AuthenticationType: &cosiproto.AuthenticationType{Type: grantCfg.AuthenticationType},
 			ServiceAccountName: grantCfg.ServiceAccountName,
@@ -233,13 +261,122 @@ func (r *BucketAccessReconciler) reconcile(
 		return err
 	}
 
-	access.Status.AccountID = grantDetails.AccountId
 	access.Status.ReadyToUse = ptr.To(true)
 	access.Status.Error = nil
 	if err := r.Status().Update(ctx, access); err != nil {
 		logger.Error(err, "failed to update BucketAccess status after successful access grant")
 		return fmt.Errorf("failed to update BucketAccess status after successful access grant: %w", err)
 	}
+
+	return nil
+}
+
+// Duplicates the markers on BucketAccessStatus.AccountID (bucketaccess_types.go) as Go literals,
+// so keep the two in sync by hand.
+const (
+	accountIDPatternStr = `^[a-zA-Z0-9/._-]+$`
+	accountIDMaxLength  = 2048
+)
+
+var accountIDPattern = regexp.MustCompile(accountIDPatternStr)
+
+// validateAccountID checks an account ID against the length and character constraints shared by
+// the account_id fields of the DriverGenerateBucketAccessId and DriverGrantBucketAccess RPCs.
+// Checking here reports a non-conforming driver ID as a driver bug, rather than letting it surface
+// later as an API server rejection of the status write.
+func validateAccountID(id string) error {
+	allErrs := []string{}
+
+	if len(id) > accountIDMaxLength {
+		allErrs = append(allErrs, fmt.Sprintf("must be no more than %d characters: length=%d", accountIDMaxLength, len(id)))
+	}
+
+	if !accountIDPattern.MatchString(id) {
+		allErrs = append(allErrs, fmt.Sprintf("must match pattern %q", accountIDPatternStr))
+	}
+
+	if len(allErrs) > 0 {
+		return fmt.Errorf("account ID %q is invalid: %v", id, allErrs)
+	}
+	return nil
+}
+
+// getAccountIdIfSet returns the account ID that Kubernetes already holds for this BucketAccess, or
+// an empty string when it holds none and the driver must generate one.
+func getAccountIdIfSet(access *cosiapi.BucketAccess) (string, error) {
+	if access.Status.AccountID == "" && ptr.Deref(access.Status.ReadyToUse, false) {
+		// A BucketAccess that has not been assigned an ID cannot have been granted, so this sidecar
+		// never writes this combination. Since COSI cannot tell how this situation came about,
+		// return a NonRetryableError.
+		return "", cosierr.NonRetryableError(
+			fmt.Errorf("invalid BucketAccess status: readyToUse is true but no account ID is assigned"))
+	}
+
+	return access.Status.AccountID, nil
+}
+
+// generateAccountID calls DriverGenerateBucketAccessId. The caller must persist the returned ID to
+// status.accountID before granting access (recordAccountId): this guarantees that any backend
+// access granted by DriverGrantBucketAccess is reachable by an ID already recorded in Kubernetes,
+// even if the sidecar crashes between the two calls.
+func (r *BucketAccessReconciler) generateAccountID(
+	ctx context.Context,
+	logger logr.Logger,
+	grantCfg *internalGrantAccessConfig,
+) (string, error) {
+	// The input parameters given here are the same parameters later used to grant access,
+	// so a driver may use any of them when determining account_id. See proto/spec.md.
+	resp, err := r.DriverInfo.ProvisionerClient.DriverGenerateBucketAccessId(ctx,
+		&cosiproto.DriverGenerateBucketAccessIdRequest{
+			AccountName:        grantCfg.AccountName,
+			Protocol:           &cosiproto.ObjectProtocol{Type: grantCfg.Protocol},
+			AuthenticationType: &cosiproto.AuthenticationType{Type: grantCfg.AuthenticationType},
+			ServiceAccountName: grantCfg.ServiceAccountName,
+			Parameters:         grantCfg.Parameters,
+			Buckets:            grantCfg.RpcGrantBucketsList(),
+		},
+	)
+	if err != nil {
+		if status.Code(err) == codes.OutOfRange {
+			err = fmt.Errorf("driver does not support multi-bucket access: %w", err)
+			logger.Error(err, "DriverGenerateBucketAccessId error")
+			return "", cosierr.NonRetryableError(err)
+		}
+
+		logger.Error(err, "DriverGenerateBucketAccessId error")
+		if rpcErrorIsRetryable(status.Code(err)) {
+			return "", err
+		}
+		return "", cosierr.NonRetryableError(err)
+	}
+
+	if resp.AccountId == "" {
+		logger.Error(nil, "generated account ID missing")
+		// driver behavior is unlikely to change if the request is retried
+		return "", cosierr.NonRetryableError(fmt.Errorf("generated account ID missing"))
+	}
+
+	if err := validateAccountID(resp.AccountId); err != nil {
+		logger.Error(err, "generated account ID is invalid", "accountID", resp.AccountId)
+		return "", cosierr.NonRetryableError(err)
+	}
+
+	return resp.AccountId, nil
+}
+
+// recordAccountId persists the generated account ID. It leaves status.error untouched; the final
+// status write after a successful grant clears it.
+func (r *BucketAccessReconciler) recordAccountId(
+	ctx context.Context, logger logr.Logger, access *cosiapi.BucketAccess, accountID string,
+) error {
+	access.Status.AccountID = accountID
+	access.Status.ReadyToUse = ptr.To(false)
+
+	if err := r.Status().Update(ctx, access); err != nil {
+		logger.Error(err, "failed to update BucketAccess status with the account ID")
+		return fmt.Errorf("failed to update BucketAccess status with the account ID: %w", err)
+	}
+	logger.Info("recorded account ID")
 
 	return nil
 }
@@ -525,7 +662,6 @@ func newInternalRevokeAccessConfig(access *cosiapi.BucketAccess) (*internalRevok
 
 // Internal API-domain details about a successfully-granted access.
 type grantedAccessApiDetails struct {
-	AccountId            string
 	SharedCredentialInfo map[string]string
 	BucketInfoByBucketId map[string]map[string]string
 }
@@ -536,10 +672,6 @@ func translateDriverGrantBucketAccessResponseToApi(
 	validation *translator.ValidationConfig,
 ) (*grantedAccessApiDetails, error) {
 	errs := []error{}
-
-	if resp.AccountId == "" {
-		errs = append(errs, fmt.Errorf("missing account ID"))
-	}
 
 	credInfo, err := translator.CredentialsToApi(resp.Credentials, *validation)
 	if err != nil {
@@ -568,7 +700,6 @@ func translateDriverGrantBucketAccessResponseToApi(
 	}
 
 	d := &grantedAccessApiDetails{
-		AccountId:            resp.AccountId, // DO NOT ALTER RESPONSE
 		SharedCredentialInfo: credInfo,
 		BucketInfoByBucketId: bucketInfoByBucketId,
 	}
