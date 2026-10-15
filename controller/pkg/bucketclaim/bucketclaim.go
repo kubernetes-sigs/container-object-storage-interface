@@ -205,7 +205,7 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 		copy(protocolCopy, bucketClaim.Spec.Protocols)
 
 		bucket.Spec.Protocols = protocolCopy
-		bucket, err = b.buckets().Create(ctx, bucket, metav1.CreateOptions{})
+		_, err = b.buckets().Create(ctx, bucket, metav1.CreateOptions{})
 		if err != nil && !kubeerrors.IsAlreadyExists(err) {
 			klog.V(3).ErrorS(err, "Error creationg bucket",
 				"bucket", bucketName,
@@ -215,6 +215,17 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 
 		bucketClaim.Status.BucketName = bucketName
 		bucketClaim.Status.BucketReady = false
+
+		// A retry, or a restart, finds the Bucket already there. If the sidecar
+		// has provisioned it since, the claim is ready: say so rather than
+		// assuming it is not.
+		if kubeerrors.IsAlreadyExists(err) {
+			existing, getErr := b.buckets().Get(ctx, bucketName, metav1.GetOptions{})
+			if getErr != nil {
+				return b.recordError(inputBucketClaim, v1.EventTypeWarning, v1alpha1.FailedCreateBucket, getErr)
+			}
+			bucketClaim.Status.BucketReady = existing.Status.BucketReady
+		}
 	}
 
 	// Update status with retry logic for conflict errors
@@ -222,29 +233,36 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 	statusBucketName := bucketClaim.Status.BucketName
 	statusBucketReady := bucketClaim.Status.BucketReady
 
+	// Key every read off inputBucketClaim: a failed UpdateStatus hands back an
+	// empty object, so bucketClaim has no name or namespace left to retry with.
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch the latest version of the BucketClaim
-		latest, getErr := b.bucketClaims(bucketClaim.Namespace).Get(
+		latest, getErr := b.bucketClaims(inputBucketClaim.Namespace).Get(
 			ctx,
-			bucketClaim.Name,
+			inputBucketClaim.Name,
 			metav1.GetOptions{},
 		)
 		if getErr != nil {
 			return getErr
 		}
 
-		// Apply the status changes to the latest version
+		// Apply the status changes to the latest version. The sidecar marks the
+		// claim ready once the driver has created the bucket, and it does that
+		// exactly once, so never take BucketReady back.
 		latest.Status.BucketName = statusBucketName
-		latest.Status.BucketReady = statusBucketReady
+		latest.Status.BucketReady = latest.Status.BucketReady || statusBucketReady
 
 		// Try to update the status
-		var updateErr error
-		bucketClaim, updateErr = b.bucketClaims(bucketClaim.Namespace).UpdateStatus(
+		updated, updateErr := b.bucketClaims(inputBucketClaim.Namespace).UpdateStatus(
 			ctx,
 			latest,
 			metav1.UpdateOptions{},
 		)
-		return updateErr
+		if updateErr != nil {
+			return updateErr
+		}
+		bucketClaim = updated
+		return nil
 	})
 	if err != nil {
 		klog.V(3).ErrorS(err, "Failed to update status of BucketClaim", "name", bucketClaim.ObjectMeta.Name)
@@ -256,9 +274,9 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 	// Update with retry logic for conflict errors
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch the latest version of the BucketClaim
-		latest, getErr := b.bucketClaims(bucketClaim.Namespace).Get(
+		latest, getErr := b.bucketClaims(inputBucketClaim.Namespace).Get(
 			ctx,
-			bucketClaim.Name,
+			inputBucketClaim.Name,
 			metav1.GetOptions{},
 		)
 		if getErr != nil {
@@ -269,13 +287,16 @@ func (b *BucketClaimListener) provisionBucketClaimOperation(ctx context.Context,
 		controllerutil.AddFinalizer(latest, util.BucketClaimFinalizer)
 
 		// Try to update
-		var updateErr error
-		bucketClaim, updateErr = b.bucketClaims(bucketClaim.Namespace).Update(
+		updated, updateErr := b.bucketClaims(inputBucketClaim.Namespace).Update(
 			ctx,
 			latest,
 			metav1.UpdateOptions{},
 		)
-		return updateErr
+		if updateErr != nil {
+			return updateErr
+		}
+		bucketClaim = updated
+		return nil
 	})
 	if err != nil {
 		klog.V(3).ErrorS(err, "Failed to add finalizer BucketClaim", "name", bucketClaim.ObjectMeta.Name)
