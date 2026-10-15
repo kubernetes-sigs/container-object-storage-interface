@@ -18,6 +18,9 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
+	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
@@ -45,12 +48,17 @@ func (s *COSIProvisionerServer) Run(ctx context.Context) error {
 		return fmt.Errorf("invalid argument: %w", err)
 	}
 
+	if err := removeStaleSocket(ctx, addr.Path); err != nil {
+		return fmt.Errorf("failed to prepare server socket: %w", err)
+	}
+
 	listenConfig := net.ListenConfig{}
 	listener, err := listenConfig.Listen(ctx, "unix", addr.Path)
 	if err != nil {
 		klog.ErrorS(err, "Failed to start server")
 		return fmt.Errorf("failed to start server: %w", err)
 	}
+	defer listener.Close()
 
 	server := grpc.NewServer(s.listenOpts...)
 
@@ -63,7 +71,7 @@ func (s *COSIProvisionerServer) Run(ctx context.Context) error {
 	cosi.RegisterIdentityServer(server, s.identityServer)
 	cosi.RegisterProvisionerServer(server, s.provisionerServer)
 
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	go func() {
 		errChan <- server.Serve(listener)
 	}()
@@ -75,4 +83,42 @@ func (s *COSIProvisionerServer) Run(ctx context.Context) error {
 	case err := <-errChan:
 		return err
 	}
+}
+
+// removeStaleSocket removes a socket left behind by an unclean shutdown.
+// An active listener or any other kind of file must not be replaced.
+func removeStaleSocket(ctx context.Context, path string) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("socket path %q is not a socket", path)
+	}
+
+	dialer := net.Dialer{Timeout: time.Second}
+	conn, err := dialer.DialContext(ctx, "unix", path)
+	if err == nil {
+		conn.Close()
+		return fmt.Errorf("socket %q already has an active listener", path)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		return fmt.Errorf("failed to check socket %q: %w", path, err)
+	}
+
+	// Avoid removing a file that replaced the socket while it was being checked.
+	current, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(info, current) {
+		return fmt.Errorf("socket path %q changed while checking it", path)
+	}
+	return os.Remove(path)
 }
