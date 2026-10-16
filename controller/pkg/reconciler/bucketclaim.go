@@ -137,6 +137,7 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(ctrlpredicate.Or(
 				cosipredicate.AnyCreate(),
 				cosipredicate.BucketReadinessStatusChanged(r.Scheme),
+				cosipredicate.AnyDelete(),
 			)),
 		).
 		Named("bucketclaim").
@@ -358,8 +359,7 @@ func (r *BucketClaimReconciler) reconcileDelete(
 
 		if !bucket.DeletionTimestamp.IsZero() {
 			logger.Info("still waiting for Bucket to be deleted")
-			// TODO: return nil when Bucket watcher is set up
-			return fmt.Errorf("still waiting for Bucket to be deleted")
+			return nil
 		}
 
 		if err := r.Delete(ctx, bucket); err != nil {
@@ -368,9 +368,7 @@ func (r *BucketClaimReconciler) reconcileDelete(
 		}
 
 		logger.Info("waiting for Bucket to be deleted")
-		// TODO: return nil when Bucket watcher is set up
-		return fmt.Errorf("waiting for Bucket to be deleted")
-		// once Bucket is deleted, a future reconcile will remove the BucketClaim finalizer
+		return nil
 
 	default:
 		logger.Error(nil, "unknown Bucket deletion policy", "deletionPolicy", bucket.Spec.DeletionPolicy)
