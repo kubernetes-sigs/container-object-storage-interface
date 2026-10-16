@@ -19,6 +19,7 @@ package reconciler_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,9 +182,7 @@ func dynamicInitializationTest(t *testing.T) (
 	ctx := bootstrapped.ContextWithLogger
 
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-	assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-	assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-	assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
+	assert.NoError(t, err)
 	assert.Empty(t, res)
 
 	claim, bucket, _ := getAllClaimResources(bootstrapped)
@@ -193,9 +192,7 @@ func dynamicInitializationTest(t *testing.T) (
 	assert.Equal(t, "bc-dynamicuid", status.BoundBucketName)
 	assert.Equal(t, false, *status.ReadyToUse)
 	assert.Empty(t, status.Protocols)
-	require.NotNil(t, status.Error)
-	assert.NotNil(t, status.Error.Time)
-	assert.Contains(t, *status.Error.Message, "waiting for Bucket to be provisioned")
+	assert.Nil(t, status.Error)
 
 	// intermediate bucket generation is already thoroughly tested elsewhere
 	// just test a couple basic fields to ensure it's integrated
@@ -228,9 +225,7 @@ func staticInitializationTest(
 	ctx := bootstrapped.ContextWithLogger
 
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticClaim)})
-	assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-	assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-	assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
+	assert.NoError(t, err)
 	assert.Empty(t, res)
 
 	claim, dynamicBucket, staticBucket := getAllClaimResources(bootstrapped)
@@ -239,9 +234,7 @@ func staticInitializationTest(
 	assert.Equal(t, "static-bucket", claim.Status.BoundBucketName)
 	assert.Equal(t, false, *claim.Status.ReadyToUse)
 	assert.Empty(t, claim.Status.Protocols)
-	// claim status should record waiting state
-	require.NotNil(t, claim.Status.Error)
-	assert.Contains(t, *claim.Status.Error.Message, "waiting for Bucket to be provisioned")
+	assert.Nil(t, claim.Status.Error)
 
 	// Bucket claim ref UID must match claim UID
 	// set either by controller or by admin
@@ -400,14 +393,9 @@ func TestBucketClaimReconcile(t *testing.T) {
 
 					initClaim, initBucket := getClaimAndBucket(bootstrapped)
 					require.NotNil(t, initBucket)
-					oldErrorTime := metav1.Unix(1, 0)
-					initClaim.Status.Error.Time = &oldErrorTime
-					require.NoError(t, r.Status().Update(ctx, initClaim))
-					initClaim, initBucket = getClaimAndBucket(bootstrapped)
 
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-					assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					assert.NoError(t, err)
 					assert.Empty(t, res)
 
 					claim, bucket := getClaimAndBucket(bootstrapped)
@@ -423,6 +411,27 @@ func TestBucketClaimReconcile(t *testing.T) {
 					buckets := &cosiapi.BucketList{}
 					assert.NoError(t, r.List(ctx, buckets))
 					assert.Len(t, buckets.Items, 1) // no other bucket should be created
+				})
+
+				t.Run("clears stale status error while waiting on Bucket", func(t *testing.T) {
+					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
+					ctx := bootstrapped.ContextWithLogger
+					r := claimReconcilerForClient(bootstrapped.Client)
+
+					initClaim, _ := getClaimAndBucket(bootstrapped)
+					initClaim.Status.Error = cosiapi.NewTimestampedError(
+						time.Now(), "stale error left over from an earlier failed reconcile")
+					require.NoError(t, r.Status().Update(ctx, initClaim))
+
+					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+					assert.NoError(t, err)
+					assert.Empty(t, res)
+
+					claim, _ := getClaimAndBucket(bootstrapped)
+					assert.Nil(t, claim.Status.Error)
+					require.NotNil(t, claim.Status.ReadyToUse)
+					assert.False(t, *claim.Status.ReadyToUse)
+					assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
 				})
 
 				t.Run("deletion before Bucket reconcile", func(t *testing.T) {
@@ -465,10 +474,10 @@ func TestBucketClaimReconcile(t *testing.T) {
 					})
 				})
 
-				t.Run("still waiting after Bucket ID generated but not provisioned", func(t *testing.T) {
+				t.Run("not ready after Bucket ID generated but not provisioned", func(t *testing.T) {
 					// The sidecar's DriverGenerateBucketId call persists status.bucketID before
-					// any backend bucket exists. A set bucketID alone must not advance the claim
-					// to ready.
+					// any backend bucket exists. A set bucketID alone must not mark the claim
+					// ready, since readyToUse is mirrored from the Bucket and is still false.
 
 					// Set up: run the real sidecar Bucket reconciler against a driver that
 					// implements DriverGenerateBucketId but fails DriverCreateBucket, so the
@@ -497,15 +506,13 @@ func TestBucketClaimReconcile(t *testing.T) {
 					// Act: reconcile the BucketClaim against that unprovisioned Bucket.
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
 
-					// Expect: a retryable "still waiting" error, not success and not terminal,
-					// since bucketID alone isn't provisioning-complete.
-					assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
-					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					// Expect: success with no requeue. The claim mirrors the Bucket's (not ready)
+					// status, and the Bucket watch re-enqueues the claim when readyToUse changes.
+					assert.NoError(t, err)
 					assert.Empty(t, res)
 
-					// Validate: the claim was left untouched (spec, binding, readiness, and
-					// protocols all unchanged), and the controller did not write to the Bucket
-					// it doesn't own the status of.
+					// Validate: the claim is still bound and not ready, with no protocols, and
+					// the controller did not write to the Bucket it doesn't own the status of.
 					claim, bucket := getClaimAndBucket(bootstrapped)
 
 					assert.Equal(t, initClaim.Spec, claim.Spec)
@@ -517,13 +524,12 @@ func TestBucketClaimReconcile(t *testing.T) {
 					assert.Equal(t, initBucket.Status, bucket.Status)
 				})
 
-				t.Run("still waiting when Bucket has no ID", func(t *testing.T) {
-					// The mirror of the case above: readyToUse is set, but bucketID is absent.
-					// Neither half of the provisioning gate may advance the claim on its own, so
-					// this must also be "still waiting".
+				t.Run("terminal error when ready Bucket has no ID", func(t *testing.T) {
+					// readyToUse is set but bucketID is absent. A ready Bucket must have an ID, so this
+					// is a driver bug that retrying won't fix.
 
 					// Set up: fully provision the Bucket with the sidecar reconciler, then clear
-					// status.bucketID (this should stall the reconcile).
+					// status.bucketID.
 					bootstrapped := initBootstrapped.MustCopy() // copy prior test world state
 					ctx := bootstrapped.ContextWithLogger
 					r := claimReconcilerForClient(bootstrapped.Client)
@@ -545,13 +551,12 @@ func TestBucketClaimReconcile(t *testing.T) {
 					// Act: reconcile the BucketClaim against that Bucket.
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
 
-					// Expect: the same retryable "still waiting" error, not success and not
-					// terminal, since readyToUse alone isn't provisioning-complete either.
-					assert.ErrorContains(t, err, "waiting for Bucket to be provisioned")
-					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					// Expect: terminal error, so the reconciler does not retry with backoff.
+					assert.Error(t, err)
+					assert.ErrorIs(t, err, reconcile.TerminalError(nil))
 					assert.Empty(t, res)
 
-					// Validate: the claim was left untouched, and the controller did not write to
+					// Validate: the claim never became ready, and the controller did not write to
 					// the Bucket it doesn't own the status of.
 					claim, bucket := getClaimAndBucket(bootstrapped)
 
@@ -581,8 +586,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 					initClaim, initBucket := getClaimAndBucket(bootstrapped)
 
 					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-					assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-					assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					assert.NoError(t, err)
 					assert.Empty(t, res)
 
 					claim, bucket := getClaimAndBucket(bootstrapped)
@@ -733,6 +737,34 @@ func TestBucketClaimReconcile(t *testing.T) {
 			t.Run("subsequent deletion", func(t *testing.T) {
 				deletionTestSuiteWithoutBucket(t, bootstrapped)
 			})
+		})
+
+		t.Run("bucket does not exist, with stale status error", func(t *testing.T) {
+			bootstrapped := cositest.MustBootstrap(t,
+				baseStaticClaim.DeepCopy(),
+				// no bucket
+			)
+			r := claimReconcilerForClient(bootstrapped.Client)
+			ctx := bootstrapped.ContextWithLogger
+
+			claim := &cosiapi.BucketClaim{}
+			require.NoError(t, r.Get(ctx, cositest.NsName(&baseStaticClaim), claim))
+			claim.Status.Error = cosiapi.NewTimestampedError(
+				time.Now(), "stale error left over from an earlier failed reconcile")
+			require.NoError(t, r.Status().Update(ctx, claim))
+
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseStaticClaim)})
+			assert.NoError(t, err) // not an error: the Bucket watch re-enqueues once it's created
+			assert.Empty(t, res)
+
+			claim, _, _ = getAllClaimResources(bootstrapped)
+
+			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
+			assert.Nil(t, claim.Status.Error)
+			// readyToUse is a required status field, so clearing the stale error must write it too.
+			require.NotNil(t, claim.Status.ReadyToUse)
+			assert.False(t, *claim.Status.ReadyToUse)
+			assert.Empty(t, claim.Status.BoundBucketName)
 		})
 
 		t.Run("bucket created after initial reconcile", func(t *testing.T) {
