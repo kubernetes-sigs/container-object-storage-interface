@@ -18,11 +18,16 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
@@ -151,6 +156,112 @@ func Test_mapBucketToBucketClaim(t *testing.T) {
 	})
 }
 
+func Test_mapBucketClassToWaitingBucketClaims(t *testing.T) {
+	newReconciler := func(t *testing.T, objs ...client.Object) *BucketClaimReconciler {
+		scheme := runtime.NewScheme()
+		assert.NoError(t, cosiapi.AddToScheme(scheme))
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(objs...).
+			WithIndex(&cosiapi.BucketClaim{}, bucketClassNameIndexerField, func(o client.Object) []string {
+				claim, ok := o.(*cosiapi.BucketClaim)
+				if !ok || claim.Spec.BucketClassName == "" {
+					return nil
+				}
+				return []string{claim.Spec.BucketClassName}
+			}).
+			Build()
+		return &BucketClaimReconciler{Client: c, Scheme: scheme}
+	}
+	class := &cosiapi.BucketClass{ObjectMeta: meta.ObjectMeta{Name: "s3-class"}}
+	waitingClaim := func(namespace, name, className string) *cosiapi.BucketClaim {
+		return &cosiapi.BucketClaim{
+			ObjectMeta: meta.ObjectMeta{Namespace: namespace, Name: name},
+			Spec:       cosiapi.BucketClaimSpec{BucketClassName: className},
+		}
+	}
+	req := func(namespace, name string) reconcile.Request {
+		return reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}}
+	}
+
+	t.Run("non-BucketClass object is ignored", func(t *testing.T) {
+		r := newReconciler(t, waitingClaim("ns-a", "claim-1", "s3-class"))
+		bucket := &cosiapi.Bucket{ObjectMeta: meta.ObjectMeta{Name: "s3-class"}}
+
+		assert.Empty(t, r.mapBucketClassToWaitingBucketClaims(context.Background(), bucket))
+	})
+
+	t.Run("no requests when listing claims fails", func(t *testing.T) {
+		scheme := runtime.NewScheme()
+		assert.NoError(t, cosiapi.AddToScheme(scheme))
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithInterceptorFuncs(interceptor.Funcs{
+				List: func(
+					ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption,
+				) error {
+					return errors.New("list failed")
+				},
+			}).
+			Build()
+		r := &BucketClaimReconciler{Client: c, Scheme: scheme}
+
+		assert.Empty(t, r.mapBucketClassToWaitingBucketClaims(context.Background(), class))
+	})
+
+	t.Run("statically-provisioned claims are ignored", func(t *testing.T) {
+		static := waitingClaim("ns-a", "claim-1", "s3-class")
+		static.Spec.ExistingBucketName = "admin-bucket"
+		r := newReconciler(t, static)
+
+		assert.Empty(t, r.mapBucketClassToWaitingBucketClaims(context.Background(), class))
+	})
+
+	t.Run("already-bound claims are ignored", func(t *testing.T) {
+		bound := waitingClaim("ns-a", "claim-1", "s3-class")
+		bound.Status.BoundBucketName = "bc-qwerty"
+		r := newReconciler(t, bound)
+
+		assert.Empty(t, r.mapBucketClassToWaitingBucketClaims(context.Background(), class))
+	})
+
+	t.Run("deleting claims are ignored", func(t *testing.T) {
+		now := meta.Now()
+		deleting := waitingClaim("ns-a", "claim-1", "s3-class")
+		deleting.DeletionTimestamp = &now
+		deleting.Finalizers = []string{cosiapi.ProtectionFinalizer}
+		r := newReconciler(t, deleting)
+
+		assert.Empty(t, r.mapBucketClassToWaitingBucketClaims(context.Background(), class))
+	})
+
+	t.Run("claims waiting on class across namespaces", func(t *testing.T) {
+		r := newReconciler(t,
+			waitingClaim("ns-a", "claim-1", "s3-class"),
+			waitingClaim("ns-b", "claim-2", "s3-class"),
+		)
+
+		requests := r.mapBucketClassToWaitingBucketClaims(context.Background(), class)
+
+		assert.ElementsMatch(t, []reconcile.Request{
+			req("ns-a", "claim-1"),
+			req("ns-b", "claim-2"),
+		}, requests)
+	})
+
+	t.Run("claims for other classes are ignored", func(t *testing.T) {
+		r := newReconciler(t,
+			waitingClaim("ns-a", "claim-1", "s3-class"),
+			waitingClaim("ns-a", "claim-2", "gcs-class"),
+			waitingClaim("ns-a", "claim-3", "s3-class"),
+		)
+
+		requests := r.mapBucketClassToWaitingBucketClaims(context.Background(), class)
+
+		assert.Equal(t, []reconcile.Request{req("ns-a", "claim-1"), req("ns-a", "claim-3")}, requests)
+	})
+}
+
 func Test_createIntermediateBucket(t *testing.T) {
 	// valid base claim used for subtests
 	baseClaim := cosiapi.BucketClaim{
@@ -220,7 +331,7 @@ func Test_createIntermediateBucket(t *testing.T) {
 		)
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "s3-class") // the class name
-		assert.NotErrorIs(t, err, cosierr.NonRetryableError(nil))
+		assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, bucket)
 	})
 
