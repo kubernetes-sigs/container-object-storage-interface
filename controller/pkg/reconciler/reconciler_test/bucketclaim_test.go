@@ -300,9 +300,7 @@ func deletionTestSuite(t *testing.T,
 		require.NoError(t, r.Delete(ctx, initClaim))
 
 		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-		assert.Error(t, err) // TODO: should be NoError when Bucket watcher is set up
-		assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
-		assert.ErrorContains(t, err, "waiting for Bucket to be deleted")
+		assert.NoError(t, err)
 		assert.Empty(t, res)
 
 		claim, bucket := getClaimAndBucket(bootstrapped)
@@ -311,8 +309,7 @@ func deletionTestSuite(t *testing.T,
 		assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 		assert.Equal(t, initClaim.Spec, claim.Spec)
 		assert.Equal(t, false, *claim.Status.ReadyToUse)
-		require.NotNil(t, claim.Status.Error)
-		assert.Contains(t, *claim.Status.Error.Message, "waiting for Bucket to be deleted")
+		assert.Nil(t, claim.Status.Error)
 		assert.Equal(t, initClaim.Status.BoundBucketName, claim.Status.BoundBucketName)
 		assert.Equal(t, initClaim.Status.Protocols, claim.Status.Protocols)
 
@@ -345,7 +342,7 @@ func deletionTestSuiteWithoutBucket(t *testing.T,
 	require.NoError(t, r.Delete(ctx, initClaim))
 
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-	assert.NoError(t, err) // TODO: should be NoError when Bucket watcher is set up
+	assert.NoError(t, err)
 	assert.Empty(t, res)
 
 	bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(&baseDynamicClaim), &cosiapi.BucketClaim{})
@@ -894,7 +891,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 						require.NoError(t, r.Delete(ctx, initClaim))
 
 						res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
-						assert.NoError(t, err) // TODO: should be NoError when Bucket watcher is set up
+						assert.NoError(t, err)
 						assert.Empty(t, res)
 
 						bootstrapped.AssertResourceDoesNotExist(t, cositest.NsName(&baseDynamicClaim), &cosiapi.BucketClaim{})
