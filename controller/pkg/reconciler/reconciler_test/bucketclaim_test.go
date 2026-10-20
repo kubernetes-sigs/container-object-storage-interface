@@ -678,7 +678,8 @@ func TestBucketClaimReconcile(t *testing.T) {
 
 			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
 			assert.Error(t, err)
-			assert.NotErrorIs(t, err, reconcile.TerminalError(nil)) // should be terminal error when bucketclass watcher is set up
+			assert.ErrorIs(t, err, reconcile.TerminalError(nil)) // no backoff; BucketClass watch re-enqueues the claim
+			assert.ErrorContains(t, err, "not found")
 			assert.Empty(t, res)
 
 			claim, _, _ := getAllClaimResources(bootstrapped)
@@ -698,6 +699,27 @@ func TestBucketClaimReconcile(t *testing.T) {
 
 			t.Run("subsequent deletion", func(t *testing.T) {
 				deletionTestSuiteWithoutBucket(t, bootstrapped)
+			})
+
+			t.Run("bucketclass created later", func(t *testing.T) {
+				copied := bootstrapped.MustCopy()
+				r := controller.BucketClaimReconciler{
+					Client: copied.Client,
+					Scheme: copied.Client.Scheme(),
+				}
+				ctx := copied.ContextWithLogger
+
+				require.NoError(t, r.Create(ctx, baseBucketClass.DeepCopy()))
+
+				res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseDynamicClaim)})
+				assert.NoError(t, err)
+				assert.Empty(t, res)
+
+				claim, bucket, _ := getAllClaimResources(copied)
+				assert.Equal(t, "bc-dynamicuid", claim.Status.BoundBucketName)
+				assert.Equal(t, baseBucketClass.Spec.DriverName, bucket.Spec.DriverName)
+				assert.Nil(t, claim.Status.Error)                // waiting error from before the class existed is cleared
+				assert.Equal(t, false, *claim.Status.ReadyToUse) // bucket not provisioned by sidecar yet
 			})
 		})
 	})
