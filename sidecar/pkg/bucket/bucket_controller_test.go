@@ -350,3 +350,80 @@ func TestAddDeletedBucket(t *testing.T) {
 		t.Fatalf("Add returned error for deleted bucket: %v", err)
 	}
 }
+
+// TestAddSetsBucketClaimBucketName is a regression test for
+// https://github.com/kubernetes-sigs/container-object-storage-interface/issues/285
+//
+// It reproduces the delayed existingBucketName scenario deterministically:
+// the BucketClaim's own status has not yet recorded BucketName when the
+// sidecar reconciles the Bucket it points to. The sidecar must set
+// BucketName alongside BucketReady, since a subsequent BucketClaim
+// reconcile short-circuits on BucketReady==true and can never repair it.
+func TestAddSetsBucketClaimBucketName(t *testing.T) {
+	driver := "driver1"
+	namespace := "default"
+	bucketName := "existing-bucket"
+	claimName := "test-claim"
+
+	bucketClaim := &v1alpha1.BucketClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      claimName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha1.BucketClaimSpec{
+			ExistingBucketName: bucketName,
+		},
+		Status: v1alpha1.BucketClaimStatus{
+			BucketName:  "",
+			BucketReady: false,
+		},
+	}
+
+	bucket := &v1alpha1.Bucket{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: bucketName,
+		},
+		Spec: v1alpha1.BucketSpec{
+			DriverName:      driver,
+			BucketClassName: "test-bucket-class",
+			BucketClaim: &v1.ObjectReference{
+				Name:      claimName,
+				Namespace: namespace,
+			},
+		},
+	}
+
+	mpc := struct{ fakespec.FakeProvisionerClient }{}
+	mpc.FakeDriverCreateBucket = func(
+		_ context.Context,
+		_ *cosi.DriverCreateBucketRequest,
+		_ ...grpc.CallOption,
+	) (*cosi.DriverCreateBucketResponse, error) {
+		return &cosi.DriverCreateBucketResponse{BucketId: "backend-bucket-id"}, nil
+	}
+
+	client := fakebucketclientset.NewSimpleClientset(bucketClaim, bucket)
+
+	bl := BucketListener{
+		driverName:        driver,
+		provisionerClient: &mpc,
+	}
+	bl.InitializeBucketClient(client)
+
+	if err := bl.Add(context.TODO(), bucket); err != nil {
+		t.Fatalf("Add returned unexpected error: %v", err)
+	}
+
+	got, err := client.ObjectstorageV1alpha1().BucketClaims(namespace).Get(context.TODO(), claimName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to fetch BucketClaim: %v", err)
+	}
+
+	if !got.Status.BucketReady {
+		t.Errorf("expected BucketClaim.Status.BucketReady to be true, got false")
+	}
+
+	if got.Status.BucketName != bucket.Name {
+		t.Errorf("expected BucketClaim.Status.BucketName to be %q, got %q", bucket.Name, got.Status.BucketName)
+	}
+}
