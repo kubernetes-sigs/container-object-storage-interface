@@ -132,6 +132,12 @@ type bucketTestHelper interface {
 		getBucketReq []*cosiproto.DriverGetBucketRequest,
 		expectBucketIds []string,
 	)
+
+	// Return a bucketClaimRef that this provisioning strategy rejects.
+	MalformedClaimRef() cosiapi.BucketClaimReference
+
+	// Return the error message expected when the bucketClaimRef is malformed.
+	MalformedClaimRefError() string
 }
 
 // dynamicBucketTestHelper knows how to get get and validate resources for dynamically-provisioned
@@ -190,6 +196,19 @@ func (d *dynamicBucketTestHelper) ValidateDriverRequest(t *testing.T, createBuck
 	}
 }
 
+func (d *dynamicBucketTestHelper) MalformedClaimRef() cosiapi.BucketClaimReference {
+	// uid is optional in the CRD but required for dynamic provisioning
+	return cosiapi.BucketClaimReference{
+		Name:      "userbucket",
+		Namespace: "usernamespace",
+		UID:       "",
+	}
+}
+
+func (d *dynamicBucketTestHelper) MalformedClaimRefError() string {
+	return "all bucketClaimRef fields must be set for dynamic provisioning"
+}
+
 // staticBucketTestHelper knows how to get get and validate resources for statically-provisioned
 // Bucket tests.
 type staticBucketTestHelper struct{}
@@ -213,6 +232,15 @@ func (s *staticBucketTestHelper) ValidateGenerateIdRequest(t *testing.T, generat
 	// static provisioning takes its bucket ID from spec.existingBucketID, so it never calls
 	// DriverGenerateBucketId
 	require.Len(t, generateBucketIdReq, 0)
+}
+
+func (s *staticBucketTestHelper) MalformedClaimRef() cosiapi.BucketClaimReference {
+	// name and namespace are required for static provisioning
+	return cosiapi.BucketClaimReference{}
+}
+
+func (s *staticBucketTestHelper) MalformedClaimRefError() string {
+	return "bucketClaimRef namespace and name must be set for static provisioning"
 }
 
 func (s *staticBucketTestHelper) ValidateDriverRequest(t *testing.T, createBucketReq []*cosiproto.DriverCreateBucketRequest, getBucketReq []*cosiproto.DriverGetBucketRequest, expectBucketIds []string) {
@@ -775,6 +803,64 @@ func bucketProtoNotSupportedTestSuite(t *testing.T, baseBucket *cosiapi.Bucket, 
 	assert.NotNil(t, bucket.Status.Error.Time)
 
 	// Deletion tests don't apply here because no finalizers present
+}
+
+// A malformed bucketClaimRef must be rejected before any driver RPC is made, so no bucket ID is
+// generated or persisted for a Bucket that can never be provisioned.
+func bucketClaimRefMalformedTestSuite(t *testing.T, baseBucket *cosiapi.Bucket, helper bucketTestHelper) {
+	rpcCalled := false
+	fakeServer := cositest.FakeProvisionerServer{
+		GenerateBucketIdFunc: func(ctx context.Context, dgbir *cosiproto.DriverGenerateBucketIdRequest) (*cosiproto.DriverGenerateBucketIdResponse, error) {
+			rpcCalled = true
+			return &cosiproto.DriverGenerateBucketIdResponse{BucketId: "cosi-" + dgbir.Name}, nil
+		},
+		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
+			rpcCalled = true
+			return &cosiproto.DriverCreateBucketResponse{}, nil
+		},
+		GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
+			rpcCalled = true
+			return &cosiproto.DriverGetBucketResponse{}, nil
+		},
+	}
+
+	cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+	defer cleanup()
+	require.NoError(t, err)
+	go serve()
+
+	conn, err := cositest.RpcClientConn(tmpSock)
+	require.NoError(t, err)
+	rpcClient := cosiproto.NewProvisionerClient(conn)
+
+	driverInfo := DriverInfo{
+		Name:               s3DriverName,
+		SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
+		ProvisionerClient:  rpcClient,
+	}
+
+	initBucket := baseBucket.DeepCopy()
+	initBucket.Spec.BucketClaimRef = helper.MalformedClaimRef()
+	bootstrapped := cositest.MustBootstrap(t, initBucket)
+	ctx := bootstrapped.ContextWithLogger
+	r := bucketReconcilerForClient(bootstrapped.Client, driverInfo)
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(initBucket)})
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+	assert.ErrorContains(t, err, helper.MalformedClaimRefError())
+	assert.Empty(t, res)
+
+	assert.False(t, rpcCalled, "no driver RPC may be made when bucketClaimRef is invalid")
+
+	bucket := helper.GetBucket(bootstrapped)
+	require.NotNil(t, bucket)
+	assert.Empty(t, bucket.Status.BucketID, "no bucket ID may be recorded when bucketClaimRef is invalid")
+	require.NotNil(t, bucket.Status.Error)
+	assert.Contains(t, *bucket.Status.Error.Message, helper.MalformedClaimRefError())
+	assert.NotNil(t, bucket.Status.Error.Time)
+
+	// Deletion tests don't apply here because the Bucket is never provisioned
 }
 
 func bucketProvisionedWithWrongProtoTestSuite(t *testing.T, initBucket *cosiapi.Bucket, helper bucketTestHelper) {
@@ -1342,6 +1428,7 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 		{"provisioned with wrong proto", bucketProvisionedWithWrongProtoTestSuite},
 		{"bucket resource missing", bucketResourceMissingTestSuite},
 		{"bucket ID persistence", bucketIdPersistenceTestSuite},
+		{"bucketClaimRef malformed", bucketClaimRefMalformedTestSuite},
 	}
 
 	t.Run("dynamic provisioning", func(t *testing.T) {
@@ -1414,11 +1501,6 @@ func TestBucketReconciler_Reconcile(t *testing.T) {
 }
 
 func TestBucketReconciler_dynamicProvision(t *testing.T) {
-	validClaimRef := cosiapi.BucketClaimReference{
-		Name:      "userbucket",
-		Namespace: "usernamespace",
-		UID:       "qwerty",
-	}
 	t.Run("valid driver and bucket, successful provision", func(t *testing.T) {
 		requestParams := map[string]string{} // record the params sent in the request to verify later
 
@@ -1467,7 +1549,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: inputParams,
-			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
@@ -1516,7 +1597,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{}, // intentionally empty
-			claimRef:   validClaimRef,
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "fake unknown err")
@@ -1554,57 +1634,9 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{}, // intentionally empty
-			claimRef:   validClaimRef,
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "fake invalid arg err")
-		assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
-		assert.Nil(t, details)
-	})
-
-	t.Run("valid driver, claim ref malformed", func(t *testing.T) {
-		fakeServer := cositest.FakeProvisionerServer{
-			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
-				return &cosiproto.DriverCreateBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						S3: &cosiproto.S3BucketInfo{
-							Endpoint:        "s3.corp.net",
-							BucketId:        "backend-" + dcbr.BucketId, // example of backend bucket with slight variation from the request
-							Region:          "us-east-1",
-							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
-						},
-					},
-				}, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		client := cosiproto.NewProvisionerClient(conn)
-
-		r := BucketReconciler{
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  client,
-			},
-		}
-
-		details, err := r.dynamicProvision(context.Background(), logr.Discard(), dynamicProvisionParams{
-			bucketID: "bc-qwerty",
-			requiredProtos: []*cosiproto.ObjectProtocol{
-				{Type: cosiproto.ObjectProtocol_S3},
-			},
-			parameters: map[string]string{}, // intentionally empty
-			claimRef:   cosiapi.BucketClaimReference{},
-		})
-		assert.Error(t, err)
-		assert.ErrorContains(t, err, "all bucketClaimRef fields must be set")
 		assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
 		assert.Nil(t, details)
 	})
@@ -1641,7 +1673,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{}, // intentionally empty
-			claimRef:   validClaimRef,
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "protocol response missing")
@@ -1683,7 +1714,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{}, // intentionally empty
-			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
@@ -1728,7 +1758,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_AZURE},
 			},
 			parameters: map[string]string{}, // intentionally empty
-			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolAzure}, details.supportedProtos)
@@ -1773,7 +1802,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_GCS},
 			},
 			parameters: map[string]string{}, // intentionally empty
-			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}, details.supportedProtos)
@@ -1822,7 +1850,6 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3}, // example of request for S3, returned support for S3+Azure
 			},
 			parameters: map[string]string{}, // intentionally empty
-			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
 		assert.ElementsMatch(t,
@@ -2094,12 +2121,6 @@ func TestBucketReconciler_generateBucketID(t *testing.T) {
 }
 
 func TestBucketReconciler_staticProvision(t *testing.T) {
-	validClaimRef := cosiapi.BucketClaimReference{
-		Name:      "userbucket",
-		Namespace: "usernamespace",
-		UID:       "", // optional for static, left unset
-	}
-
 	t.Run("valid driver and bucket, successful provision", func(t *testing.T) {
 		requestParams := map[string]string{}
 		fakeServer := cositest.FakeProvisionerServer{
@@ -2146,7 +2167,6 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: inputParams,
-			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
@@ -2156,64 +2176,6 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
 		}
 		assert.Equal(t, inputParams, requestParams)
-	})
-
-	t.Run("valid driver, claim ref malformed", func(t *testing.T) {
-		fakeServer := cositest.FakeProvisionerServer{
-			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
-				return &cosiproto.DriverGetBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
-						S3: &cosiproto.S3BucketInfo{
-							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.BucketId,
-							Region:          "us-east-1",
-							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
-						},
-					},
-				}, nil
-			},
-		}
-
-		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
-		defer cleanup()
-		require.NoError(t, err)
-		go serve()
-
-		conn, err := cositest.RpcClientConn(tmpSock)
-		require.NoError(t, err)
-		client := cosiproto.NewProvisionerClient(conn)
-
-		r := BucketReconciler{
-			DriverInfo: DriverInfo{
-				Name:               "cosi.s3.corp.net",
-				SupportedProtocols: []cosiproto.ObjectProtocol_Type{cosiproto.ObjectProtocol_S3},
-				ProvisionerClient:  client,
-			},
-		}
-
-		tests := []struct {
-			name     string
-			claimRef cosiapi.BucketClaimReference
-		}{
-			{"namespace missing", cosiapi.BucketClaimReference{Name: validClaimRef.Name, Namespace: "", UID: validClaimRef.UID}},
-			{"name missing", cosiapi.BucketClaimReference{Name: "", Namespace: validClaimRef.Namespace, UID: validClaimRef.UID}},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				details, err := r.staticProvision(context.Background(), logr.Discard(), staticProvisionParams{
-					existingBucketID: "static-bucket",
-					requiredProtos: []*cosiproto.ObjectProtocol{
-						{Type: cosiproto.ObjectProtocol_S3},
-					},
-					parameters: map[string]string{},
-					claimRef:   tt.claimRef,
-				})
-				assert.Error(t, err)
-				assert.ErrorContains(t, err, "bucketClaimRef namespace and name must be set")
-				assert.ErrorIs(t, err, cosierr.NonRetryableError(nil))
-				assert.Nil(t, details)
-			})
-		}
 	})
 
 	t.Run("valid driver, retryable provision error", func(t *testing.T) {
@@ -2246,7 +2208,6 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{},
-			claimRef:   validClaimRef,
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "fake unknown err")
@@ -2284,7 +2245,6 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{},
-			claimRef:   validClaimRef,
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "fake invalid arg err")
@@ -2322,7 +2282,6 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{},
-			claimRef:   validClaimRef,
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "waiting for backend bucket to exist")
@@ -2362,7 +2321,6 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{},
-			claimRef:   validClaimRef,
 		})
 		assert.Error(t, err)
 		assert.ErrorContains(t, err, "existing bucket protocol response missing")
@@ -2404,7 +2362,6 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 				{Type: cosiproto.ObjectProtocol_S3},
 			},
 			parameters: map[string]string{},
-			claimRef:   validClaimRef,
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
@@ -2637,6 +2594,35 @@ func Test_validateBucketSupportsProtocols(t *testing.T) {
 				assert.Error(t, gotErr)
 			} else {
 				assert.NoError(t, gotErr)
+			}
+		})
+	}
+}
+
+func Test_validateBucketClaimRef(t *testing.T) {
+	tests := []struct {
+		name     string
+		ref      cosiapi.BucketClaimReference
+		isStatic bool
+		wantErr  string
+	}{
+		{"dynamic, all fields set", cosiapi.BucketClaimReference{Name: "bc", Namespace: "ns", UID: "qwerty"}, false, ""},
+		{"dynamic, empty", cosiapi.BucketClaimReference{}, false, "all bucketClaimRef fields must be set"},
+		{"dynamic, uid missing", cosiapi.BucketClaimReference{Name: "bc", Namespace: "ns"}, false, "all bucketClaimRef fields must be set"},
+		{"dynamic, name missing", cosiapi.BucketClaimReference{Namespace: "ns", UID: "qwerty"}, false, "all bucketClaimRef fields must be set"},
+		{"dynamic, namespace missing", cosiapi.BucketClaimReference{Name: "bc", UID: "qwerty"}, false, "all bucketClaimRef fields must be set"},
+		{"static, all fields set", cosiapi.BucketClaimReference{Name: "bc", Namespace: "ns", UID: "qwerty"}, true, ""},
+		{"static, uid missing", cosiapi.BucketClaimReference{Name: "bc", Namespace: "ns"}, true, ""},
+		{"static, name missing", cosiapi.BucketClaimReference{Namespace: "ns", UID: "qwerty"}, true, "bucketClaimRef namespace and name must be set"},
+		{"static, namespace missing", cosiapi.BucketClaimReference{Name: "bc", UID: "qwerty"}, true, "bucketClaimRef namespace and name must be set"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateBucketClaimRef(tt.ref, tt.isStatic)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tt.wantErr)
 			}
 		})
 	}

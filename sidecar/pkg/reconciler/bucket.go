@@ -207,6 +207,13 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 
 	logger.V(1).Info("reconciling Bucket")
 
+	// Validate before any driver RPC is made. Generating a bucket ID may provision a backend
+	// resource, which must not happen for a Bucket that can never be provisioned.
+	if err := validateBucketClaimRef(bucket.Spec.BucketClaimRef, isStaticProvisioning); err != nil {
+		logger.Error(err, "bucketClaimRef is invalid")
+		return cosierr.NonRetryableError(err)
+	}
+
 	didAdd := ctrlutil.AddFinalizer(bucket, cosiapi.ProtectionFinalizer)
 	if didAdd {
 		if err := r.Update(ctx, bucket); err != nil {
@@ -257,14 +264,12 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 			existingBucketID: bucketID,
 			requiredProtos:   requiredProtos,
 			parameters:       bucket.Spec.Parameters,
-			claimRef:         bucket.Spec.BucketClaimRef,
 		})
 	} else {
 		provisionedBucket, err = r.dynamicProvision(ctx, logger, dynamicProvisionParams{
 			bucketID:       bucketID,
 			requiredProtos: requiredProtos,
 			parameters:     bucket.Spec.Parameters,
-			claimRef:       bucket.Spec.BucketClaimRef,
 		})
 	}
 	if err != nil {
@@ -468,7 +473,6 @@ type dynamicProvisionParams struct {
 	bucketID       string
 	requiredProtos []*cosiproto.ObjectProtocol
 	parameters     map[string]string
-	claimRef       cosiapi.BucketClaimReference
 }
 
 // Run dynamic provisioning workflow.
@@ -480,14 +484,6 @@ func (r *BucketReconciler) dynamicProvision(
 	details *provisionedBucketDetails,
 	err error,
 ) {
-	cr := dynamic.claimRef
-	if cr.Name == "" || cr.Namespace == "" || cr.UID == "" {
-		// likely a malformed bucket intended for static provisioning (possible COSI controller bug)
-		logger.Error(nil, "all bucketClaimRef fields must be set for dynamic provisioning", "bucketClaimRef", cr)
-		return nil, cosierr.NonRetryableError(
-			fmt.Errorf("all bucketClaimRef fields must be set for dynamic provisioning: %#v", cr))
-	}
-
 	resp, err := r.DriverInfo.ProvisionerClient.DriverCreateBucket(ctx,
 		&cosiproto.DriverCreateBucketRequest{
 			BucketId:   dynamic.bucketID,
@@ -528,7 +524,6 @@ type staticProvisionParams struct {
 	existingBucketID string
 	requiredProtos   []*cosiproto.ObjectProtocol
 	parameters       map[string]string
-	claimRef         cosiapi.BucketClaimReference
 }
 
 // Run static provisioning workflow.
@@ -537,13 +532,6 @@ func (r *BucketReconciler) staticProvision(
 	logger logr.Logger,
 	static staticProvisionParams,
 ) (*provisionedBucketDetails, error) {
-	ref := static.claimRef
-	if ref.Name == "" || ref.Namespace == "" {
-		logger.Error(nil, "bucketClaimRef namespace and name must be set for static provisioning", "bucketClaimRef", ref)
-		return nil, cosierr.NonRetryableError(
-			fmt.Errorf("bucketClaimRef namespace and name must be set for static provisioning: %#v", ref))
-	}
-
 	resp, err := r.DriverInfo.ProvisionerClient.DriverGetBucket(ctx,
 		&cosiproto.DriverGetBucketRequest{
 			BucketId:   static.existingBucketID,
@@ -604,6 +592,23 @@ func objectProtocolListFromApiList(apiList []cosiapi.ObjectProtocol) ([]*cosipro
 		return nil, fmt.Errorf("failed to parse protocol list: %w", errors.Join(errs...))
 	}
 	return out, nil
+}
+
+// validate that the bucketClaimRef has the fields required by the provisioning strategy
+func validateBucketClaimRef(ref cosiapi.BucketClaimReference, isStaticProvisioning bool) error {
+	if isStaticProvisioning {
+		// uid may be left unset for a statically-provisioned Bucket
+		if ref.Name == "" || ref.Namespace == "" {
+			return fmt.Errorf("bucketClaimRef namespace and name must be set for static provisioning: %#v", ref)
+		}
+		return nil
+	}
+
+	if ref.Name == "" || ref.Namespace == "" || ref.UID == "" {
+		// likely a malformed bucket intended for static provisioning (possible COSI controller bug)
+		return fmt.Errorf("all bucketClaimRef fields must be set for dynamic provisioning: %#v", ref)
+	}
+	return nil
 }
 
 // validate that the required protocols (if given) are supported by the driver
