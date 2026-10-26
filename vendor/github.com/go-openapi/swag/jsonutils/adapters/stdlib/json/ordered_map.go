@@ -1,16 +1,5 @@
-// Copyright 2015 go-swagger maintainers
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//    http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-FileCopyrightText: Copyright 2015-2025 go-swagger maintainers
+// SPDX-License-Identifier: Apache-2.0
 
 package json
 
@@ -81,12 +70,11 @@ func (s MapSlice) MarshalJSON() ([]byte, error) {
 }
 
 func (s MapSlice) OrderedMarshalJSON() ([]byte, error) {
-	w := poolOfWriters.Borrow()
-	defer func() {
-		poolOfWriters.Redeem(w)
-	}()
+	w, redeem := poolOfWriters.BorrowWithRedeem()
+	defer redeem()
+	w.setBuf()
 
-	s.marshalObject(w)
+	s.marshalObject(w, 1)
 
 	return w.BuildBytes() // this clones data, so it's okay to redeem the writer and its buffer
 }
@@ -99,19 +87,34 @@ func (s *MapSlice) UnmarshalJSON(data []byte) error {
 }
 
 func (s *MapSlice) OrderedUnmarshalJSON(data []byte) error {
-	l := poolOfLexers.Borrow(data)
-	defer func() {
-		poolOfLexers.Redeem(l)
-	}()
+	return s.orderedUnmarshalJSON(data, defaultMaxNestingDepth)
+}
+
+func (s *MapSlice) orderedUnmarshalJSON(data []byte, maxDepth int) error {
+	l, redeem := poolOfLexers.BorrowWithRedeem()
+	defer redeem()
+
+	redeemBuf := l.setBuf(data)
+	defer redeemBuf()
+
+	if maxDepth > 0 {
+		l.maxDepth = maxDepth
+	}
 
 	s.unmarshalObject(l)
 
 	return l.Error()
 }
 
-func (s MapSlice) marshalObject(w *jwriter) {
+func (s MapSlice) marshalObject(w *jwriter, depth int) {
 	if s == nil {
 		w.RawString("null")
+
+		return
+	}
+
+	if depth > defaultMaxNestingDepth {
+		w.SetErr(fmt.Errorf("maximum nesting depth of %d exceeded: %w", defaultMaxNestingDepth, ErrStdlib))
 
 		return
 	}
@@ -124,11 +127,11 @@ func (s MapSlice) marshalObject(w *jwriter) {
 		return
 	}
 
-	s[0].marshalJSON(w)
+	s[0].marshalJSON(w, depth)
 
 	for i := 1; i < len(s); i++ {
 		w.RawByte(',')
-		s[i].marshalJSON(w)
+		s[i].marshalJSON(w, depth)
 	}
 
 	w.RawByte('}')
@@ -173,9 +176,18 @@ type MapItem struct {
 	Value any
 }
 
-func (s MapItem) marshalJSON(w *jwriter) {
+func (s MapItem) marshalJSON(w *jwriter, depth int) {
 	w.String(s.Key)
 	w.RawByte(':')
+
+	// Recurse internally for nested ordered maps so the depth guard is not lost across
+	// the stdjson.Marshal boundary (which would reset it and re-enable stack overflow).
+	if nested, ok := s.Value.(MapSlice); ok {
+		nested.marshalObject(w, depth+1)
+
+		return
+	}
+
 	w.Raw(stdjson.Marshal(s.Value))
 }
 
