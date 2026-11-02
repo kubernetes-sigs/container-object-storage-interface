@@ -162,6 +162,7 @@ func (b *BucketListener) Add(ctx context.Context, inputBucket *v1alpha1.Bucket) 
 				return b.recordError(bucket, v1.EventTypeWarning, v1alpha1.FailedCreateBucket, err)
 			}
 
+			bucketClaim.Status.BucketName = bucket.Name
 			bucketClaim.Status.BucketReady = true
 			if _, err = b.bucketClaims(bucketClaim.Namespace).UpdateStatus(ctx, bucketClaim, metav1.UpdateOptions{}); err != nil {
 				klog.V(3).ErrorS(err, "Failed to update bucketClaim",
