@@ -112,8 +112,30 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return reconcile.Result{}, err
 }
 
+// bucketClassNameIndexerField names the cache index that maps a BucketClass name to the BucketClaims
+// that reference it. It is only a lookup key for client.MatchingFields, not a real object field.
+const bucketClassNameIndexerField = "spec.bucketClassName"
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Index BucketClaims by BucketClass name so a BucketClass event can find the claims that reference it.
+	err := mgr.GetFieldIndexer().IndexField(
+		context.Background(), &cosiapi.BucketClaim{}, bucketClassNameIndexerField,
+		func(o client.Object) []string {
+			claim, ok := o.(*cosiapi.BucketClaim)
+			if !ok || claim.Spec.BucketClassName == "" {
+				// Don't index BucketClaims without a BucketClass.
+				// For static claims, BucketClass events do not apply.
+				// For dynamic claims, an empty BucketClass is invalid.
+				return nil
+			}
+			return []string{claim.Spec.BucketClassName}
+		},
+	)
+	if err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		// Prefer WithPredicates() over WithEventFilter().
 		// Event filters gate all watched kinds whereas predicates are per-kind.
@@ -140,6 +162,11 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				cosipredicate.AnyDelete(),
 			)),
 		).
+		Watches(
+			&cosiapi.BucketClass{},
+			handler.EnqueueRequestsFromMapFunc(r.mapBucketClassToWaitingBucketClaims),
+			builder.WithPredicates(cosipredicate.AnyCreate()),
+		).
 		Named("bucketclaim").
 		Complete(r)
 }
@@ -165,6 +192,44 @@ func mapBucketToBucketClaim(ctx context.Context, obj client.Object) []reconcile.
 	return []reconcile.Request{
 		{NamespacedName: types.NamespacedName{Name: claimRef.Name, Namespace: claimRef.Namespace}},
 	}
+}
+
+// mapBucketClassToWaitingBucketClaims is a handler.MapFunc that, given a BucketClass event,
+// returns a reconcile.Request for each BucketClaim that is waiting on that BucketClass.
+func (r *BucketClaimReconciler) mapBucketClassToWaitingBucketClaims(
+	ctx context.Context, obj client.Object,
+) []reconcile.Request {
+	logger := ctrl.LoggerFrom(ctx)
+
+	bucketClass, ok := obj.(*cosiapi.BucketClass)
+	if !ok {
+		logger.Error(nil, "received non-BucketClass object", "obj", obj)
+		return nil
+	}
+
+	logger = logger.WithValues("bucketClassName", bucketClass.Name)
+
+	claims := &cosiapi.BucketClaimList{}
+	if err := r.List(ctx, claims, client.MatchingFields{bucketClassNameIndexerField: bucketClass.Name}); err != nil {
+		logger.Error(err, "failed to list BucketClaims for BucketClass")
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range claims.Items {
+		claim := &claims.Items[i]
+		waiting := claim.Spec.ExistingBucketName == "" && // static claims don't use a BucketClass
+			claim.Status.BoundBucketName == "" && // bound claims already created their Bucket
+			claim.DeletionTimestamp.IsZero() // deleting claims won't use the class
+		if !waiting {
+			logger.V(2).Info("BucketClaim is not waiting on BucketClass", "claim", client.ObjectKeyFromObject(claim))
+			continue
+		}
+
+		logger.V(2).Info("BucketClaim is waiting on BucketClass", "claim", client.ObjectKeyFromObject(claim))
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(claim)})
+	}
+	return requests
 }
 
 func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logger, claim *cosiapi.BucketClaim) error {
@@ -457,12 +522,10 @@ func createIntermediateBucket(
 	}
 	if err := client.Get(ctx, classNsName, class); err != nil {
 		if kerrors.IsNotFound(err) {
-			// TODO: for now, return an error and allow the controller to exponential backoff
-			// until the BucketClass exists. in the future, optimize this by adding a
-			// BucketClass reconciler that enqueues requests for BucketClaims that reference the
-			// class and don't yet have a bound Bucket.
+			// Stop reconciliation and wait for the BucketClass to be created.
+			// See SetupWithManager for how the watcher is set up.
 			logger.Error(err, "BucketClass not found")
-			return nil, err
+			return nil, cosierr.NonRetryableError(fmt.Errorf("BucketClass %q not found", className))
 		}
 		logger.Error(err, "failed to get BucketClass")
 		return nil, err
