@@ -9,7 +9,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	kubeerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	fakekubeclientset "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha1"
 	fakebucketclientset "sigs.k8s.io/container-object-storage-interface/client/clientset/versioned/fake"
@@ -443,5 +446,121 @@ func TestRetryOnConflictStatusUpdate(t *testing.T) {
 	// Verify finalizer was added
 	if !controllerutil.ContainsFinalizer(updatedClaim, util.BucketClaimFinalizer) {
 		t.Errorf("Expected finalizer to be added, but it was not found")
+	}
+}
+
+func newStatusTestListener(ctx context.Context, t *testing.T) (*BucketClaimListener, *fakebucketclientset.Clientset) {
+	t.Helper()
+
+	client := fakebucketclientset.NewSimpleClientset()
+	listener := NewBucketClaimListener()
+	listener.InitializeKubeClient(fakekubeclientset.NewSimpleClientset())
+	listener.InitializeBucketClient(client)
+	listener.InitializeEventRecorder(record.NewFakeRecorder(10))
+
+	if _, err := util.CreateBucketClass(ctx, client, &goldClass); err != nil {
+		t.Fatalf("Error occurred when creating BucketClass: %v", err)
+	}
+	return listener, client
+}
+
+// The sidecar marks the claim ready as soon as the driver has created the
+// bucket, which can happen before the controller writes the claim status.
+// The controller works from the copy it was queued with and must not set
+// BucketReady back to false.
+func TestAddKeepsBucketReadySetBySidecar(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	listener, client := newStatusTestListener(ctx, t)
+
+	queued := bucketClaim1.DeepCopy()
+	stored := bucketClaim1.DeepCopy()
+	stored.Status.BucketName = "bucket-" + string(stored.UID)
+	stored.Status.BucketReady = true
+	if _, err := util.CreateBucketClaim(ctx, client, stored); err != nil {
+		t.Fatalf("Error occurred when creating BucketClaim: %v", err)
+	}
+
+	if err := listener.Add(ctx, queued); err != nil {
+		t.Fatalf("Add returned an error: %v", err)
+	}
+
+	got, err := client.ObjectstorageV1alpha1().BucketClaims(stored.Namespace).Get(ctx, stored.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Error occurred when reading BucketClaim: %v", err)
+	}
+	if !got.Status.BucketReady {
+		t.Fatalf("BucketReady was reset to false: %+v", got.Status)
+	}
+}
+
+// A conflict on the status update must be retried. UpdateStatus returns an
+// empty object on error, so the retry cannot read the name from its result.
+func TestAddRetriesStatusUpdateConflict(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	listener, client := newStatusTestListener(ctx, t)
+
+	bucketClaim, err := util.CreateBucketClaim(ctx, client, &bucketClaim1)
+	if err != nil {
+		t.Fatalf("Error occurred when creating BucketClaim: %v", err)
+	}
+
+	conflicts := 0
+	client.PrependReactor("update", "bucketclaims", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "status" && conflicts == 0 {
+			conflicts++
+			gr := schema.GroupResource{Group: "objectstorage.k8s.io", Resource: "bucketclaims"}
+			return true, nil, kubeerrors.NewConflict(gr, bucketClaim.Name, fmt.Errorf("the object has been modified"))
+		}
+		return false, nil, nil
+	})
+
+	if err := listener.Add(ctx, bucketClaim); err != nil {
+		t.Fatalf("Add returned an error after one conflict: %v", err)
+	}
+	if conflicts != 1 {
+		t.Fatalf("expected one injected conflict, got %d", conflicts)
+	}
+}
+
+// A claim whose Bucket is ready but whose own status says otherwise is
+// repaired the next time the controller processes it, e.g. after a restart.
+func TestAddSetsBucketReadyFromExistingBucket(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	listener, client := newStatusTestListener(ctx, t)
+
+	bucketClaim, err := util.CreateBucketClaim(ctx, client, &bucketClaim1)
+	if err != nil {
+		t.Fatalf("Error occurred when creating BucketClaim: %v", err)
+	}
+	if err := listener.Add(ctx, bucketClaim); err != nil {
+		t.Fatalf("Add returned an error: %v", err)
+	}
+
+	bucketName := "bucket-" + string(bucketClaim.UID)
+	bucket, err := client.ObjectstorageV1alpha1().Buckets().Get(ctx, bucketName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Error occurred when reading Bucket: %v", err)
+	}
+	bucket.Status.BucketReady = true
+	if _, err := client.ObjectstorageV1alpha1().Buckets().UpdateStatus(ctx, bucket, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("Error occurred when updating Bucket status: %v", err)
+	}
+
+	if err := listener.Add(ctx, bucketClaim); err != nil {
+		t.Fatalf("Add returned an error: %v", err)
+	}
+
+	got, err := client.ObjectstorageV1alpha1().BucketClaims(bucketClaim.Namespace).Get(ctx, bucketClaim.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Error occurred when reading BucketClaim: %v", err)
+	}
+	if !got.Status.BucketReady {
+		t.Fatalf("BucketReady is false although Bucket %s is ready: %+v", bucketName, got.Status)
 	}
 }
