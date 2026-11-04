@@ -114,10 +114,10 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 					AccessSecretKey: "sharedsecretkey",
 				},
 			},
-			Buckets: []*cosiproto.DriverGrantBucketAccessResponse_BucketInfo{
+			Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
 				{
 					BucketId: "cosi-bc-my-ns-readwrite-bucket",
-					BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							// normally, S3 BucketID would probably be based on the rwBucketId, but
 							// we want something static for unit tests
@@ -130,7 +130,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				},
 				{
 					BucketId: "cosi-bc-my-ns-readonly-bucket",
-					BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							// normally, S3 BucketID would probably be based on the rwBucketId, but
 							// we want something static for unit tests
@@ -1473,7 +1473,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				"bucket info response empty",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
 					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
-					ret.Buckets = []*cosiproto.DriverGrantBucketAccessResponse_BucketInfo{}
+					ret.Buckets = []*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{}
 					return ret
 				}(),
 			},
@@ -1489,9 +1489,9 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				"extra bucket info response",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
 					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
-					ret.Buckets = append(ret.Buckets, &cosiproto.DriverGrantBucketAccessResponse_BucketInfo{
+					ret.Buckets = append(ret.Buckets, &cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
 						BucketId: "something",
-						BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
+						BucketInfo: &cosiproto.BucketInfo{
 							S3: &cosiproto.S3BucketInfo{
 								BucketId:        "something",
 								Endpoint:        "something",
@@ -1651,10 +1651,10 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 							// empty for ServiceAccount auth
 						},
 					},
-					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_BucketInfo{
+					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
 						{
 							BucketId: "cosi-bc-my-ns-readwrite-bucket",
-							BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
+							BucketInfo: &cosiproto.BucketInfo{
 								Azure: &cosiproto.AzureBucketInfo{
 									StorageAccount: "outputaccount",
 								},
@@ -1662,7 +1662,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 						},
 						{
 							BucketId: "cosi-bc-my-ns-readonly-bucket",
-							BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
+							BucketInfo: &cosiproto.BucketInfo{
 								Azure: &cosiproto.AzureBucketInfo{
 									StorageAccount: "inputaccount",
 								},
@@ -1883,10 +1883,10 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 							ServiceAccount: "serviceaccountname",
 						},
 					},
-					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_BucketInfo{
+					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
 						{
 							BucketId: "cosi-bc-my-ns-readwrite-bucket",
-							BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
+							BucketInfo: &cosiproto.BucketInfo{
 								Gcs: &cosiproto.GcsBucketInfo{
 									ProjectId:  "projectid",
 									BucketName: "corp-cosi-bc-qwerty",
@@ -1895,7 +1895,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 						},
 						{
 							BucketId: "cosi-bc-my-ns-readonly-bucket",
-							BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
+							BucketInfo: &cosiproto.BucketInfo{
 								Gcs: &cosiproto.GcsBucketInfo{
 									ProjectId:  "projectid",
 									BucketName: "corp-cosi-bc-asdfgh",
