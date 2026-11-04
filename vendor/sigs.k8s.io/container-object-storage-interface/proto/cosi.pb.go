@@ -1229,7 +1229,7 @@ type DriverCreateBucketResponse struct {
 	// to administrators so that they might more easily debug errors in their configuration of COSI.
 	// It is thus RECOMMENDED to return all relevant bucket info for all supported protocols.
 	// However, the Provisioner MAY omit any or all bucket info fields as desired.
-	Protocols     *BucketInfo `protobuf:"bytes,1,opt,name=protocols,proto3" json:"protocols,omitempty"`
+	BucketInfo    *BucketInfo `protobuf:"bytes,1,opt,name=bucket_info,json=bucketInfo,proto3" json:"bucket_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1264,9 +1264,9 @@ func (*DriverCreateBucketResponse) Descriptor() ([]byte, []int) {
 	return file_cosi_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *DriverCreateBucketResponse) GetProtocols() *BucketInfo {
+func (x *DriverCreateBucketResponse) GetBucketInfo() *BucketInfo {
 	if x != nil {
-		return x.Protocols
+		return x.BucketInfo
 	}
 	return nil
 }
@@ -1360,7 +1360,7 @@ type DriverGetBucketResponse struct {
 	// to administrators so that they might more easily debug errors in their configuration of COSI.
 	// It is thus RECOMMENDED to return all relevant bucket info for all supported protocols.
 	// However, the Provisioner MAY omit any or all bucket info fields as desired.
-	Protocols     *BucketInfo `protobuf:"bytes,2,opt,name=protocols,proto3" json:"protocols,omitempty"`
+	BucketInfo    *BucketInfo `protobuf:"bytes,2,opt,name=bucket_info,json=bucketInfo,proto3" json:"bucket_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1395,9 +1395,9 @@ func (*DriverGetBucketResponse) Descriptor() ([]byte, []int) {
 	return file_cosi_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *DriverGetBucketResponse) GetProtocols() *BucketInfo {
+func (x *DriverGetBucketResponse) GetBucketInfo() *BucketInfo {
 	if x != nil {
-		return x.Protocols
+		return x.BucketInfo
 	}
 	return nil
 }
@@ -2215,9 +2215,10 @@ const file_cosi_proto_rawDesc = "" +
 	"parameters\x1a=\n" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"a\n" +
-	"\x1aDriverCreateBucketResponse\x12C\n" +
-	"\tprotocols\x18\x01 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.BucketInfoR\tprotocols\"\xa0\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"d\n" +
+	"\x1aDriverCreateBucketResponse\x12F\n" +
+	"\vbucket_info\x18\x01 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.BucketInfoR\n" +
+	"bucketInfo\"\xa0\x02\n" +
 	"\x16DriverGetBucketRequest\x12\x1b\n" +
 	"\tbucket_id\x18\x01 \x01(\tR\bbucketId\x12G\n" +
 	"\tprotocols\x18\x02 \x03(\v2).sigs.k8s.io.cosi.v1alpha2.ObjectProtocolR\tprotocols\x12a\n" +
@@ -2226,9 +2227,10 @@ const file_cosi_proto_rawDesc = "" +
 	"parameters\x1a=\n" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"^\n" +
-	"\x17DriverGetBucketResponse\x12C\n" +
-	"\tprotocols\x18\x02 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.BucketInfoR\tprotocols\"\xdd\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"a\n" +
+	"\x17DriverGetBucketResponse\x12F\n" +
+	"\vbucket_info\x18\x02 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.BucketInfoR\n" +
+	"bucketInfo\"\xdd\x01\n" +
 	"\x19DriverDeleteBucketRequest\x12\x1b\n" +
 	"\tbucket_id\x18\x01 \x01(\tR\bbucketId\x12d\n" +
 	"\n" +
@@ -2378,10 +2380,10 @@ var file_cosi_proto_depIdxs = []int32{
 	30, // 13: sigs.k8s.io.cosi.v1alpha2.DriverGenerateBucketIdRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGenerateBucketIdRequest.ParametersEntry
 	6,  // 14: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
 	31, // 15: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketRequest.ParametersEntry
-	7,  // 16: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketResponse.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.BucketInfo
+	7,  // 16: sigs.k8s.io.cosi.v1alpha2.DriverCreateBucketResponse.bucket_info:type_name -> sigs.k8s.io.cosi.v1alpha2.BucketInfo
 	6,  // 17: sigs.k8s.io.cosi.v1alpha2.DriverGetBucketRequest.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
 	32, // 18: sigs.k8s.io.cosi.v1alpha2.DriverGetBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGetBucketRequest.ParametersEntry
-	7,  // 19: sigs.k8s.io.cosi.v1alpha2.DriverGetBucketResponse.protocols:type_name -> sigs.k8s.io.cosi.v1alpha2.BucketInfo
+	7,  // 19: sigs.k8s.io.cosi.v1alpha2.DriverGetBucketResponse.bucket_info:type_name -> sigs.k8s.io.cosi.v1alpha2.BucketInfo
 	33, // 20: sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest.ParametersEntry
 	6,  // 21: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.protocol:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
 	16, // 22: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.authentication_type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType

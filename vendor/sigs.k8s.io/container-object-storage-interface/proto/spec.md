@@ -559,7 +559,7 @@ message DriverCreateBucketResponse {
     // to administrators so that they might more easily debug errors in their configuration of COSI.
     // It is thus RECOMMENDED to return all relevant bucket info for all supported protocols.
     // However, the Provisioner MAY omit any or all bucket info fields as desired.
-    BucketInfo protocols = 1;
+    BucketInfo bucket_info = 1;
 }
 ```
 
@@ -612,7 +612,7 @@ message DriverGetBucketResponse {
     // to administrators so that they might more easily debug errors in their configuration of COSI.
     // It is thus RECOMMENDED to return all relevant bucket info for all supported protocols.
     // However, the Provisioner MAY omit any or all bucket info fields as desired.
-    BucketInfo protocols = 2;
+    BucketInfo bucket_info = 2;
 }
 ```
 

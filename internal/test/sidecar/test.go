@@ -106,7 +106,7 @@ func ReconcileOpinionatedS3Bucket(
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.BucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        cositest.OpinionatedS3BucketClass().Spec.DriverName,
 						BucketId:        dcbr.BucketId,
@@ -151,7 +151,7 @@ func ReconcileOpinionatedGcsBucket(
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.BucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					Gcs: &cosiproto.GcsBucketInfo{
 						ProjectId:  "cosi",
 						BucketName: "backend-" + dcbr.BucketId,
@@ -248,7 +248,7 @@ func ReconcileOpinionatedAzureBucket(
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.BucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					Azure: &cosiproto.AzureBucketInfo{
 						StorageAccount: "cosi",
 					},
