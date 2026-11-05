@@ -360,6 +360,38 @@ func (msg *DriverDeleteBucketResponse) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON implements json.Marshaler
+func (msg *DriverGenerateBucketAccessIdRequest) MarshalJSON() ([]byte, error) {
+	return protojson.MarshalOptions{
+		UseEnumNumbers:  false,
+		EmitUnpopulated: true,
+		UseProtoNames:   false,
+	}.Marshal(msg)
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (msg *DriverGenerateBucketAccessIdRequest) UnmarshalJSON(b []byte) error {
+	return protojson.UnmarshalOptions{
+		DiscardUnknown: false,
+	}.Unmarshal(b, msg)
+}
+
+// MarshalJSON implements json.Marshaler
+func (msg *DriverGenerateBucketAccessIdResponse) MarshalJSON() ([]byte, error) {
+	return protojson.MarshalOptions{
+		UseEnumNumbers:  false,
+		EmitUnpopulated: true,
+		UseProtoNames:   false,
+	}.Marshal(msg)
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (msg *DriverGenerateBucketAccessIdResponse) UnmarshalJSON(b []byte) error {
+	return protojson.UnmarshalOptions{
+		DiscardUnknown: false,
+	}.Unmarshal(b, msg)
+}
+
+// MarshalJSON implements json.Marshaler
 func (msg *DriverGrantBucketAccessRequest) MarshalJSON() ([]byte, error) {
 	return protojson.MarshalOptions{
 		UseEnumNumbers:  false,

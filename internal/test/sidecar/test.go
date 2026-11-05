@@ -167,6 +167,14 @@ func ReconcileOpinionatedGcsBucket(
 	return ReconcileBucket(t, bootstrapped, &fakeServer, driverInfo, nsName)
 }
 
+// OpinionatedGenerateBucketAccessIdFunc is the DriverGenerateBucketAccessId behavior shared by all
+// opinionated fake drivers: it deterministically derives the account ID from the requested name.
+func OpinionatedGenerateBucketAccessIdFunc(
+	ctx context.Context, dgbair *cosiproto.DriverGenerateBucketAccessIdRequest,
+) (*cosiproto.DriverGenerateBucketAccessIdResponse, error) {
+	return &cosiproto.DriverGenerateBucketAccessIdResponse{AccountId: "cosi-" + dgbair.AccountName}, nil
+}
+
 // ReconcileOpinionatedS3BucketAccess reconciles the BucketAccess with the given namespaced name for unit tests.
 // It uses a configurations that are compatible with the opinionated S3 driver and BucketClass.
 // It is suitable for unit testing behavior that relies on a BucketAccess to be reconciled as a
@@ -177,6 +185,7 @@ func ReconcileOpinionatedS3BucketAccess(
 	nsName types.NamespacedName,
 ) (*cosiapi.BucketAccess, error) {
 	fakeServer := cositest.FakeProvisionerServer{
+		GenerateBucketAccessIdFunc: OpinionatedGenerateBucketAccessIdFunc,
 		GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 			buckets := make([]*cosiproto.DriverGrantBucketAccessResponse_BucketInfo, 0, len(dgbar.Buckets))
 			for _, rb := range dgbar.Buckets {
@@ -198,8 +207,7 @@ func ReconcileOpinionatedS3BucketAccess(
 			}
 
 			ret := &cosiproto.DriverGrantBucketAccessResponse{
-				AccountId: "cosi-" + dgbar.AccountName,
-				Buckets:   buckets,
+				Buckets: buckets,
 				Credentials: &cosiproto.CredentialInfo{
 					S3: &cosiproto.S3CredentialInfo{
 						AccessKeyId:     "opinionatedaccesskey==",

@@ -135,7 +135,16 @@ service Provisioner {
     // - MUST return OK if the bucket has already been deleted.
     rpc DriverDeleteBucket (DriverDeleteBucketRequest) returns (DriverDeleteBucketResponse) {}
 
+    // Generate the identifier that COSI will use for all subsequent calls related to a bucket access.
+    // It MUST return the same account_id for every call with the same account_name.
+    // This is phase 1 of the 2-phase provisioning process. It is RECOMMENDED to only generate an ID
+    // and NOT RECOMMENDED to provision any backend resource.
+    // It MUST NOT result in backend resource leakage if this command fails and COSI subsequently
+    // deletes the resource without calling DriverRevokeBucketAccess.
+    rpc DriverGenerateBucketAccessId (DriverGenerateBucketAccessIdRequest) returns (DriverGenerateBucketAccessIdResponse);
+
     // Grant access to a bucket.
+    // This is phase 2 of the 2-phase provisioning process.
     //
     // Important return codes:
     // - MUST return OK if a principal with matching identity and parameters already exists.
@@ -639,37 +648,140 @@ message DriverDeleteBucketResponse {
 }
 ```
 
+#### Bucket Access Provisioning
+
+COSI provisions a bucket access in two phases:
+
+1. `DriverGenerateBucketAccessId` returns a persistent `account_id` without provisioning backend resources.
+   COSI persists this identifier before proceeding.
+2. `DriverGrantBucketAccess` provisions the backend access using the persisted `account_id`.
+
+COSI WILL use the `account_id` returned by phase 1 for all subsequent gRPC calls related to the
+bucket access, including the phase 2 `DriverGrantBucketAccess` call. The Plugin MUST be able to
+correlate that `account_id` to the backend account it provisions in phase 2.
+
+If the corresponding Kubernetes resource is deleted before COSI can persist `account_id`,
+`DriverRevokeBucketAccess` WILL NOT be called for that identifier. Plugins MUST NOT leak backend
+resources in this case. If possible, COSI RECOMMENDS that each Driver use a deterministic rule for
+generating the `account_id` without provisioning backend resources.
+
+#### DriverGenerateBucketAccessId
+
+A Plugin MUST implement this RPC call.
+
+This operation MUST be idempotent. This operation SHOULD NOT provision, reserve, or otherwise mutate
+any backend resource.
+
+Other parameters (`protocol`, `authentication_type`, `service_account_name`, etc.) given in this
+gRPC call are the same later used for phase-2 provisioning. This ensures Plugins may use any of the
+creation parameters they desire when determining `account_id`.
+
+The Provisioner is NOT REQUIRED to do input parameter validation for OPTIONAL inputs.
+The Provisioner MAY do so, and SHOULD follow DriverGrantBucketAccess requirements if so.
+
+Important driver return codes:
+* `AlreadyExists` (not retryable) when the bucket access already exists but is incompatible with the request.
+* `InvalidArgument` (not retryable) if `AuthenticationType` is not supported.
+* `InvalidArgument` (not retryable) if any parameters are invalid for the backend.
+* `OutOfRange` (not retryable) if (and only if) the driver does not support creating a single shared access credential for multiple buckets.
+
+```protobuf
+message DriverGenerateBucketAccessIdRequest {
+    // REQUIRED. The suggested name for the backend bucket access.
+    // It serves two purposes:
+    // 1) Suggested name - COSI WILL suggest a name that includes a UID component that is
+    //    statistically likely to be globally unique, even between multiple Kubernetes clusters.
+    //    The COSI Sidecar uses the BucketAccess resource UID as part of the input value for this
+    //    field. This WILL be "ba-<BucketAccess.UID>".
+    // 2) Idempotency - COSI uses this name as an idempotency key. If COSI is unable to
+    //    persistently store the returned account_id, COSI WILL retry DriverGenerateBucketAccessId
+    //    with the same name later.
+    //    Using or appending random identifiers can lead to multiple unused bucket accesses being
+    //    created in the storage backend in the event of timing-related Driver/Sidecar failures or
+    //    restarts.
+    // COSI WILL use DNS subdomain format (https://datatracker.ietf.org/doc/html/rfc1123).
+    // It WILL contain no more than 253 characters, contain only lowercase alphanumeric
+    // characters, '-' or '.', start with an alphanumeric character, and end with an alphanumeric
+    // character.
+    string account_name = 1;
+
+    // OPTIONAL. A preview of the protocol to be sent to DriverGrantBucketAccess for later
+    // access provisioning. The object storage protocol the provisioned access MUST support.
+    // The Provisioner MAY use the value to determine part of the generated ID.
+    // The Provisioner MAY ignore the value.
+    ObjectProtocol protocol = 2;
+
+    // OPTIONAL. A preview of the authentication type to be sent to DriverGrantBucketAccess for
+    // later access provisioning.
+    // The Provisioner MAY use the value to determine part of the generated ID.
+    // The Provisioner MAY ignore the value.
+    AuthenticationType authentication_type = 3;
+
+    // OPTIONAL. A preview of the service account name to be sent to DriverGrantBucketAccess for later
+    // access provisioning.
+    // The Provisioner MAY use the value to determine part of the generated ID.
+    // The Provisioner MAY ignore the value.
+    string service_account_name = 4;
+
+    // OPTIONAL. A preview of the parameters to be sent to DriverGrantBucketAccess for later
+    // access provisioning. This represents Plugin-specific parameters passed in as opaque
+    // key-value pairs.
+    // The Provisioner MAY use values to determine part of the generated ID.
+    // The Provisioner MAY ignore these values.
+    map<string, string> parameters = 5;
+
+    // OPTIONAL. A preview of the buckets to be sent to DriverGrantBucketAccess for later access
+    // provisioning.
+    // The Provisioner MAY use values to determine part of the generated ID.
+    // The Provisioner MAY ignore these values.
+    repeated DriverGrantBucketAccessRequest.AccessedBucket buckets = 6;
+}
+
+message DriverGenerateBucketAccessIdResponse {
+    // REQUIRED. The unique identifier for the backend access account known to the Provisioner.
+    // This value WILL be used by COSI to make subsequent calls related to the access, including
+    // DriverGrantBucketAccessRequest. Therefore, the Provisioner MUST be able to correlate
+    // `account_id` to the backend access created later.
+    // It is RECOMMENDED to generate an ID usable as the backend storage system's account ID.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), dots (.), underscores (_), and forward slash (/).
+    string account_id = 1;
+}
+```
+
 #### DriverGrantBucketAccess
 
 A Plugin MUST implement this RPC call.
 
-This operation MUST be idempotent. If an access corresponding to the specified name already exists
+This operation MUST be idempotent. If an access corresponding to the specified ID already exists
 and is compatible with the given parameters, the Plugin MUST reply OK.
 
+When multiple `buckets` are input in the request, the expectation is that the Plugin will provision
+and return a single access with permissions for all given buckets. For example, S3 using `Key`
+authentication can make multiple S3 buckets accessible by a single S3 user and its credentials. The
+single S3 user's `Key` credentials are returned to satisfy the request.
+
+Some Plugins or backends may not be able to support multi-bucket requests. For example, Azure using
+`Key` authentication uses the combined URI and access token to grant access to a single blob. An
+Azure Plugin could not create a single credential that could access all Buckets (blobs). In this
+case, the Azure Plugin SHOULD return gRPC code `OutOfRange` to indicate that it cannot support the
+multi-bucket request. The COSI system will surface this error to users on the BucketAccess so they
+adjust their usage clearly.
+
 Important driver return codes:
-* `AlreadyExists` (not retryable) when the bucket already exists but is incompatible with the request.
+* `AlreadyExists` (not retryable) when the bucket access already exists but is incompatible with the request.
 * `InvalidArgument` (not retryable) if `AuthenticationType` is not supported.
 * `InvalidArgument` (not retryable) if any parameters are invalid for the backend.
 * `OutOfRange` (not retryable) if (and only if) the driver does not support creating a single shared access credential for multiple buckets.
 
 ```protobuf
 message DriverGrantBucketAccessRequest {
-    // REQUIRED. The suggested name for the backend bucket access.
-    // It serves two purposes:
-    // 1) Suggested name - COSI WILL suggest a name that includes a UID component that is
-    //    statistically likely to be globally unique.
-    // 2) Idempotency - This name is generated by COSI to achieve idempotency. The Plugin SHOULD
-    //    ensure that multiple DriverGrantBucketAccess calls for the same name do not result in more
-    //    than one Bucket being provisioned corresponding to the name.
-    //    The COSI Sidecar WILL call DriverGrantBucketAccess, with the same name, periodically to
-    //    ensure the bucket exists.
-    //    Using or appending random identifiers can lead to multiple unused buckets being created in
-    //    the storage backend in the event of timing-related Driver/Sidecar failures or restarts.
-    // COSI WILL use DNS subdomain format (https://datatracker.ietf.org/doc/html/rfc1123).
-    // It WILL contain no more than 253 characters, contain only lowercase alphanumeric
-    // characters, '-' or '.', start with an alphanumeric character, and end with an alphanumeric
-    // character.
-    string account_name = 1;
+    // REQUIRED. The unique identifier for the backend access account known to the Provisioner.
+    // This is the `account_id` returned by DriverGenerateBucketAccessId.
+    // The Plugin MUST provision a backend access that it can correlate to this `account_id`.
+    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
+    // characters ([a-z0-9A-Z]), dashes (-), dots (.), underscores (_), and forward slash (/).
+    string account_id = 1;
 
     // REQUIRED. The object storage protocol the provisioned access MUST support.
     // If the protocol cannot be supported, the Provisioner MUST return `InvalidArgument`.
@@ -726,14 +838,6 @@ message DriverGrantBucketAccessRequest {
 }
 
 message DriverGrantBucketAccessResponse {
-    // REQUIRED. The unique identifier for the backend access account known to the Provisioner.
-    // This value WILL be used by COSI to make subsequent calls related to the access, so the
-    // Provisioner MUST be able to correlate `account_id` to the backend access.
-    // It is RECOMMENDED to use the backend storage system's bucket ID.
-    // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
-    // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
-    string account_id = 1;
-
     message BucketInfo {
         // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
         // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
