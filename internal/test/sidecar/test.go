@@ -178,10 +178,10 @@ func ReconcileOpinionatedS3BucketAccess(
 ) (*cosiapi.BucketAccess, error) {
 	fakeServer := cositest.FakeProvisionerServer{
 		GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
-			buckets := make([]*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket, 0, len(dgbar.Buckets))
+			buckets := make([]*cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket, 0, len(dgbar.Buckets))
 			for _, rb := range dgbar.Buckets {
 				buckets = append(buckets,
-					&cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
+					&cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{
 						BucketId: rb.BucketId,
 						BucketInfo: &cosiproto.BucketInfo{
 							S3: &cosiproto.S3BucketInfo{

@@ -114,7 +114,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 					AccessSecretKey: "sharedsecretkey",
 				},
 			},
-			Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
+			Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{
 				{
 					BucketId: "cosi-bc-my-ns-readwrite-bucket",
 					BucketInfo: &cosiproto.BucketInfo{
@@ -256,13 +256,13 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				req.Parameters,
 			)
 			require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
-			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
+			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket{
 				BucketId:                 "cosi-bc-my-ns-readwrite-bucket",
 				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
 				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
-			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
+			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket{
 				BucketId:                 "cosi-bc-my-ns-readonly-bucket",
 				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
 				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
@@ -1473,7 +1473,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				"bucket info response empty",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
 					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
-					ret.Buckets = []*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{}
+					ret.Buckets = []*cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{}
 					return ret
 				}(),
 			},
@@ -1489,7 +1489,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				"extra bucket info response",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
 					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
-					ret.Buckets = append(ret.Buckets, &cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
+					ret.Buckets = append(ret.Buckets, &cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{
 						BucketId: "something",
 						BucketInfo: &cosiproto.BucketInfo{
 							S3: &cosiproto.S3BucketInfo{
@@ -1651,7 +1651,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 							// empty for ServiceAccount auth
 						},
 					},
-					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
+					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{
 						{
 							BucketId: "cosi-bc-my-ns-readwrite-bucket",
 							BucketInfo: &cosiproto.BucketInfo{
@@ -1773,13 +1773,13 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			assert.Equal(t, "azure-sa", req.ServiceAccountName)
 			assert.Empty(t, req.Parameters)
 			require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
-			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
+			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket{
 				BucketId:                 initRwBucket.Status.BucketID,
 				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
 				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
-			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
+			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket{
 				BucketId:                 initRoBucket.Status.BucketID,
 				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
 				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
@@ -1883,7 +1883,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 							ServiceAccount: "serviceaccountname",
 						},
 					},
-					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessedBucket{
+					Buckets: []*cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{
 						{
 							BucketId: "cosi-bc-my-ns-readwrite-bucket",
 							BucketInfo: &cosiproto.BucketInfo{
@@ -2019,13 +2019,13 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				req.Parameters,
 			)
 			require.Len(t, req.Buckets, 2) // by RPC spec, order of requested accessed buckets is random
-			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
+			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket{
 				BucketId:                 initRwBucket.Status.BucketID,
 				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_WRITE},
 				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 				BucketMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
 			}))
-			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
+			assert.True(t, accessedBucketRequestExists(req.Buckets, &cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket{
 				BucketId:                 initRoBucket.Status.BucketID,
 				ObjectDataAccessMode:     &cosiproto.AccessMode{Mode: cosiproto.AccessMode_READ_ONLY},
 				ObjectMetadataAccessMode: &cosiproto.AccessMode{Mode: cosiproto.AccessMode_ANY},
@@ -2122,8 +2122,8 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 }
 
 func accessedBucketRequestExists(
-	requestList []*cosiproto.DriverGrantBucketAccessRequest_AccessedBucket,
-	want *cosiproto.DriverGrantBucketAccessRequest_AccessedBucket,
+	requestList []*cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket,
+	want *cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket,
 ) bool {
 	for _, ab := range requestList {
 		modeEq := ab.GetObjectDataAccessMode().GetMode() == want.GetObjectDataAccessMode().GetMode() &&

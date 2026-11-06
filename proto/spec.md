@@ -687,7 +687,7 @@ message DriverGrantBucketAccessRequest {
     // The Plugin is responsible for parsing and validating these parameters.
     map<string, string> parameters = 5;
 
-    message AccessedBucket {
+    message AccessRequestedBucket {
         // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
         // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
         // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
@@ -722,7 +722,7 @@ message DriverGrantBucketAccessRequest {
     }
 
     // REQUIRED. Access to at least one bucket MUST be requested.
-    repeated AccessedBucket buckets = 6;
+    repeated AccessRequestedBucket buckets = 6;
 }
 
 message DriverGrantBucketAccessResponse {
@@ -734,7 +734,7 @@ message DriverGrantBucketAccessResponse {
     // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
     string account_id = 1;
 
-    message AccessedBucket {
+    message AccessGrantedBucket {
         // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
         // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
         // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
@@ -751,7 +751,7 @@ message DriverGrantBucketAccessResponse {
     }
 
     // REQUIRED. The Provisioner MUST return info for all `buckets` in the request.
-    repeated AccessedBucket buckets = 2;
+    repeated AccessGrantedBucket buckets = 2;
 
     // REQUIRED.
     CredentialInfo credentials = 3;

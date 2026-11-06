@@ -463,15 +463,15 @@ func generateInternalAccessedBucketConfigs(
 }
 
 // Build the list of accessed bucket requests for the grant-access RPC.
-func (d *internalGrantAccessConfig) RpcGrantBucketsList() []*cosiproto.DriverGrantBucketAccessRequest_AccessedBucket {
-	out := make([]*cosiproto.DriverGrantBucketAccessRequest_AccessedBucket, len(d.AccessConfigsByBucketId))
+func (d *internalGrantAccessConfig) RpcGrantBucketsList() []*cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket {
+	out := make([]*cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket, len(d.AccessConfigsByBucketId))
 
 	i := 0
 	for id, cfg := range d.AccessConfigsByBucketId {
 		// Map iteration order in go is not predictable. This means the returned output order will
 		// differ between repeated reconciles. This is desirable because it ensures that drivers
 		// must not implicitly rely on element ordering.
-		out[i] = &cosiproto.DriverGrantBucketAccessRequest_AccessedBucket{
+		out[i] = &cosiproto.DriverGrantBucketAccessRequest_AccessRequestedBucket{
 			BucketId: id,
 			ObjectDataAccessMode: &cosiproto.AccessMode{
 				Mode: cfg.ObjectDataMode,

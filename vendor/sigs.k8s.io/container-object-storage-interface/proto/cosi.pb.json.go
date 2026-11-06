@@ -376,7 +376,7 @@ func (msg *DriverGrantBucketAccessRequest) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON implements json.Marshaler
-func (msg *DriverGrantBucketAccessRequest_AccessedBucket) MarshalJSON() ([]byte, error) {
+func (msg *DriverGrantBucketAccessRequest_AccessRequestedBucket) MarshalJSON() ([]byte, error) {
 	return protojson.MarshalOptions{
 		UseEnumNumbers:  false,
 		EmitUnpopulated: true,
@@ -385,7 +385,7 @@ func (msg *DriverGrantBucketAccessRequest_AccessedBucket) MarshalJSON() ([]byte,
 }
 
 // UnmarshalJSON implements json.Unmarshaler
-func (msg *DriverGrantBucketAccessRequest_AccessedBucket) UnmarshalJSON(b []byte) error {
+func (msg *DriverGrantBucketAccessRequest_AccessRequestedBucket) UnmarshalJSON(b []byte) error {
 	return protojson.UnmarshalOptions{
 		DiscardUnknown: false,
 	}.Unmarshal(b, msg)
@@ -408,7 +408,7 @@ func (msg *DriverGrantBucketAccessResponse) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON implements json.Marshaler
-func (msg *DriverGrantBucketAccessResponse_AccessedBucket) MarshalJSON() ([]byte, error) {
+func (msg *DriverGrantBucketAccessResponse_AccessGrantedBucket) MarshalJSON() ([]byte, error) {
 	return protojson.MarshalOptions{
 		UseEnumNumbers:  false,
 		EmitUnpopulated: true,
@@ -417,7 +417,7 @@ func (msg *DriverGrantBucketAccessResponse_AccessedBucket) MarshalJSON() ([]byte
 }
 
 // UnmarshalJSON implements json.Unmarshaler
-func (msg *DriverGrantBucketAccessResponse_AccessedBucket) UnmarshalJSON(b []byte) error {
+func (msg *DriverGrantBucketAccessResponse_AccessGrantedBucket) UnmarshalJSON(b []byte) error {
 	return protojson.UnmarshalOptions{
 		DiscardUnknown: false,
 	}.Unmarshal(b, msg)

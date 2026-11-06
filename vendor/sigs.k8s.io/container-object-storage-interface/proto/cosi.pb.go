@@ -1526,7 +1526,7 @@ type DriverGrantBucketAccessRequest struct {
 	// The Plugin is responsible for parsing and validating these parameters.
 	Parameters map[string]string `protobuf:"bytes,5,rep,name=parameters,proto3" json:"parameters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// REQUIRED. Access to at least one bucket MUST be requested.
-	Buckets       []*DriverGrantBucketAccessRequest_AccessedBucket `protobuf:"bytes,6,rep,name=buckets,proto3" json:"buckets,omitempty"`
+	Buckets       []*DriverGrantBucketAccessRequest_AccessRequestedBucket `protobuf:"bytes,6,rep,name=buckets,proto3" json:"buckets,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1596,7 +1596,7 @@ func (x *DriverGrantBucketAccessRequest) GetParameters() map[string]string {
 	return nil
 }
 
-func (x *DriverGrantBucketAccessRequest) GetBuckets() []*DriverGrantBucketAccessRequest_AccessedBucket {
+func (x *DriverGrantBucketAccessRequest) GetBuckets() []*DriverGrantBucketAccessRequest_AccessRequestedBucket {
 	if x != nil {
 		return x.Buckets
 	}
@@ -1613,7 +1613,7 @@ type DriverGrantBucketAccessResponse struct {
 	// characters ([a-z0-9A-Z]), dashes (-), and dots (.).
 	AccountId string `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	// REQUIRED. The Provisioner MUST return info for all `buckets` in the request.
-	Buckets []*DriverGrantBucketAccessResponse_AccessedBucket `protobuf:"bytes,2,rep,name=buckets,proto3" json:"buckets,omitempty"`
+	Buckets []*DriverGrantBucketAccessResponse_AccessGrantedBucket `protobuf:"bytes,2,rep,name=buckets,proto3" json:"buckets,omitempty"`
 	// REQUIRED.
 	Credentials   *CredentialInfo `protobuf:"bytes,3,opt,name=credentials,proto3" json:"credentials,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1657,7 +1657,7 @@ func (x *DriverGrantBucketAccessResponse) GetAccountId() string {
 	return ""
 }
 
-func (x *DriverGrantBucketAccessResponse) GetBuckets() []*DriverGrantBucketAccessResponse_AccessedBucket {
+func (x *DriverGrantBucketAccessResponse) GetBuckets() []*DriverGrantBucketAccessResponse_AccessGrantedBucket {
 	if x != nil {
 		return x.Buckets
 	}
@@ -1801,7 +1801,7 @@ func (*DriverRevokeBucketAccessResponse) Descriptor() ([]byte, []int) {
 	return file_cosi_proto_rawDescGZIP(), []int{25}
 }
 
-type DriverGrantBucketAccessRequest_AccessedBucket struct {
+type DriverGrantBucketAccessRequest_AccessRequestedBucket struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
 	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
@@ -1835,20 +1835,20 @@ type DriverGrantBucketAccessRequest_AccessedBucket struct {
 	sizeCache                protoimpl.SizeCache
 }
 
-func (x *DriverGrantBucketAccessRequest_AccessedBucket) Reset() {
-	*x = DriverGrantBucketAccessRequest_AccessedBucket{}
+func (x *DriverGrantBucketAccessRequest_AccessRequestedBucket) Reset() {
+	*x = DriverGrantBucketAccessRequest_AccessRequestedBucket{}
 	mi := &file_cosi_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DriverGrantBucketAccessRequest_AccessedBucket) String() string {
+func (x *DriverGrantBucketAccessRequest_AccessRequestedBucket) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DriverGrantBucketAccessRequest_AccessedBucket) ProtoMessage() {}
+func (*DriverGrantBucketAccessRequest_AccessRequestedBucket) ProtoMessage() {}
 
-func (x *DriverGrantBucketAccessRequest_AccessedBucket) ProtoReflect() protoreflect.Message {
+func (x *DriverGrantBucketAccessRequest_AccessRequestedBucket) ProtoReflect() protoreflect.Message {
 	mi := &file_cosi_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1860,40 +1860,40 @@ func (x *DriverGrantBucketAccessRequest_AccessedBucket) ProtoReflect() protorefl
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DriverGrantBucketAccessRequest_AccessedBucket.ProtoReflect.Descriptor instead.
-func (*DriverGrantBucketAccessRequest_AccessedBucket) Descriptor() ([]byte, []int) {
+// Deprecated: Use DriverGrantBucketAccessRequest_AccessRequestedBucket.ProtoReflect.Descriptor instead.
+func (*DriverGrantBucketAccessRequest_AccessRequestedBucket) Descriptor() ([]byte, []int) {
 	return file_cosi_proto_rawDescGZIP(), []int{22, 1}
 }
 
-func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetBucketId() string {
+func (x *DriverGrantBucketAccessRequest_AccessRequestedBucket) GetBucketId() string {
 	if x != nil {
 		return x.BucketId
 	}
 	return ""
 }
 
-func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetObjectDataAccessMode() *AccessMode {
+func (x *DriverGrantBucketAccessRequest_AccessRequestedBucket) GetObjectDataAccessMode() *AccessMode {
 	if x != nil {
 		return x.ObjectDataAccessMode
 	}
 	return nil
 }
 
-func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetObjectMetadataAccessMode() *AccessMode {
+func (x *DriverGrantBucketAccessRequest_AccessRequestedBucket) GetObjectMetadataAccessMode() *AccessMode {
 	if x != nil {
 		return x.ObjectMetadataAccessMode
 	}
 	return nil
 }
 
-func (x *DriverGrantBucketAccessRequest_AccessedBucket) GetBucketMetadataAccessMode() *AccessMode {
+func (x *DriverGrantBucketAccessRequest_AccessRequestedBucket) GetBucketMetadataAccessMode() *AccessMode {
 	if x != nil {
 		return x.BucketMetadataAccessMode
 	}
 	return nil
 }
 
-type DriverGrantBucketAccessResponse_AccessedBucket struct {
+type DriverGrantBucketAccessResponse_AccessGrantedBucket struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
 	// To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
@@ -1911,20 +1911,20 @@ type DriverGrantBucketAccessResponse_AccessedBucket struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DriverGrantBucketAccessResponse_AccessedBucket) Reset() {
-	*x = DriverGrantBucketAccessResponse_AccessedBucket{}
+func (x *DriverGrantBucketAccessResponse_AccessGrantedBucket) Reset() {
+	*x = DriverGrantBucketAccessResponse_AccessGrantedBucket{}
 	mi := &file_cosi_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DriverGrantBucketAccessResponse_AccessedBucket) String() string {
+func (x *DriverGrantBucketAccessResponse_AccessGrantedBucket) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DriverGrantBucketAccessResponse_AccessedBucket) ProtoMessage() {}
+func (*DriverGrantBucketAccessResponse_AccessGrantedBucket) ProtoMessage() {}
 
-func (x *DriverGrantBucketAccessResponse_AccessedBucket) ProtoReflect() protoreflect.Message {
+func (x *DriverGrantBucketAccessResponse_AccessGrantedBucket) ProtoReflect() protoreflect.Message {
 	mi := &file_cosi_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1936,19 +1936,19 @@ func (x *DriverGrantBucketAccessResponse_AccessedBucket) ProtoReflect() protoref
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DriverGrantBucketAccessResponse_AccessedBucket.ProtoReflect.Descriptor instead.
-func (*DriverGrantBucketAccessResponse_AccessedBucket) Descriptor() ([]byte, []int) {
+// Deprecated: Use DriverGrantBucketAccessResponse_AccessGrantedBucket.ProtoReflect.Descriptor instead.
+func (*DriverGrantBucketAccessResponse_AccessGrantedBucket) Descriptor() ([]byte, []int) {
 	return file_cosi_proto_rawDescGZIP(), []int{23, 0}
 }
 
-func (x *DriverGrantBucketAccessResponse_AccessedBucket) GetBucketId() string {
+func (x *DriverGrantBucketAccessResponse_AccessGrantedBucket) GetBucketId() string {
 	if x != nil {
 		return x.BucketId
 	}
 	return ""
 }
 
-func (x *DriverGrantBucketAccessResponse_AccessedBucket) GetBucketInfo() *BucketInfo {
+func (x *DriverGrantBucketAccessResponse_AccessGrantedBucket) GetBucketInfo() *BucketInfo {
 	if x != nil {
 		return x.BucketInfo
 	}
@@ -2239,7 +2239,7 @@ const file_cosi_proto_rawDesc = "" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1c\n" +
-	"\x1aDriverDeleteBucketResponse\"\x84\a\n" +
+	"\x1aDriverDeleteBucketResponse\"\x92\a\n" +
 	"\x1eDriverGrantBucketAccessRequest\x12!\n" +
 	"\faccount_name\x18\x01 \x01(\tR\vaccountName\x12E\n" +
 	"\bprotocol\x18\x02 \x01(\v2).sigs.k8s.io.cosi.v1alpha2.ObjectProtocolR\bprotocol\x12^\n" +
@@ -2247,22 +2247,22 @@ const file_cosi_proto_rawDesc = "" +
 	"\x14service_account_name\x18\x04 \x01(\tR\x12serviceAccountName\x12i\n" +
 	"\n" +
 	"parameters\x18\x05 \x03(\v2I.sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.ParametersEntryR\n" +
-	"parameters\x12b\n" +
-	"\abuckets\x18\x06 \x03(\v2H.sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucketR\abuckets\x1a=\n" +
+	"parameters\x12i\n" +
+	"\abuckets\x18\x06 \x03(\v2O.sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessRequestedBucketR\abuckets\x1a=\n" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a\xd7\x02\n" +
-	"\x0eAccessedBucket\x12\x1b\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a\xde\x02\n" +
+	"\x15AccessRequestedBucket\x12\x1b\n" +
 	"\tbucket_id\x18\x01 \x01(\tR\bbucketId\x12\\\n" +
 	"\x17object_data_access_mode\x18\x02 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.AccessModeR\x14objectDataAccessMode\x12d\n" +
 	"\x1bobject_metadata_access_mode\x18\x03 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.AccessModeR\x18objectMetadataAccessMode\x12d\n" +
-	"\x1bbucket_metadata_access_mode\x18\x04 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.AccessModeR\x18bucketMetadataAccessMode\"\xe9\x02\n" +
+	"\x1bbucket_metadata_access_mode\x18\x04 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.AccessModeR\x18bucketMetadataAccessMode\"\xf3\x02\n" +
 	"\x1fDriverGrantBucketAccessResponse\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\tR\taccountId\x12c\n" +
-	"\abuckets\x18\x02 \x03(\v2I.sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.AccessedBucketR\abuckets\x12K\n" +
-	"\vcredentials\x18\x03 \x01(\v2).sigs.k8s.io.cosi.v1alpha2.CredentialInfoR\vcredentials\x1au\n" +
-	"\x0eAccessedBucket\x12\x1b\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12h\n" +
+	"\abuckets\x18\x02 \x03(\v2N.sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.AccessGrantedBucketR\abuckets\x12K\n" +
+	"\vcredentials\x18\x03 \x01(\v2).sigs.k8s.io.cosi.v1alpha2.CredentialInfoR\vcredentials\x1az\n" +
+	"\x13AccessGrantedBucket\x12\x1b\n" +
 	"\tbucket_id\x18\x01 \x01(\tR\bbucketId\x12F\n" +
 	"\vbucket_info\x18\x02 \x01(\v2%.sigs.k8s.io.cosi.v1alpha2.BucketInfoR\n" +
 	"bucketInfo\"\xd8\x04\n" +
@@ -2352,8 +2352,8 @@ var file_cosi_proto_goTypes = []any{
 	nil,                                      // 32: sigs.k8s.io.cosi.v1alpha2.DriverGetBucketRequest.ParametersEntry
 	nil,                                      // 33: sigs.k8s.io.cosi.v1alpha2.DriverDeleteBucketRequest.ParametersEntry
 	nil,                                      // 34: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.ParametersEntry
-	(*DriverGrantBucketAccessRequest_AccessedBucket)(nil),  // 35: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket
-	(*DriverGrantBucketAccessResponse_AccessedBucket)(nil), // 36: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.AccessedBucket
+	(*DriverGrantBucketAccessRequest_AccessRequestedBucket)(nil), // 35: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessRequestedBucket
+	(*DriverGrantBucketAccessResponse_AccessGrantedBucket)(nil),  // 36: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.AccessGrantedBucket
 	nil, // 37: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.ParametersEntry
 	(*DriverRevokeBucketAccessRequest_AccessedBucket)(nil), // 38: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.AccessedBucket
 	(*descriptorpb.EnumOptions)(nil),                       // 39: google.protobuf.EnumOptions
@@ -2388,17 +2388,17 @@ var file_cosi_proto_depIdxs = []int32{
 	6,  // 21: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.protocol:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
 	16, // 22: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.authentication_type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType
 	34, // 23: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.ParametersEntry
-	35, // 24: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket
-	36, // 25: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.AccessedBucket
+	35, // 24: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessRequestedBucket
+	36, // 25: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.AccessGrantedBucket
 	8,  // 26: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.credentials:type_name -> sigs.k8s.io.cosi.v1alpha2.CredentialInfo
 	6,  // 27: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.protocol:type_name -> sigs.k8s.io.cosi.v1alpha2.ObjectProtocol
 	16, // 28: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.authentication_type:type_name -> sigs.k8s.io.cosi.v1alpha2.AuthenticationType
 	37, // 29: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.parameters:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.ParametersEntry
 	38, // 30: sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.buckets:type_name -> sigs.k8s.io.cosi.v1alpha2.DriverRevokeBucketAccessRequest.AccessedBucket
-	17, // 31: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.object_data_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
-	17, // 32: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.object_metadata_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
-	17, // 33: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessedBucket.bucket_metadata_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
-	7,  // 34: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.AccessedBucket.bucket_info:type_name -> sigs.k8s.io.cosi.v1alpha2.BucketInfo
+	17, // 31: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessRequestedBucket.object_data_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
+	17, // 32: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessRequestedBucket.object_metadata_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
+	17, // 33: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessRequest.AccessRequestedBucket.bucket_metadata_access_mode:type_name -> sigs.k8s.io.cosi.v1alpha2.AccessMode
+	7,  // 34: sigs.k8s.io.cosi.v1alpha2.DriverGrantBucketAccessResponse.AccessGrantedBucket.bucket_info:type_name -> sigs.k8s.io.cosi.v1alpha2.BucketInfo
 	39, // 35: sigs.k8s.io.cosi.v1alpha2.alpha_enum:extendee -> google.protobuf.EnumOptions
 	40, // 36: sigs.k8s.io.cosi.v1alpha2.alpha_enum_value:extendee -> google.protobuf.EnumValueOptions
 	41, // 37: sigs.k8s.io.cosi.v1alpha2.cosi_secret:extendee -> google.protobuf.FieldOptions
