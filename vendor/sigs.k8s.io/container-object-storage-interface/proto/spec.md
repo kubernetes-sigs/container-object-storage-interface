@@ -283,7 +283,7 @@ message ObjectProtocol {
 
 // Bucket info for the backend bucket corresponding to each protocol.
 // If a protocol is not supported, the message MUST be empty/nil.
-message ObjectProtocolAndBucketInfo {
+message BucketInfo {
     // Protocol support and bucket info for S3 protocol access.
     S3BucketInfo s3 = 1;
 
@@ -559,7 +559,7 @@ message DriverCreateBucketResponse {
     // to administrators so that they might more easily debug errors in their configuration of COSI.
     // It is thus RECOMMENDED to return all relevant bucket info for all supported protocols.
     // However, the Provisioner MAY omit any or all bucket info fields as desired.
-    ObjectProtocolAndBucketInfo protocols = 1;
+    BucketInfo bucket_info = 1;
 }
 ```
 
@@ -612,7 +612,7 @@ message DriverGetBucketResponse {
     // to administrators so that they might more easily debug errors in their configuration of COSI.
     // It is thus RECOMMENDED to return all relevant bucket info for all supported protocols.
     // However, the Provisioner MAY omit any or all bucket info fields as desired.
-    ObjectProtocolAndBucketInfo protocols = 2;
+    BucketInfo bucket_info = 2;
 }
 ```
 
@@ -687,7 +687,7 @@ message DriverGrantBucketAccessRequest {
     // The Plugin is responsible for parsing and validating these parameters.
     map<string, string> parameters = 5;
 
-    message AccessedBucket {
+    message AccessRequestedBucket {
         // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
         // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
         // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
@@ -722,7 +722,7 @@ message DriverGrantBucketAccessRequest {
     }
 
     // REQUIRED. Access to at least one bucket MUST be requested.
-    repeated AccessedBucket buckets = 6;
+    repeated AccessRequestedBucket buckets = 6;
 }
 
 message DriverGrantBucketAccessResponse {
@@ -734,7 +734,7 @@ message DriverGrantBucketAccessResponse {
     // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
     string account_id = 1;
 
-    message BucketInfo {
+    message AccessGrantedBucket {
         // REQUIRED. The unique identifier for the backend bucket known to the Provisioner.
         // To prevent abuse, this must be at most 2048 characters long, consisting of alphanumeric
         // characters ([a-z0-9A-Z]), dashes (-), and dots (.).
@@ -747,11 +747,11 @@ message DriverGrantBucketAccessResponse {
         // COSI WILL expose this information to users, and it WILL be treated as sensitive/secret
         // information.
         // COSI WILL not log the information or store it in plaintext.
-        ObjectProtocolAndBucketInfo bucket_info = 2;
+        BucketInfo bucket_info = 2;
     }
 
     // REQUIRED. The Provisioner MUST return info for all `buckets` in the request.
-    repeated BucketInfo buckets = 2;
+    repeated AccessGrantedBucket buckets = 2;
 
     // REQUIRED.
     CredentialInfo credentials = 3;

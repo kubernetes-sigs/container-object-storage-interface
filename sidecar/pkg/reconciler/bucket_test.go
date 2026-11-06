@@ -506,7 +506,7 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 				return nil, requestErr
 			}
 			ret := &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
 						BucketId:        "corp-" + dcbr.BucketId,
@@ -523,7 +523,7 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 				return nil, requestErr
 			}
 			ret := cosiproto.DriverGetBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
 						BucketId:        "corp-" + dgebr.BucketId,
@@ -848,7 +848,7 @@ func bucketProvisionedWithWrongProtoTestSuite(t *testing.T, initBucket *cosiapi.
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			createBucketReq = append(createBucketReq, dcbr)
 			ret := &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					Azure: &cosiproto.AzureBucketInfo{}, // bucket.spec wants S3
 				},
 			}
@@ -857,7 +857,7 @@ func bucketProvisionedWithWrongProtoTestSuite(t *testing.T, initBucket *cosiapi.
 		GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 			getBucketReq = append(getBucketReq, dgebr)
 			ret := cosiproto.DriverGetBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					Azure: &cosiproto.AzureBucketInfo{}, // bucket.spec wants S3
 				},
 			}
@@ -953,7 +953,7 @@ func bucketIdPersistenceTestSuite(t *testing.T, initBucket *cosiapi.Bucket, help
 				return nil, provisionErr
 			}
 			return &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
 						BucketId:        "corp-" + dcbr.BucketId,
@@ -969,7 +969,7 @@ func bucketIdPersistenceTestSuite(t *testing.T, initBucket *cosiapi.Bucket, help
 				return nil, provisionErr
 			}
 			return &cosiproto.DriverGetBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
 						BucketId:        "corp-" + dgebr.BucketId,
@@ -1193,7 +1193,7 @@ func bucketGenerateIdFailureTestSuite(t *testing.T, initBucket *cosiapi.Bucket, 
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			createBucketReq = append(createBucketReq, dcbr)
 			return &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
 						BucketId:        "corp-" + dcbr.BucketId,
@@ -1206,7 +1206,7 @@ func bucketGenerateIdFailureTestSuite(t *testing.T, initBucket *cosiapi.Bucket, 
 		GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 			getBucketReq = append(getBucketReq, dgebr)
 			return &cosiproto.DriverGetBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
 						BucketId:        "corp-" + dgebr.BucketId,
@@ -1481,7 +1481,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				requestParams = dcbr.Parameters
 				ret := &cosiproto.DriverCreateBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
 							BucketId:        "backend-" + dcbr.BucketId, // example of backend bucket with slight variation from the request
@@ -1618,7 +1618,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
-					Protocols: nil,
+					BucketInfo: nil,
 				}, nil
 			},
 		}
@@ -1657,7 +1657,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{},
 					},
 				}, nil
@@ -1701,7 +1701,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						Azure: &cosiproto.AzureBucketInfo{},
 					},
 				}, nil
@@ -1745,7 +1745,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						Gcs: &cosiproto.GcsBucketInfo{},
 					},
 				}, nil
@@ -1789,7 +1789,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
 			CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 				return &cosiproto.DriverCreateBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						S3:    &cosiproto.S3BucketInfo{},
 						Azure: &cosiproto.AzureBucketInfo{},
 					},
@@ -2100,7 +2100,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				requestParams = dgebr.Parameters
 				ret := &cosiproto.DriverGetBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
 							BucketId:        dgebr.BucketId,
@@ -2266,7 +2266,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
 			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				return &cosiproto.DriverGetBucketResponse{
-					Protocols: nil,
+					BucketInfo: nil,
 				}, nil
 			},
 		}
@@ -2305,7 +2305,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 		fakeServer := cositest.FakeProvisionerServer{
 			GetBucketFunc: func(ctx context.Context, dgebr *cosiproto.DriverGetBucketRequest) (*cosiproto.DriverGetBucketResponse, error) {
 				return &cosiproto.DriverGetBucketResponse{
-					Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{},
 					},
 				}, nil
