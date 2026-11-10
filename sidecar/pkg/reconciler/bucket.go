@@ -499,7 +499,7 @@ func (r *BucketReconciler) dynamicProvision(
 		return nil, cosierr.NonRetryableError(err)
 	}
 
-	protoResp := resp.Protocols
+	protoResp := resp.BucketInfo
 	if protoResp == nil {
 		logger.Error(nil, "created bucket protocol response missing")
 		return nil, cosierr.NonRetryableError(fmt.Errorf("created bucket protocol response missing"))
@@ -553,7 +553,7 @@ func (r *BucketReconciler) staticProvision(
 		return nil, cosierr.NonRetryableError(err)
 	}
 
-	protoResp := resp.Protocols
+	protoResp := resp.BucketInfo
 	if protoResp == nil {
 		logger.Error(nil, "existing bucket protocol response missing")
 		return nil, cosierr.NonRetryableError(fmt.Errorf("existing bucket protocol response missing"))
