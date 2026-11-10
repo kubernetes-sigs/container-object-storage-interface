@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	"sigs.k8s.io/container-object-storage-interface/internal/conditions"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 	"sigs.k8s.io/container-object-storage-interface/internal/protocol"
@@ -101,6 +102,16 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// no resource to add status to or report an event for
 		logger.Error(err, "failed to get Bucket")
 		return ctrl.Result{}, err
+	}
+
+	if updated := conditions.SetInitializing(&bucket.Status.Conditions, bucket.Generation); updated {
+		if bucket.Status.ReadyToUse == nil {
+			bucket.Status.ReadyToUse = ptr.To(false)
+		}
+		if err := r.Status().Update(ctx, bucket); err != nil {
+			logger.Error(err, "failed to update initializing status conditions")
+			return reconcile.Result{}, err
+		}
 	}
 
 	err := r.reconcile(ctx, logger, bucket)

@@ -41,5 +41,5 @@ patches:
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
+        value: Always
 EOF

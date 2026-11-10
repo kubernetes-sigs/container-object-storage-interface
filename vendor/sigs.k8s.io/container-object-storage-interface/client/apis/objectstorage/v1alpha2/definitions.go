@@ -16,6 +16,44 @@ limitations under the License.
 
 package v1alpha2
 
+// Condition Types
+const (
+	// Provisioned indicates whether the backend resource (bucket/access) was provisioned
+	// successfully by the driver. `False` indicates that provisioning failed and is not expected to
+	// succeed later. Once provisioning succeeds, the status will become `True` and will not
+	// transition to `False` unless there is definite loss of the backend bucket.
+	ProvisionedCondition = "Provisioned"
+
+	// ProvisionFailed indicates when driver provisioning fails. This may represent a temporary
+	// failure and transitions freely between `True` and `False`.
+	ProvisionFailedCondition = "ProvisionFailed"
+
+	// ResourcesValidated indicates whether the Kubernetes resource is valid, including referenced
+	// resources like classes and Secrets.
+	ResourcesValidatedCondition = "ResourcesValidated"
+)
+
+// Condition Reasons
+const (
+	// Initializing indicates that the resource is initializing.
+	InitializingReason = "Initializing"
+
+	// Succeeded indicates that the backend resource was provisioned successfully.
+	SucceededReason = "Succeeded"
+
+	// RetryableDriverError indicates that the driver encountered an error that is retryable.
+	RetryableDriverErrorReason = "RetryableDriverError"
+
+	// NonRetryableDriverError indicates that the driver encountered an error that is not retryable.
+	NonRetryableDriverErrorReason = "NonRetryableDriverError"
+
+	// ResourcesValid indicates that the resource and all of its references are valid.
+	ResourcesValidReason = "ResourcesValid"
+
+	// ResourcesInvalid indicates that the resource or any of its references are invalid.
+	ResourcesInvalidReason = "ResourcesInvalid"
+)
+
 // Finalizers
 const (
 	// ProtectionFinalizer is applied to a COSI resource object to protect it from deletion while

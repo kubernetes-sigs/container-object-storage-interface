@@ -71,6 +71,27 @@ type BucketClaimSpec struct {
 // +kubebuilder:validation:XValidation:message="boundBucketName cannot be removed once set",rule="!has(oldSelf.boundBucketName) || has(self.boundBucketName)"
 // +kubebuilder:validation:XValidation:message="protocols cannot be removed once set",rule="!has(oldSelf.protocols) || has(self.protocols)"
 type BucketClaimStatus struct {
+	// conditions represent the current state of the BucketClaim resource.
+	// The status of each condition is one of `True`, `False`, or `Unknown`.
+	//
+	// - `Provisioned` - Indicates whether the backend bucket was provisioned successfully by the
+	//   driver. `False` indicates that provisioning failed and is not expected to succeed later.
+	//   Once provisioning succeeds, the status will become `True` and will not transition to
+	//   `False` unless there is definite loss of the backend access.
+	// - `ProvisionFailed` - Indicates when driver provisioning fails. This may represent a
+	//   temporary failure and transitions freely between `True` and `False`.
+	// - `ResourcesValidated` - Indicates whether the BucketClaim resource spec is valid and
+	//   whether referenced resources (BucketClass, Bucket) are valid.
+	//
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +kubebuilder:validation:MinItems=0
+	// +kubebuilder:validation:MaxItems=3
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
 	// boundBucketName is the name of the Bucket this BucketClaim is bound to.
 	// Must be a valid Kubernetes resource name: at most 253 characters, consisting only of
 	// lower-case alphanumeric characters, hyphens, and periods, starting and ending with an
