@@ -36,6 +36,7 @@ import (
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
+	"sigs.k8s.io/container-object-storage-interface/internal/conditions"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 )
@@ -129,6 +130,16 @@ func (r *BucketAccessReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *BucketAccessReconciler) reconcile(
 	ctx context.Context, logger logr.Logger, access *cosiapi.BucketAccess,
 ) error {
+	if updated := conditions.SetReconciling(&access.Status.Conditions); updated {
+		if access.Status.ReadyToUse == nil {
+			access.Status.ReadyToUse = ptr.To(false)
+		}
+		if err := r.Status().Update(ctx, access); err != nil {
+			logger.Error(err, "failed to update reconciling status conditions")
+			return err
+		}
+	}
+
 	if !access.GetDeletionTimestamp().IsZero() {
 		logger.Info("beginning BucketAccess deletion")
 		return r.reconcileDelete(ctx, logger, access)

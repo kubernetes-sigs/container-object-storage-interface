@@ -29,6 +29,7 @@ import (
 	"google.golang.org/grpc/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -578,6 +579,24 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 		bucket.Status.Protocols,
 	)
 	assert.Equal(t, "corp-"+helper.ExpectBucketId(), bucket.Status.BucketInfo["BUCKET_NAME"])
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ProvisionedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, bucket.Status.Conditions)
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ProvisionFailedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, bucket.Status.Conditions)
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ResourcesValidatedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, bucket.Status.Conditions)
 
 	t.Run("reconcile again", func(t *testing.T) {
 		createBucketReq = []*cosiproto.DriverCreateBucketRequest{}         // reset seen rpc calls
@@ -723,7 +742,8 @@ func bucketDriverNameMismatchTestSuite(t *testing.T, baseBucket *cosiapi.Bucket,
 	bucket := helper.GetBucket(bootstrapped)
 	assert.Empty(t, bucket.Finalizers)
 	assert.Equal(t, initBucket.Spec, bucket.Spec)
-	assert.Equal(t, initBucket.Status, bucket.Status)
+	cositest.AssertStatusEqualIgnoringConditions(t, &bucket.Status, &initBucket.Status)
+	assert.Empty(t, bucket.Status.Conditions) // should not set conditions on unmanaged bucket
 
 	// Deletion tests don't apply here because no finalizers present
 }

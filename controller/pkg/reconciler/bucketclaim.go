@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	"sigs.k8s.io/container-object-storage-interface/internal/conditions"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 )
@@ -233,6 +234,16 @@ func (r *BucketClaimReconciler) mapBucketClassToWaitingBucketClaims(
 }
 
 func (r *BucketClaimReconciler) reconcile(ctx context.Context, logger logr.Logger, claim *cosiapi.BucketClaim) error {
+	if updated := conditions.SetReconciling(&claim.Status.Conditions); updated {
+		if claim.Status.ReadyToUse == nil {
+			claim.Status.ReadyToUse = ptr.To(false)
+		}
+		if err := r.Status().Update(ctx, claim); err != nil {
+			logger.Error(err, "failed to update reconciling status conditions")
+			return err
+		}
+	}
+
 	bucketName, err := determineBucketName(claim)
 	if err != nil {
 		// Opinion: It is best to not apply a missing finalizer when boundBucketName is degraded

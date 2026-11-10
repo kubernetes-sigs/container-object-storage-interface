@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
+	"sigs.k8s.io/container-object-storage-interface/internal/conditions"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 	"sigs.k8s.io/container-object-storage-interface/internal/protocol"
@@ -166,8 +167,18 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bucket *cosiapi.Bucket) error {
 	if bucket.Spec.DriverName != r.DriverInfo.Name {
 		// keep this log to help debug any issues that might arise with predicate logic
-		logger.Info("not reconciling bucket with non-matching driver name %q", bucket.Spec.DriverName)
+		logger.Info("not reconciling bucket with non-matching driver name", "driverName", bucket.Spec.DriverName)
 		return nil
+	}
+
+	if updated := conditions.SetReconciling(&bucket.Status.Conditions); updated {
+		if bucket.Status.ReadyToUse == nil {
+			bucket.Status.ReadyToUse = ptr.To(false)
+		}
+		if err := r.Status().Update(ctx, bucket); err != nil {
+			logger.Error(err, "failed to update reconciling status conditions")
+			return err
+		}
 	}
 
 	if !bucket.GetDeletionTimestamp().IsZero() {
@@ -288,14 +299,10 @@ func (r *BucketReconciler) reconcile(ctx context.Context, logger logr.Logger, bu
 		return cosierr.NonRetryableError(fmt.Errorf("bucket required protocols missing: %w", err))
 	}
 
-	bucket.Status = cosiapi.BucketStatus{
-		ReadyToUse: ptr.To(true),
-		// already persisted before provisioning; carried forward because status is replaced whole
-		BucketID:   bucketID,
-		Protocols:  provisionedBucket.supportedProtos,
-		BucketInfo: provisionedBucket.allProtoBucketInfo,
-		Error:      nil,
-	}
+	bucket.Status.ReadyToUse = ptr.To(true)
+	bucket.Status.Protocols = provisionedBucket.supportedProtos
+	bucket.Status.BucketInfo = provisionedBucket.allProtoBucketInfo
+	bucket.Status.Error = nil
 	if err := r.Status().Update(ctx, bucket); err != nil {
 		logger.Error(err, "failed to update Bucket status after successful bucket creation")
 		return fmt.Errorf("failed to update Bucket status after successful bucket creation: %w", err)
