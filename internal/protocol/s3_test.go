@@ -41,13 +41,13 @@ func TestS3BucketInfoTranslator_RoundTrips(t *testing.T) {
 		{"nil info", nil, nil},
 		{"empty info", map[cosiapi.BucketInfoVar]string{}, nil},
 		{"info all set", map[cosiapi.BucketInfoVar]string{
-			cosiapi.BucketInfoVar_S3_BucketId:        "bc-qwerty",
+			cosiapi.BucketInfoVar_S3_BucketName:      "bc-qwerty",
 			cosiapi.BucketInfoVar_S3_Endpoint:        "s3.corp.net",
 			cosiapi.BucketInfoVar_S3_Region:          "us-west-1",
 			cosiapi.BucketInfoVar_S3_AddressingStyle: "path",
 		},
 			&cosiproto.S3BucketInfo{
-				BucketId:        "bc-qwerty",
+				BucketName:      "bc-qwerty",
 				Endpoint:        "s3.corp.net",
 				Region:          "us-west-1",
 				AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
@@ -55,13 +55,13 @@ func TestS3BucketInfoTranslator_RoundTrips(t *testing.T) {
 		},
 		{"addressing style unset",
 			map[cosiapi.BucketInfoVar]string{
-				cosiapi.BucketInfoVar_S3_BucketId:        "bc-asdfgh",
+				cosiapi.BucketInfoVar_S3_BucketName:      "bc-asdfgh",
 				cosiapi.BucketInfoVar_S3_Endpoint:        "object.s3.com",
 				cosiapi.BucketInfoVar_S3_Region:          "us-east-1",
 				cosiapi.BucketInfoVar_S3_AddressingStyle: "",
 			},
 			&cosiproto.S3BucketInfo{
-				BucketId:        "bc-asdfgh",
+				BucketName:      "bc-asdfgh",
 				Endpoint:        "object.s3.com",
 				Region:          "us-east-1",
 				AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_UNKNOWN},
@@ -69,13 +69,13 @@ func TestS3BucketInfoTranslator_RoundTrips(t *testing.T) {
 		},
 		{"all set empty", // not valid for bucket access, but fine for Bucket status
 			map[cosiapi.BucketInfoVar]string{
-				cosiapi.BucketInfoVar_S3_BucketId:        "",
+				cosiapi.BucketInfoVar_S3_BucketName:      "",
 				cosiapi.BucketInfoVar_S3_Endpoint:        "",
 				cosiapi.BucketInfoVar_S3_Region:          "",
 				cosiapi.BucketInfoVar_S3_AddressingStyle: "",
 			},
 			&cosiproto.S3BucketInfo{
-				BucketId:        "",
+				BucketName:      "",
 				Endpoint:        "",
 				Region:          "",
 				AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_UNKNOWN},
@@ -112,7 +112,7 @@ func TestS3BucketInfoTranslator_RpcToApi(t *testing.T) {
 		{"empty input",
 			&cosiproto.S3BucketInfo{},
 			map[cosiapi.BucketInfoVar]string{ // should have all fields present w/ no value
-				cosiapi.BucketInfoVar_S3_BucketId:        "",
+				cosiapi.BucketInfoVar_S3_BucketName:      "",
 				cosiapi.BucketInfoVar_S3_Endpoint:        "",
 				cosiapi.BucketInfoVar_S3_Region:          "",
 				cosiapi.BucketInfoVar_S3_AddressingStyle: "",
@@ -120,13 +120,13 @@ func TestS3BucketInfoTranslator_RpcToApi(t *testing.T) {
 		},
 		{"addressing style nil",
 			&cosiproto.S3BucketInfo{
-				BucketId:        "bc-qwerty",
+				BucketName:      "bc-qwerty",
 				Endpoint:        "s3.corp.net",
 				Region:          "us-west-1",
 				AddressingStyle: nil,
 			},
 			map[cosiapi.BucketInfoVar]string{
-				cosiapi.BucketInfoVar_S3_BucketId:        "bc-qwerty",
+				cosiapi.BucketInfoVar_S3_BucketName:      "bc-qwerty",
 				cosiapi.BucketInfoVar_S3_Endpoint:        "s3.corp.net",
 				cosiapi.BucketInfoVar_S3_Region:          "us-west-1",
 				cosiapi.BucketInfoVar_S3_AddressingStyle: "",
@@ -134,13 +134,13 @@ func TestS3BucketInfoTranslator_RpcToApi(t *testing.T) {
 		},
 		{"addressing style empty",
 			&cosiproto.S3BucketInfo{
-				BucketId:        "bc-qwerty",
+				BucketName:      "bc-qwerty",
 				Endpoint:        "s3.corp.net",
 				Region:          "us-west-1",
 				AddressingStyle: &cosiproto.S3AddressingStyle{},
 			},
 			map[cosiapi.BucketInfoVar]string{
-				cosiapi.BucketInfoVar_S3_BucketId:        "bc-qwerty",
+				cosiapi.BucketInfoVar_S3_BucketName:      "bc-qwerty",
 				cosiapi.BucketInfoVar_S3_Endpoint:        "s3.corp.net",
 				cosiapi.BucketInfoVar_S3_Region:          "us-west-1",
 				cosiapi.BucketInfoVar_S3_AddressingStyle: "",

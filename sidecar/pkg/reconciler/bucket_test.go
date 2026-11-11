@@ -509,7 +509,7 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dcbr.BucketId,
+						BucketName:      "corp-" + dcbr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -526,7 +526,7 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dgebr.BucketId,
+						BucketName:      "corp-" + dgebr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -952,7 +952,7 @@ func bucketIdPersistenceTestSuite(t *testing.T, initBucket *cosiapi.Bucket, help
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dcbr.BucketId,
+						BucketName:      "corp-" + dcbr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -968,7 +968,7 @@ func bucketIdPersistenceTestSuite(t *testing.T, initBucket *cosiapi.Bucket, help
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dgebr.BucketId,
+						BucketName:      "corp-" + dgebr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -1192,7 +1192,7 @@ func bucketGenerateIdFailureTestSuite(t *testing.T, initBucket *cosiapi.Bucket, 
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dcbr.BucketId,
+						BucketName:      "corp-" + dcbr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -1205,7 +1205,7 @@ func bucketGenerateIdFailureTestSuite(t *testing.T, initBucket *cosiapi.Bucket, 
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dgebr.BucketId,
+						BucketName:      "corp-" + dgebr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -1480,7 +1480,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        "backend-" + dcbr.BucketId, // example of backend bucket with slight variation from the request
+							BucketName:      "backend-" + dcbr.BucketId, // example of backend bucket with slight variation from the request
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},
@@ -2095,7 +2095,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.BucketId,
+							BucketName:      dgebr.BucketId,
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},

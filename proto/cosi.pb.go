@@ -516,8 +516,8 @@ func (x *CredentialInfo) GetGcs() *GcsCredentialInfo {
 
 type S3BucketInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// S3 bucket ID needed for client access.
-	BucketId string `protobuf:"bytes,1,opt,name=bucket_id,json=bucketId,proto3" json:"bucket_id,omitempty"`
+	// S3 bucket name needed for client access.
+	BucketName string `protobuf:"bytes,1,opt,name=bucket_name,json=bucketName,proto3" json:"bucket_name,omitempty"`
 	// S3 endpoint URL.
 	Endpoint string `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	// Geographical region where the S3 server is running.
@@ -560,9 +560,9 @@ func (*S3BucketInfo) Descriptor() ([]byte, []int) {
 	return file_cosi_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *S3BucketInfo) GetBucketId() string {
+func (x *S3BucketInfo) GetBucketName() string {
 	if x != nil {
-		return x.BucketId
+		return x.BucketName
 	}
 	return ""
 }
@@ -2149,9 +2149,10 @@ const file_cosi_proto_rawDesc = "" +
 	"\x0eCredentialInfo\x12;\n" +
 	"\x02s3\x18\x01 \x01(\v2+.sigs.k8s.io.cosi.v1alpha2.S3CredentialInfoR\x02s3\x12D\n" +
 	"\x05azure\x18\x02 \x01(\v2..sigs.k8s.io.cosi.v1alpha2.AzureCredentialInfoR\x05azure\x12>\n" +
-	"\x03gcs\x18\x03 \x01(\v2,.sigs.k8s.io.cosi.v1alpha2.GcsCredentialInfoR\x03gcs\"\xb8\x01\n" +
-	"\fS3BucketInfo\x12\x1b\n" +
-	"\tbucket_id\x18\x01 \x01(\tR\bbucketId\x12\x1a\n" +
+	"\x03gcs\x18\x03 \x01(\v2,.sigs.k8s.io.cosi.v1alpha2.GcsCredentialInfoR\x03gcs\"\xbc\x01\n" +
+	"\fS3BucketInfo\x12\x1f\n" +
+	"\vbucket_name\x18\x01 \x01(\tR\n" +
+	"bucketName\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12\x16\n" +
 	"\x06region\x18\x03 \x01(\tR\x06region\x12W\n" +
 	"\x10addressing_style\x18\x04 \x01(\v2,.sigs.k8s.io.cosi.v1alpha2.S3AddressingStyleR\x0faddressingStyle\"b\n" +

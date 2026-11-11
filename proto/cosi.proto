@@ -167,8 +167,8 @@ message CredentialInfo {
 }
 
 message S3BucketInfo {
-    // S3 bucket ID needed for client access.
-    string bucket_id = 1;
+    // S3 bucket name needed for client access.
+    string bucket_name = 1;
 
     // S3 endpoint URL.
     string endpoint = 2;

@@ -119,9 +119,9 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 					BucketId: "cosi-bc-my-ns-readwrite-bucket",
 					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
-							// normally, S3 BucketID would probably be based on the rwBucketId, but
+							// normally, S3 bucket name would probably be based on the rwBucketId, but
 							// we want something static for unit tests
-							BucketId:        "corp-cosi-bc-qwerty",
+							BucketName:      "corp-cosi-bc-qwerty",
 							Endpoint:        "s3.corp.net",
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
@@ -132,9 +132,9 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 					BucketId: "cosi-bc-my-ns-readonly-bucket",
 					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
-							// normally, S3 BucketID would probably be based on the rwBucketId, but
+							// normally, S3 bucket name would probably be based on the rwBucketId, but
 							// we want something static for unit tests
-							BucketId:        "corp-cosi-bc-asdfgh",
+							BucketName:      "corp-cosi-bc-asdfgh",
 							Endpoint:        "s3.corp.net",
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
@@ -342,8 +342,8 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				assert.Equal(t, "zxcvbn", string(s.OwnerReferences[0].UID))
 				assert.Equal(t, "sharedaccesskey", s.StringData[string(cosiapi.CredentialVar_S3_AccessKeyId)])
 			}
-			assert.Equal(t, "corp-cosi-bc-qwerty", rwSec.StringData[string(cosiapi.BucketInfoVar_S3_BucketId)])
-			assert.Equal(t, "corp-cosi-bc-asdfgh", roSec.StringData[string(cosiapi.BucketInfoVar_S3_BucketId)])
+			assert.Equal(t, "corp-cosi-bc-qwerty", rwSec.StringData[string(cosiapi.BucketInfoVar_S3_BucketName)])
+			assert.Equal(t, "corp-cosi-bc-asdfgh", roSec.StringData[string(cosiapi.BucketInfoVar_S3_BucketName)])
 
 			// buckets must not be changed
 			assert.Equal(t, initRwBucket, rwBucket)
@@ -1493,7 +1493,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 						BucketId: "something",
 						BucketInfo: &cosiproto.BucketInfo{
 							S3: &cosiproto.S3BucketInfo{
-								BucketId:        "something",
+								BucketName:      "something",
 								Endpoint:        "something",
 								Region:          "something",
 								AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},

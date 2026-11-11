@@ -72,8 +72,8 @@ const (
 
 // bucket info vars
 const (
-	// Required. The S3 bucket ID as used by clients.
-	BucketInfoVar_S3_BucketId BucketInfoVar = "BUCKET_NAME"
+	// Required. The S3 bucket name as used by clients.
+	BucketInfoVar_S3_BucketName BucketInfoVar = "BUCKET_NAME"
 
 	// Required. The S3 endpoint for the bucket.
 	BucketInfoVar_S3_Endpoint BucketInfoVar = "AWS_ENDPOINT_URL"

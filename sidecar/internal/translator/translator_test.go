@@ -60,7 +60,7 @@ func TestTranslateBucketInfo(t *testing.T) {
 			nil, // no validation
 			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
 			map[string]string{
-				string(cosiapi.BucketInfoVar_S3_BucketId):        "",
+				string(cosiapi.BucketInfoVar_S3_BucketName):      "",
 				string(cosiapi.BucketInfoVar_S3_Endpoint):        "",
 				string(cosiapi.BucketInfoVar_S3_Region):          "",
 				string(cosiapi.BucketInfoVar_S3_AddressingStyle): "",
@@ -84,14 +84,14 @@ func TestTranslateBucketInfo(t *testing.T) {
 		{"s3 non-empty, no validation",
 			&cosiproto.BucketInfo{
 				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
-					Endpoint: "cosi.corp.net",
+					BucketName: "something",
+					Endpoint:   "cosi.corp.net",
 				},
 			},
 			nil, // no validation
 			[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
 			map[string]string{
-				string(cosiapi.BucketInfoVar_S3_BucketId):        "something",
+				string(cosiapi.BucketInfoVar_S3_BucketName):      "something",
 				string(cosiapi.BucketInfoVar_S3_Endpoint):        "cosi.corp.net",
 				string(cosiapi.BucketInfoVar_S3_Region):          "",
 				string(cosiapi.BucketInfoVar_S3_AddressingStyle): "",
@@ -101,8 +101,8 @@ func TestTranslateBucketInfo(t *testing.T) {
 		{"s3 non-empty, validate S3",
 			&cosiproto.BucketInfo{
 				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
-					Endpoint: "cosi.corp.net",
+					BucketName: "something",
+					Endpoint:   "cosi.corp.net",
 					// some required info missing to ensure validation is being activated
 				},
 			},
@@ -112,8 +112,8 @@ func TestTranslateBucketInfo(t *testing.T) {
 		{"s3 non-empty, validate GCS",
 			&cosiproto.BucketInfo{
 				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
-					Endpoint: "cosi.corp.net",
+					BucketName: "something",
+					Endpoint:   "cosi.corp.net",
 					// some required info missing to ensure validation is being activated
 				},
 			},
@@ -216,7 +216,7 @@ func TestTranslateBucketInfo(t *testing.T) {
 				cosiapi.ObjectProtocolGcs,
 			},
 			map[string]string{
-				string(cosiapi.BucketInfoVar_S3_BucketId):          "",
+				string(cosiapi.BucketInfoVar_S3_BucketName):        "",
 				string(cosiapi.BucketInfoVar_S3_Endpoint):          "",
 				string(cosiapi.BucketInfoVar_S3_Region):            "",
 				string(cosiapi.BucketInfoVar_S3_AddressingStyle):   "",
@@ -255,7 +255,7 @@ func TestTranslateBucketInfo(t *testing.T) {
 		{"s3+azure+GCS non-empty, no validation",
 			&cosiproto.BucketInfo{
 				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
+					BucketName: "something",
 				},
 				Azure: &cosiproto.AzureBucketInfo{
 					StorageAccount: "acct",
@@ -271,7 +271,7 @@ func TestTranslateBucketInfo(t *testing.T) {
 				cosiapi.ObjectProtocolGcs,
 			},
 			map[string]string{
-				string(cosiapi.BucketInfoVar_S3_BucketId):          "something",
+				string(cosiapi.BucketInfoVar_S3_BucketName):        "something",
 				string(cosiapi.BucketInfoVar_S3_Endpoint):          "",
 				string(cosiapi.BucketInfoVar_S3_Region):            "",
 				string(cosiapi.BucketInfoVar_S3_AddressingStyle):   "",
@@ -283,7 +283,7 @@ func TestTranslateBucketInfo(t *testing.T) {
 		{"s3+azure+GCS non-empty, validate S3",
 			&cosiproto.BucketInfo{
 				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
+					BucketName: "something",
 				},
 				Azure: &cosiproto.AzureBucketInfo{
 					StorageAccount: "acct",
@@ -298,7 +298,7 @@ func TestTranslateBucketInfo(t *testing.T) {
 		{"s3+azure+GCS non-empty, validate Azure",
 			&cosiproto.BucketInfo{
 				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
+					BucketName: "something",
 				},
 				Azure: &cosiproto.AzureBucketInfo{
 					StorageAccount: "acct",
@@ -313,7 +313,7 @@ func TestTranslateBucketInfo(t *testing.T) {
 		{"s3+azure+GCS non-empty, validate GCS",
 			&cosiproto.BucketInfo{
 				S3: &cosiproto.S3BucketInfo{
-					BucketId: "something",
+					BucketName: "something",
 				},
 				Azure: &cosiproto.AzureBucketInfo{
 					StorageAccount: "acct",
