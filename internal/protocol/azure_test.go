@@ -17,6 +17,7 @@ limitations under the License.
 package protocol
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,6 +93,10 @@ func TestAzureBucketInfoTranslator_RpcToApi(t *testing.T) {
 			s := AzureBucketInfoTranslator{}
 			api := s.RpcToApi(tt.rpc)
 			assert.Equal(t, tt.wantApi, api)
+
+			for k := range api {
+				assert.True(t, strings.HasPrefix(string(k), "AZURE_"))
+			}
 		})
 	}
 }
@@ -179,6 +184,10 @@ func TestAzureCredentialTranslator_RpcToApi(t *testing.T) {
 			s := AzureCredentialTranslator{}
 			api := s.RpcToApi(tt.rpc)
 			assert.Equal(t, tt.wantApi, api)
+
+			for k := range api {
+				assert.True(t, strings.HasPrefix(string(k), "AZURE_"))
+			}
 		})
 	}
 }

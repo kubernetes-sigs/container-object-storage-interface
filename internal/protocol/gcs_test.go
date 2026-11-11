@@ -99,6 +99,10 @@ func TestGcsBucketInfoTranslator_RpcToApi(t *testing.T) {
 			s := GcsBucketInfoTranslator{}
 			api := s.RpcToApi(tt.rpc)
 			assert.Equal(t, tt.wantApi, api)
+
+			if tt.rpc != nil {
+				assert.Contains(t, api, cosiapi.BucketInfoVar("PROJECT_ID"))
+			}
 		})
 	}
 }
@@ -191,6 +195,10 @@ func TestGcsCredentialTranslator_RpcToApi(t *testing.T) {
 			s := GcsCredentialTranslator{}
 			api := s.RpcToApi(tt.rpc)
 			assert.Equal(t, tt.wantApi, api)
+
+			if tt.rpc != nil {
+				assert.Contains(t, api, cosiapi.CredentialVar("HMAC_ACCESS_ID"))
+			}
 		})
 	}
 }

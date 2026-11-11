@@ -17,6 +17,7 @@ limitations under the License.
 package protocol
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,6 +152,12 @@ func TestS3BucketInfoTranslator_RpcToApi(t *testing.T) {
 			s := S3BucketInfoTranslator{}
 			api := s.RpcToApi(tt.rpc)
 			assert.Equal(t, tt.wantApi, api)
+
+			for k := range api {
+				if k != "BUCKET_NAME" {
+					assert.True(t, strings.HasPrefix(string(k), "AWS_"))
+				}
+			}
 		})
 	}
 }
@@ -228,6 +235,10 @@ func TestS3CredentialTranslator_RpcToApi(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := S3CredentialTranslator{}
 			api := s.RpcToApi(tt.rpc)
+
+			for k := range api {
+				assert.True(t, strings.HasPrefix(string(k), "AWS_"))
+			}
 			assert.Equal(t, tt.wantApi, api)
 		})
 	}
