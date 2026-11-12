@@ -124,6 +124,79 @@ spec:
                   rule: '!format.dns1123Subdomain().validate(self).hasValue()'
                 - message: boundBucketName is immutable once set
                   rule: self == oldSelf
+              conditions:
+                description: |-
+                  conditions represent the current state of the BucketClaim resource.
+                  The status of each condition is one of `True`, `False`, or `Unknown`.
+
+                  - `Provisioned` - Indicates whether the backend bucket was provisioned successfully by the
+                    driver. `False` indicates that provisioning failed and is not expected to succeed later.
+                    Once provisioning succeeds, the status will become `True` and will not transition to
+                    `False` unless there is definite loss of the backend access.
+                  - `ProvisionFailed` - Indicates when driver provisioning fails. This may represent a
+                    temporary failure and transitions freely between `True` and `False`.
+                  - `ResourcesValidated` - Indicates whether the BucketClaim resource spec is valid and
+                    whether referenced resources (BucketClass, Bucket) are valid.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 3
+                minItems: 0
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               error:
                 description: |-
                   error holds the most recent error message, with a timestamp.

@@ -125,6 +125,27 @@ type BucketAccessSpec struct {
 // +kubebuilder:validation:XValidation:message="authenticationType cannot be removed once set",rule="!has(oldSelf.authenticationType) || has(self.authenticationType)"
 // +kubebuilder:validation:XValidation:message="parameters cannot be removed once set",rule="!has(oldSelf.parameters) || has(self.parameters)"
 type BucketAccessStatus struct {
+	// conditions represent the current state of the BucketAccess resource.
+	// The status of each condition is one of `True`, `False`, or `Unknown`.
+	//
+	// - `Provisioned` - Indicates whether the backend access was provisioned successfully by the
+	//   driver. `False` indicates that provisioning failed and is not expected to succeed later.
+	//   Once provisioning succeeds, the status will become `True` and will not transition to
+	//   `False` unless there is definite loss of the backend access.
+	// - `ProvisionFailed` - Indicates when driver provisioning fails. This may represent a
+	//   temporary failure and transitions freely between `True` and `False`.
+	// - `ResourcesValidated` - Indicates whether the BucketAccess resource spec is valid and
+	//   whether referenced resources (BucketAccessClass, BucketClaims, Secrets) are valid.
+	//
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +kubebuilder:validation:MinItems=0
+	// +kubebuilder:validation:MaxItems=3
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
 	// readyToUse indicates that the BucketAccess is ready for consumption by workloads.
 	// +required
 	ReadyToUse *bool `json:"readyToUse,omitempty"`

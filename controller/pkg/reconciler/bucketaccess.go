@@ -36,6 +36,7 @@ import (
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
+	"sigs.k8s.io/container-object-storage-interface/internal/conditions"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 )
@@ -70,6 +71,16 @@ func (r *BucketAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if bucketaccess.ManagedBySidecar(access) {
 		logger.V(1).Info("not reconciling BucketAccess that should be managed by sidecar")
 		return ctrl.Result{}, nil
+	}
+
+	if updated := conditions.SetInitializing(&access.Status.Conditions, access.Generation); updated {
+		if access.Status.ReadyToUse == nil {
+			access.Status.ReadyToUse = ptr.To(false)
+		}
+		if err := r.Status().Update(ctx, access); err != nil {
+			logger.Error(err, "failed to update initializing status conditions")
+			return reconcile.Result{}, err
+		}
 	}
 
 	err := r.reconcile(ctx, logger, access)
