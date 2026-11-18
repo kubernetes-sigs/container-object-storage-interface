@@ -106,7 +106,7 @@ func ReconcileOpinionatedS3Bucket(
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        cositest.OpinionatedS3BucketClass().Spec.DriverName,
 						BucketId:        dcbr.BucketId,
@@ -151,7 +151,7 @@ func ReconcileOpinionatedGcsBucket(
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					Gcs: &cosiproto.GcsBucketInfo{
 						ProjectId:  "cosi",
 						BucketName: "backend-" + dcbr.BucketId,
@@ -178,12 +178,12 @@ func ReconcileOpinionatedS3BucketAccess(
 ) (*cosiapi.BucketAccess, error) {
 	fakeServer := cositest.FakeProvisionerServer{
 		GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
-			buckets := make([]*cosiproto.DriverGrantBucketAccessResponse_BucketInfo, 0, len(dgbar.Buckets))
+			buckets := make([]*cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket, 0, len(dgbar.Buckets))
 			for _, rb := range dgbar.Buckets {
 				buckets = append(buckets,
-					&cosiproto.DriverGrantBucketAccessResponse_BucketInfo{
+					&cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{
 						BucketId: rb.BucketId,
-						BucketInfo: &cosiproto.ObjectProtocolAndBucketInfo{
+						BucketInfo: &cosiproto.BucketInfo{
 							S3: &cosiproto.S3BucketInfo{
 								BucketId: rb.BucketId,
 								Endpoint: "s3.opinionated.net",
@@ -248,7 +248,7 @@ func ReconcileOpinionatedAzureBucket(
 		// nolint:lll // long line is fine for test code
 		CreateBucketFunc: func(ctx context.Context, dcbr *cosiproto.DriverCreateBucketRequest) (*cosiproto.DriverCreateBucketResponse, error) {
 			ret := &cosiproto.DriverCreateBucketResponse{
-				Protocols: &cosiproto.ObjectProtocolAndBucketInfo{
+				BucketInfo: &cosiproto.BucketInfo{
 					Azure: &cosiproto.AzureBucketInfo{
 						StorageAccount: "cosi",
 					},

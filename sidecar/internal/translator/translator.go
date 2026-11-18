@@ -39,7 +39,7 @@ type ValidationConfig struct {
 // TranslateBucketInfo translates all bucket info for all protocols from an RPC response.
 // If validation is configured (non-nil), only the expected protocol is allowed to have bucket info.
 func BucketInfoToApi(
-	bi *cosiproto.ObjectProtocolAndBucketInfo,
+	bi *cosiproto.BucketInfo,
 	validation *ValidationConfig,
 ) (
 	returnedProtos []cosiapi.ObjectProtocol,
