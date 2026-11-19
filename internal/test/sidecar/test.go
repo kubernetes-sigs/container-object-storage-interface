@@ -109,7 +109,7 @@ func ReconcileOpinionatedS3Bucket(
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        cositest.OpinionatedS3BucketClass().Spec.DriverName,
-						BucketId:        dcbr.BucketId,
+						BucketName:      dcbr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -185,9 +185,9 @@ func ReconcileOpinionatedS3BucketAccess(
 						BucketId: rb.BucketId,
 						BucketInfo: &cosiproto.BucketInfo{
 							S3: &cosiproto.S3BucketInfo{
-								BucketId: rb.BucketId,
-								Endpoint: "s3.opinionated.net",
-								Region:   "opinionated-datacenter",
+								BucketName: rb.BucketId,
+								Endpoint:   "s3.opinionated.net",
+								Region:     "opinionated-datacenter",
 								AddressingStyle: &cosiproto.S3AddressingStyle{
 									Style: cosiproto.S3AddressingStyle_PATH,
 								},

@@ -95,7 +95,7 @@ func TestAzureBucketInfoTranslator_RpcToApi(t *testing.T) {
 			assert.Equal(t, tt.wantApi, api)
 
 			for k := range api {
-				assert.True(t, strings.HasPrefix(string(k), "COSI_AZURE_"))
+				assert.True(t, strings.HasPrefix(string(k), "AZURE_"))
 			}
 		})
 	}
@@ -186,7 +186,7 @@ func TestAzureCredentialTranslator_RpcToApi(t *testing.T) {
 			assert.Equal(t, tt.wantApi, api)
 
 			for k := range api {
-				assert.True(t, strings.HasPrefix(string(k), "COSI_AZURE_"))
+				assert.True(t, strings.HasPrefix(string(k), "AZURE_"))
 			}
 		})
 	}

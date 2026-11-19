@@ -520,7 +520,7 @@ _Appears in:_
 | `readyToUse` _boolean_ | readyToUse indicates that the bucket is ready for consumption by workloads. |  |  |
 | `bucketID` _string_ | bucketID is the unique identifier for the backend bucket known to the driver.<br />Must be at most 2048 characters and consist only of alphanumeric characters ([a-z0-9A-Z]),<br />dashes (-), dots (.), underscores (_), and forward slash (/). |  | MaxLength: 2048 <br />MinLength: 1 <br />Pattern: `^[a-zA-Z0-9/._-]+$` <br /> |
 | `protocols` _[ObjectProtocol](#objectprotocol) array_ | protocols is the set of protocols the Bucket reports to support. BucketAccesses can request<br />access to this Bucket using any of the protocols reported here.<br />Possible values: 'S3', 'Azure', 'GCS'. |  | Enum: [S3 Azure GCS] <br />MaxItems: 3 <br />MinItems: 1 <br /> |
-| `bucketInfo` _object (keys:string, values:string)_ | bucketInfo contains info about the bucket reported by the driver, rendered in the same<br />COSI_<PROTOCOL>_<KEY> format used for the BucketAccess Secret.<br />e.g., COSI_S3_ENDPOINT, COSI_AZURE_STORAGE_ACCOUNT.<br />This should not contain any sensitive information. |  | MaxProperties: 128 <br />MinProperties: 1 <br /> |
+| `bucketInfo` _object (keys:string, values:string)_ | bucketInfo contains info about the bucket reported by the driver, rendered in the<br />well-known env var key format used for the BucketAccess Secret.<br />e.g., AWS_ENDPOINT_URL, AZURE_STORAGE_ACCOUNT.<br />This should not contain any sensitive information. |  | MaxProperties: 128 <br />MinProperties: 1 <br /> |
 | `error` _[TimestampedError](#timestampederror)_ | error holds the most recent error message, with a timestamp.<br />This is cleared when provisioning is successful. |  | MinProperties: 0 <br /> |
 
 
@@ -528,14 +528,14 @@ _Appears in:_
 
 _Underlying type:_ _string_
 
-A CosiEnvVar defines a COSI environment variable that contains backend bucket or access info.
+A CosiEnvVar defines an environment variable that contains backend bucket or access info.
 Vars marked "Required" will be present with non-empty values in BucketAccess Secrets.
 Some required vars may only be required in certain contexts, like when a specific
 AuthenticationType is used.
 Some vars are only relevant for specific protocols.
 Non-relevant vars will not be present, even when marked "Required".
 Vars are used as data keys in BucketAccess Secrets.
-Vars must be all-caps and must begin with `COSI_`.
+Vars must be all-caps.
 
 
 

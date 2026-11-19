@@ -165,9 +165,9 @@ type BucketStatus struct {
 	// +kubebuilder:validation:MaxItems=3
 	Protocols []ObjectProtocol `json:"protocols,omitempty"`
 
-	// bucketInfo contains info about the bucket reported by the driver, rendered in the same
-	// COSI_<PROTOCOL>_<KEY> format used for the BucketAccess Secret.
-	// e.g., COSI_S3_ENDPOINT, COSI_AZURE_STORAGE_ACCOUNT.
+	// bucketInfo contains info about the bucket reported by the driver, rendered in the
+	// well-known env var key format used for the BucketAccess Secret.
+	// e.g., AWS_ENDPOINT_URL, AZURE_STORAGE_ACCOUNT.
 	// This should not contain any sensitive information.
 	// +optional
 	// +kubebuilder:validation:MinProperties=1

@@ -17,7 +17,6 @@ limitations under the License.
 package protocol
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -101,8 +100,8 @@ func TestGcsBucketInfoTranslator_RpcToApi(t *testing.T) {
 			api := s.RpcToApi(tt.rpc)
 			assert.Equal(t, tt.wantApi, api)
 
-			for k := range api {
-				assert.True(t, strings.HasPrefix(string(k), "COSI_GCS_"))
+			if tt.rpc != nil {
+				assert.Contains(t, api, cosiapi.BucketInfoVar("PROJECT_ID"))
 			}
 		})
 	}
@@ -197,8 +196,8 @@ func TestGcsCredentialTranslator_RpcToApi(t *testing.T) {
 			api := s.RpcToApi(tt.rpc)
 			assert.Equal(t, tt.wantApi, api)
 
-			for k := range api {
-				assert.True(t, strings.HasPrefix(string(k), "COSI_GCS_"))
+			if tt.rpc != nil {
+				assert.Contains(t, api, cosiapi.CredentialVar("HMAC_ACCESS_ID"))
 			}
 		})
 	}

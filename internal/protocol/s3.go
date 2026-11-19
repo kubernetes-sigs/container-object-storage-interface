@@ -61,7 +61,7 @@ func (S3BucketInfoTranslator) RpcToApi(b *cosiproto.S3BucketInfo) map[cosiapi.Bu
 	}
 
 	out := map[cosiapi.BucketInfoVar]string{
-		cosiapi.BucketInfoVar_S3_BucketId:        b.BucketId,
+		cosiapi.BucketInfoVar_S3_BucketName:      b.BucketName,
 		cosiapi.BucketInfoVar_S3_Endpoint:        b.Endpoint,
 		cosiapi.BucketInfoVar_S3_Region:          b.Region,
 		cosiapi.BucketInfoVar_S3_AddressingStyle: "", // set below if possible
@@ -87,7 +87,7 @@ func (S3BucketInfoTranslator) ApiToRpc(vars map[cosiapi.BucketInfoVar]string) *c
 
 	out := &cosiproto.S3BucketInfo{}
 
-	out.BucketId = vars[cosiapi.BucketInfoVar_S3_BucketId]
+	out.BucketName = vars[cosiapi.BucketInfoVar_S3_BucketName]
 	out.Endpoint = vars[cosiapi.BucketInfoVar_S3_Endpoint]
 	out.Region = vars[cosiapi.BucketInfoVar_S3_Region]
 
@@ -110,9 +110,9 @@ func (S3BucketInfoTranslator) Validate(
 ) error {
 	errs := []error{}
 
-	id := vars[cosiapi.BucketInfoVar_S3_BucketId]
-	if id == "" {
-		errs = append(errs, fmt.Errorf("S3 bucket ID cannot be unset"))
+	name := vars[cosiapi.BucketInfoVar_S3_BucketName]
+	if name == "" {
+		errs = append(errs, fmt.Errorf("S3 bucket name cannot be unset"))
 	}
 
 	ep := vars[cosiapi.BucketInfoVar_S3_Endpoint]

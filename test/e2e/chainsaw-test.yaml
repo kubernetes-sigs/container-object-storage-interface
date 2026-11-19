@@ -47,7 +47,7 @@ spec:
     use:
       template: assert-access-granted.step.yaml
 
-  # Step 8: Validate the credentials Secret contains all required COSI_S3_* keys.
+  # Step 8: Validate the credentials Secret contains all required S3 keys.
   - name: Validate credentials Secret format
     use:
       template: validate-secret-format.step.yaml

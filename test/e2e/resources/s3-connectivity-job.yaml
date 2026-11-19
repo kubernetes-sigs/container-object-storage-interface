@@ -25,18 +25,16 @@ spec:
         - |
           set -euo pipefail
 
-          # Map COSI secret keys to the env vars aws CLI expects.
-          export AWS_ACCESS_KEY_ID="${COSI_S3_ACCESS_KEY_ID}"
-          export AWS_SECRET_ACCESS_KEY="${COSI_S3_ACCESS_SECRET_KEY}"
-          export AWS_DEFAULT_REGION="${COSI_S3_REGION:-us-east-1}"
-          export AWS_ENDPOINT_URL="${COSI_S3_ENDPOINT}"
+          # COSI secret keys use the env var names aws CLI expects.
+          # Fall back to a default region if the driver did not report one.
+          export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 
           # For non-AWS S3-compatible backends, path-style addressing
           # must be used. There is no env-var equivalent in aws CLI v2,
           # so configure it explicitly.
           aws configure set default.s3.addressing_style path
 
-          BUCKET="${COSI_S3_BUCKET_ID}"
+          BUCKET="${BUCKET_NAME}"
           OBJECT_KEY="cosi-e2e-probe-$(date +%s)"
 
           echo "Uploading probe object s3://${BUCKET}/${OBJECT_KEY} ..."

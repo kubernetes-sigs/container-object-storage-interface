@@ -509,7 +509,7 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dcbr.BucketId,
+						BucketName:      "corp-" + dcbr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -526,7 +526,7 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dgebr.BucketId,
+						BucketName:      "corp-" + dgebr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -577,11 +577,7 @@ func bucketSuccessfulProvisionTestSuite(t *testing.T, initBucket *cosiapi.Bucket
 		[]cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3},
 		bucket.Status.Protocols,
 	)
-	assert.NotEmpty(t, bucket.Status.BucketInfo)
-	assert.Equal(t, "corp-"+helper.ExpectBucketId(), bucket.Status.BucketInfo["COSI_S3_BUCKET_ID"])
-	for k := range bucket.Status.BucketInfo {
-		assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-	}
+	assert.Equal(t, "corp-"+helper.ExpectBucketId(), bucket.Status.BucketInfo["BUCKET_NAME"])
 
 	t.Run("reconcile again", func(t *testing.T) {
 		createBucketReq = []*cosiproto.DriverCreateBucketRequest{}         // reset seen rpc calls
@@ -956,7 +952,7 @@ func bucketIdPersistenceTestSuite(t *testing.T, initBucket *cosiapi.Bucket, help
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dcbr.BucketId,
+						BucketName:      "corp-" + dcbr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -972,7 +968,7 @@ func bucketIdPersistenceTestSuite(t *testing.T, initBucket *cosiapi.Bucket, help
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dgebr.BucketId,
+						BucketName:      "corp-" + dgebr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -1196,7 +1192,7 @@ func bucketGenerateIdFailureTestSuite(t *testing.T, initBucket *cosiapi.Bucket, 
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dcbr.BucketId,
+						BucketName:      "corp-" + dcbr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -1209,7 +1205,7 @@ func bucketGenerateIdFailureTestSuite(t *testing.T, initBucket *cosiapi.Bucket, 
 				BucketInfo: &cosiproto.BucketInfo{
 					S3: &cosiproto.S3BucketInfo{
 						Endpoint:        "s3.corp.net",
-						BucketId:        "corp-" + dgebr.BucketId,
+						BucketName:      "corp-" + dgebr.BucketId,
 						Region:          "us-east-1",
 						AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 					},
@@ -1484,7 +1480,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        "backend-" + dcbr.BucketId, // example of backend bucket with slight variation from the request
+							BucketName:      "backend-" + dcbr.BucketId, // example of backend bucket with slight variation from the request
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},
@@ -1527,13 +1523,8 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
 		// If we check the exact results of details.allProtoBucketInfo, we will tie the unit tests
 		// to the specific implementation of the S3 bucket info translator, tested elsewhere.
-		// Instead, check only COSI_S3_BUCKET_ID which is unlikely to change in the future, and
-		// check that all info is prefixed `COSI_S3_`.
-		assert.NotEmpty(t, details.allProtoBucketInfo)
-		assert.Equal(t, "backend-bc-qwerty", details.allProtoBucketInfo[string(cosiapi.BucketInfoVar_S3_BucketId)])
-		for k := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-		}
+		// Instead, check only BUCKET_NAME which is unlikely to change in the future.
+		assert.Equal(t, "backend-bc-qwerty", details.allProtoBucketInfo["BUCKET_NAME"])
 		assert.Equal(t, inputParams, requestParams)
 	})
 
@@ -1690,10 +1681,9 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
-		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-			assert.Empty(t, v) // but all info will be empty string
+		assert.Contains(t, details.allProtoBucketInfo, "BUCKET_NAME")
+		for _, v := range details.allProtoBucketInfo {
+			assert.Empty(t, v) // all info will be empty string
 		}
 	})
 
@@ -1736,7 +1726,7 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolAzure}, details.supportedProtos)
 		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
 		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_AZURE_"))
+			assert.True(t, strings.HasPrefix(k, "AZURE_"))
 			assert.Empty(t, v) // but all info will be empty string
 		}
 	})
@@ -1778,10 +1768,9 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolGcs}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
-		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_GCS_"))
-			assert.Empty(t, v) // but all info will be empty string
+		assert.Contains(t, details.allProtoBucketInfo, "PROJECT_ID")
+		for _, v := range details.allProtoBucketInfo {
+			assert.Empty(t, v) // all info will be empty string
 		}
 	})
 
@@ -1832,9 +1821,12 @@ func TestBucketReconciler_dynamicProvision(t *testing.T) {
 			},
 			details.supportedProtos,
 		)
-		assert.NotEmpty(t, details.allProtoBucketInfo) // bucket info should be present
+
+		assert.Contains(t, details.allProtoBucketInfo, "BUCKET_NAME") // S3 info is present
 		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_") || strings.HasPrefix(k, "COSI_AZURE_"))
+			if k != "BUCKET_NAME" {
+				assert.True(t, strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_"))
+			}
 			assert.Empty(t, v) // but all info will be empty string
 		}
 	})
@@ -2103,7 +2095,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 					BucketInfo: &cosiproto.BucketInfo{
 						S3: &cosiproto.S3BucketInfo{
 							Endpoint:        "s3.corp.net",
-							BucketId:        dgebr.BucketId,
+							BucketName:      dgebr.BucketId,
 							Region:          "us-east-1",
 							AddressingStyle: &cosiproto.S3AddressingStyle{Style: cosiproto.S3AddressingStyle_PATH},
 						},
@@ -2143,11 +2135,7 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo)
-		assert.Equal(t, "static-bucket", details.allProtoBucketInfo[string(cosiapi.BucketInfoVar_S3_BucketId)])
-		for k := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-		}
+		assert.Equal(t, "static-bucket", details.allProtoBucketInfo["BUCKET_NAME"])
 		assert.Equal(t, inputParams, requestParams)
 	})
 
@@ -2338,10 +2326,9 @@ func TestBucketReconciler_staticProvision(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, []cosiapi.ObjectProtocol{cosiapi.ObjectProtocolS3}, details.supportedProtos)
-		assert.NotEmpty(t, details.allProtoBucketInfo)
-		for k, v := range details.allProtoBucketInfo {
-			assert.True(t, strings.HasPrefix(k, "COSI_S3_"))
-			assert.Empty(t, v)
+		assert.Contains(t, details.allProtoBucketInfo, "BUCKET_NAME")
+		for _, v := range details.allProtoBucketInfo {
+			assert.Empty(t, v) // all info will be empty string
 		}
 	})
 }
