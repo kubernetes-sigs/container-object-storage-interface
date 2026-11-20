@@ -148,7 +148,8 @@ func (r *BucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				// opt in to desired Update events
 				cosipredicate.GenerationChangedInUpdateOnly(), // reconcile spec changes
 				cosipredicate.DeletionTimestampAdded(),
-				cosipredicate.ProtectionFinalizerRemoved(r.Scheme), // re-add protection finalizer if removed
+				cosipredicate.ProtectionFinalizerRemoved(r.Scheme),         // re-add protection finalizer if removed
+				cosipredicate.BucketAccessRefRemovedInUpdateOnly(r.Scheme), // resume blocked deletion
 			),
 		)).
 		// Bucket has no OwnerReference back to BucketClaim, so .Owns() can't be used; map Bucket
@@ -361,6 +362,25 @@ func (r *BucketClaimReconciler) reconcileDelete(
 	bucketName string,
 	isStaticProvisioning bool,
 ) error {
+	// If BucketAccess reference annotation exists on the BucketClaim, exit without retry
+	if hasBucketAccessReferencesAnnotation(claim) {
+		logger.Info("waiting for BucketAccess cleanup before deleting BucketClaim")
+		return nil
+	}
+
+	// Re-check for any race protection.
+	// If BucketAccesses object referencing the BucketClaim still exist, block deletion.
+	referencingAccessNames, err := listReferencingBucketAccessNames(ctx, r.Client, claim)
+	if err != nil {
+		logger.Error(err, "failed to verify BucketAccess references before BucketClaim deletion")
+		return err
+	}
+	if len(referencingAccessNames) > 0 {
+		logger.Info("waiting for BucketAccess cleanup before deleting BucketClaim",
+			"referencingBucketAccesses", referencingAccessNames)
+		return nil
+	}
+
 	claim.Status.ReadyToUse = ptr.To(false)
 	claim.Status.Error = nil // previous error is no longer relevant
 	if err := r.Status().Update(ctx, claim); err != nil {
@@ -439,6 +459,36 @@ func (r *BucketClaimReconciler) reconcileDelete(
 		logger.Error(nil, "unknown Bucket deletion policy", "deletionPolicy", bucket.Spec.DeletionPolicy)
 		return cosierr.NonRetryableError(fmt.Errorf("unknown Bucket deletion policy %q", bucket.Spec.DeletionPolicy))
 	}
+}
+
+func hasBucketAccessReferencesAnnotation(claim *cosiapi.BucketClaim) bool {
+	if claim.Annotations == nil {
+		return false
+	}
+	_, ok := claim.Annotations[cosiapi.HasBucketAccessReferencesAnnotation]
+	return ok
+}
+
+func listReferencingBucketAccessNames(
+	ctx context.Context,
+	cl client.Client,
+	claim *cosiapi.BucketClaim,
+) ([]string, error) {
+	accessList := cosiapi.BucketAccessList{}
+	if err := cl.List(ctx, &accessList, &client.ListOptions{Namespace: claim.Namespace}); err != nil {
+		return nil, fmt.Errorf("failed to list BucketAccesses in claim namespace: %w", err)
+	}
+
+	references := []string{}
+	for _, access := range accessList.Items {
+		for _, ref := range access.Spec.BucketClaims {
+			if ref.BucketClaimName == claim.Name {
+				references = append(references, access.Name)
+				break
+			}
+		}
+	}
+	return references, nil
 }
 
 func (r *BucketClaimReconciler) removeClaimFinalizer(
