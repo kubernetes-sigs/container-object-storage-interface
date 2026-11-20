@@ -39,6 +39,7 @@ import (
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
 	"sigs.k8s.io/container-object-storage-interface/internal/bucketaccess"
+	"sigs.k8s.io/container-object-storage-interface/internal/conditions"
 	cosierr "sigs.k8s.io/container-object-storage-interface/internal/errors"
 	cosipredicate "sigs.k8s.io/container-object-storage-interface/internal/predicate"
 	"sigs.k8s.io/container-object-storage-interface/internal/protocol"
@@ -140,6 +141,21 @@ func (r *BucketAccessReconciler) reconcile(
 		// keep this log to help debug any issues that might arise with predicate logic
 		logger.Info("not reconciling bucketaccess with non-matching driver name", "driverName", access.Status.DriverName)
 		return nil
+	}
+
+	// When access is handed off from controller to sidecar, some conditions will still be unknown.
+	// For example, ProvisionFailed, which is not set until a driver RPC is made. Updating
+	// reconciling here ensures users can continue to observe status to see progress. It also
+	// ensures that any status conditions added to COSI in the future will be added regardless of
+	// whether sidecar or controller is the reconcile owner.
+	if updated := conditions.SetReconciling(&access.Status.Conditions); updated {
+		if access.Status.ReadyToUse == nil {
+			access.Status.ReadyToUse = ptr.To(false)
+		}
+		if err := r.Status().Update(ctx, access); err != nil {
+			logger.Error(err, "failed to update reconciling status conditions")
+			return err
+		}
 	}
 
 	if !access.GetDeletionTimestamp().IsZero() {

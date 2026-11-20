@@ -218,6 +218,24 @@ func TestBucketAccessReconcile(t *testing.T) {
 			},
 			status.Parameters,
 		)
+		cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+			Type:    cosiapi.ProvisionedConditionType,
+			Status:  metav1.ConditionUnknown,
+			Reason:  "Reconciling",
+			Message: "Reconciling",
+		}, access.Status.Conditions)
+		cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+			Type:    cosiapi.ProvisionFailedConditionType,
+			Status:  metav1.ConditionUnknown,
+			Reason:  "Reconciling",
+			Message: "Reconciling",
+		}, access.Status.Conditions)
+		cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+			Type:    cosiapi.ResourcesValidatedConditionType,
+			Status:  metav1.ConditionUnknown,
+			Reason:  "Reconciling",
+			Message: "Reconciling",
+		}, access.Status.Conditions)
 
 		assert.True(t, bucketaccess.ManagedBySidecar(access))                       // MUST hand off to sidecar
 		initialized, err := bucketaccess.SidecarRequirementsPresent(&access.Status) // MUST be fully initialized

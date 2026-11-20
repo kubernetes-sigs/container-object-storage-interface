@@ -6,6 +6,7 @@ set -o xtrace
 #
 # generate a kustomization file for local development use
 # use the Makefile's CONTROLLER_TAG as the image used for dev deployment
+# use IMAGE_PULL_POLICY env var to set a different image pull policy as desired
 #
 
 # store generated file(s) in cache dir not checked into git
@@ -41,5 +42,5 @@ patches:
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
+        value: "${IMAGE_PULL_POLICY:-IfNotPresent}"
 EOF
