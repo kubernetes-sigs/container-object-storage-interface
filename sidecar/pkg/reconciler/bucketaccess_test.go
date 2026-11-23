@@ -18,6 +18,8 @@ package reconciler_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,9 +29,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cosiapi "sigs.k8s.io/container-object-storage-interface/client/apis/objectstorage/v1alpha2"
@@ -105,9 +109,8 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 	}
 
 	// valid RPC response corresponding to above access and buckets
-	newBaseGrantResponse := func(accountName string) *cosiproto.DriverGrantBucketAccessResponse {
+	newBaseGrantResponse := func() *cosiproto.DriverGrantBucketAccessResponse {
 		return &cosiproto.DriverGrantBucketAccessResponse{
-			AccountId: "cosi-" + accountName,
 			Credentials: &cosiproto.CredentialInfo{
 				S3: &cosiproto.S3CredentialInfo{
 					AccessKeyId:     "sharedaccesskey",
@@ -222,9 +225,10 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		revokeRequests := []*cosiproto.DriverRevokeBucketAccessRequest{}
 		var grantError, revokeError error
 		fakeServer := cositest.FakeProvisionerServer{
+			GenerateBucketAccessIdFunc: sidecartest.OpinionatedGenerateBucketAccessIdFunc,
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				grantRequests = append(grantRequests, dgbar)
-				ret := newBaseGrantResponse(dgbar.AccountName)
+				ret := newBaseGrantResponse()
 				return ret, grantError
 			},
 			RevokeBucketAccessFunc: func(ctx context.Context, drbar *cosiproto.DriverRevokeBucketAccessRequest) (*cosiproto.DriverRevokeBucketAccessResponse, error) {
@@ -244,7 +248,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		// grant requests, when made, should be identical for all child tests
 		assertGrantRequest := func(t *testing.T, req *cosiproto.DriverGrantBucketAccessRequest) {
-			assert.Equal(t, "ba-zxcvbn", req.AccountName)
+			assert.Equal(t, "cosi-ba-zxcvbn", req.AccountId)
 			assert.Equal(t, cosiproto.AuthenticationType_KEY, req.AuthenticationType.Type)
 			assert.Equal(t, cosiproto.ObjectProtocol_S3, req.Protocol.Type)
 			assert.Equal(t, "", req.ServiceAccountName)
@@ -494,7 +498,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			}()
 			fakeServer.GrantBucketAccessFunc = func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				grantRequests = append(grantRequests, dgbar)
-				ret := newBaseGrantResponse(dgbar.AccountName)
+				ret := newBaseGrantResponse()
 				ret.Credentials.S3.AccessKeyId = "rotatedsharedaccesskey"
 				return ret, nil
 			}
@@ -827,7 +831,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 	// Most cases where provisioning can't proceed due to invalid/malformed spec/status fields
 	// should have the same deletion behavior.
-	testDeletionWhenRpcShouldNotBeCalled := func(
+	testDeletionReleasesSecretsAndStatus := func(
 		t *testing.T,
 		bootstrapped *cositest.Dependencies,
 		r *sidecar.BucketAccessReconciler,
@@ -939,7 +943,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		t.Run("subsequent deletion", func(t *testing.T) {
 			bootstrapped, r := testRepeatedSecretName(t)
-			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+			testDeletionReleasesSecretsAndStatus(t, bootstrapped, r)
 		})
 	})
 
@@ -1013,7 +1017,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		t.Run("subsequent deletion", func(t *testing.T) {
 			bootstrapped, r := testAccessedBucketsMalformed(t)
-			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+			testDeletionReleasesSecretsAndStatus(t, bootstrapped, r)
 		})
 	})
 
@@ -1087,7 +1091,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		t.Run("subsequent deletion", func(t *testing.T) {
 			bootstrapped, r := testEmptyAccessModes(t)
-			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+			testDeletionReleasesSecretsAndStatus(t, bootstrapped, r)
 		})
 	})
 
@@ -1162,7 +1166,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		t.Run("subsequent deletion", func(t *testing.T) {
 			bootstrapped, r := testBucketDeletingAnnotation(t)
-			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+			testDeletionReleasesSecretsAndStatus(t, bootstrapped, r)
 		})
 	})
 
@@ -1238,7 +1242,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		t.Run("subsequent deletion", func(t *testing.T) {
 			bootstrapped, r := testBucketDriverNameMismatch(t)
-			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+			testDeletionReleasesSecretsAndStatus(t, bootstrapped, r)
 		})
 	})
 
@@ -1314,7 +1318,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 		t.Run("subsequent deletion", func(t *testing.T) {
 			bootstrapped, r := testBucketDoesNotExist(t)
-			testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+			testDeletionReleasesSecretsAndStatus(t, bootstrapped, r)
 		})
 	})
 
@@ -1422,17 +1426,9 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		}
 		tests := []rpcReturnMistakeTest{
 			{
-				"account id missing",
-				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
-					ret.AccountId = ""
-					return ret
-				}(),
-			},
-			{
 				"credentials nil",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Credentials = nil
 					return ret
 				}(),
@@ -1440,7 +1436,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"credentials expected proto nil",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Credentials.S3 = nil
 					return ret
 				}(),
@@ -1448,7 +1444,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"credentials add wrong proto",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Credentials.Gcs = &cosiproto.GcsCredentialInfo{}
 					return ret
 				}(),
@@ -1456,7 +1452,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"credentials invalid",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Credentials.S3.AccessKeyId = "" // S3 requires access key ID for Key auth
 					return ret
 				}(),
@@ -1464,7 +1460,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"bucket info response nil",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets = nil
 					return ret
 				}(),
@@ -1472,7 +1468,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"bucket info response empty",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets = []*cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{}
 					return ret
 				}(),
@@ -1480,7 +1476,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"a bucket info response is missing",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets = ret.Buckets[0:1]
 					return ret
 				}(),
@@ -1488,7 +1484,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"extra bucket info response",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets = append(ret.Buckets, &cosiproto.DriverGrantBucketAccessResponse_AccessGrantedBucket{
 						BucketId: "something",
 						BucketInfo: &cosiproto.BucketInfo{
@@ -1506,7 +1502,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"a bucket id missing",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets[0].BucketId = ""
 					return ret
 				}(),
@@ -1514,7 +1510,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"a bucket info nil",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets[0].BucketInfo = nil
 					return ret
 				}(),
@@ -1522,7 +1518,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"a bucket info adds wrong proto",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets[0].BucketInfo.Azure = &cosiproto.AzureBucketInfo{}
 					return ret
 				}(),
@@ -1530,7 +1526,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"a bucket info expected proto nil",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets[0].BucketInfo.S3 = nil
 					return ret
 				}(),
@@ -1538,7 +1534,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"a bucket info proto invalid",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets[0].BucketInfo.S3.Endpoint = "" // S3 requires endpoint to be set
 					return ret
 				}(),
@@ -1546,7 +1542,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			{
 				"a bucket info unknown bucket id",
 				func() *cosiproto.DriverGrantBucketAccessResponse {
-					ret := newBaseGrantResponse("ba-" + string(baseAccess.UID))
+					ret := newBaseGrantResponse()
 					ret.Buckets[0].BucketId = "something-random"
 					return ret
 				}(),
@@ -1554,11 +1550,16 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		}
 
 		var requestReturn *cosiproto.DriverGrantBucketAccessResponse
+		revokeRequests := []*cosiproto.DriverRevokeBucketAccessRequest{}
 		fakeServer := cositest.FakeProvisionerServer{
+			GenerateBucketAccessIdFunc: sidecartest.OpinionatedGenerateBucketAccessIdFunc,
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				return requestReturn, nil
 			},
-			// RevokeBucketAccessFunc // should not be called
+			RevokeBucketAccessFunc: func(ctx context.Context, drbar *cosiproto.DriverRevokeBucketAccessRequest) (*cosiproto.DriverRevokeBucketAccessResponse, error) {
+				revokeRequests = append(revokeRequests, drbar)
+				return &cosiproto.DriverRevokeBucketAccessResponse{}, nil
+			},
 		}
 
 		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
@@ -1608,7 +1609,11 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 				{ // non-error fields stay the same
 					accessNoError := access.DeepCopy()
 					accessNoError.Status.Error = nil
-					assert.Equal(t, initAccess.Status, accessNoError.Status)
+					// the account ID was persisted before the invalid grant response was received
+					wantStatus := initAccess.Status.DeepCopy()
+					wantStatus.AccountID = "cosi-ba-zxcvbn"
+					wantStatus.ReadyToUse = ptr.To(false)
+					assert.Equal(t, *wantStatus, accessNoError.Status)
 				}
 
 				// secrets should have been created to claim them, but not updated with data
@@ -1632,7 +1637,12 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 
 				t.Run("subsequent deletion", func(t *testing.T) {
 					bootstrapped, r := testRpcReturnMistake(t, &tt)
-					testDeletionWhenRpcShouldNotBeCalled(t, bootstrapped, r)
+					revokeRequests = nil
+					testDeletionReleasesSecretsAndStatus(t, bootstrapped, r)
+
+					// the backend account may exist, so deletion must revoke the persisted ID
+					require.Len(t, revokeRequests, 1)
+					assert.Equal(t, "cosi-ba-zxcvbn", revokeRequests[0].AccountId)
 				})
 			})
 		}
@@ -1642,10 +1652,10 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		grantRequests := []*cosiproto.DriverGrantBucketAccessRequest{}
 		revokeRequests := []*cosiproto.DriverRevokeBucketAccessRequest{}
 		fakeServer := cositest.FakeProvisionerServer{
+			GenerateBucketAccessIdFunc: sidecartest.OpinionatedGenerateBucketAccessIdFunc,
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				grantRequests = append(grantRequests, dgbar)
 				ret := &cosiproto.DriverGrantBucketAccessResponse{
-					AccountId: "cosi-" + dgbar.AccountName,
 					Credentials: &cosiproto.CredentialInfo{
 						Azure: &cosiproto.AzureCredentialInfo{
 							// empty for ServiceAccount auth
@@ -1767,7 +1777,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			require.Len(t, grantRequests, 1)
 			assert.Len(t, revokeRequests, 0)
 			req := grantRequests[0]
-			assert.Equal(t, "ba-zxcvbn", req.AccountName)
+			assert.Equal(t, "cosi-ba-zxcvbn", req.AccountId)
 			assert.Equal(t, cosiproto.AuthenticationType_SERVICE_ACCOUNT, req.AuthenticationType.Type)
 			assert.Equal(t, cosiproto.ObjectProtocol_AZURE, req.Protocol.Type)
 			assert.Equal(t, "azure-sa", req.ServiceAccountName)
@@ -1871,10 +1881,10 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 		grantRequests := []*cosiproto.DriverGrantBucketAccessRequest{}
 		revokeRequests := []*cosiproto.DriverRevokeBucketAccessRequest{}
 		fakeServer := cositest.FakeProvisionerServer{
+			GenerateBucketAccessIdFunc: sidecartest.OpinionatedGenerateBucketAccessIdFunc,
 			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
 				grantRequests = append(grantRequests, dgbar)
 				ret := &cosiproto.DriverGrantBucketAccessResponse{
-					AccountId: "cosi-" + dgbar.AccountName,
 					Credentials: &cosiproto.CredentialInfo{
 						Gcs: &cosiproto.GcsCredentialInfo{
 							AccessId:       "accessid",
@@ -2007,7 +2017,7 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			require.Len(t, grantRequests, 1)
 			assert.Len(t, revokeRequests, 0)
 			req := grantRequests[0]
-			assert.Equal(t, "ba-zxcvbn", req.AccountName)
+			assert.Equal(t, "cosi-ba-zxcvbn", req.AccountId)
 			assert.Equal(t, cosiproto.AuthenticationType_KEY, req.AuthenticationType.Type)
 			assert.Equal(t, cosiproto.ObjectProtocol_GCS, req.Protocol.Type)
 			assert.Equal(t, "", req.ServiceAccountName)
@@ -2117,6 +2127,404 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			// buckets must not change
 			assert.Equal(t, initRwBucket, rwBucket)
 			assert.Equal(t, initRoBucket, roBucket)
+		})
+	})
+
+	t.Run("account ID persistence", func(t *testing.T) {
+		// Stops a reconcile after status.accountID is recorded.
+		const grantFailedErrMsg = "fake backend unavailable"
+
+		generatedId := ""         // the ID DriverGenerateBucketAccessId returns
+		generateErr := error(nil) // inject an error into the DriverGenerateBucketAccessId return
+		grantErr := error(nil)    // inject an error into the DriverGrantBucketAccess return
+
+		generateRequests := []*cosiproto.DriverGenerateBucketAccessIdRequest{}
+		grantRequests := []*cosiproto.DriverGrantBucketAccessRequest{}
+		revokeRequests := []*cosiproto.DriverRevokeBucketAccessRequest{}
+		resetSeenRequests := func() {
+			generateRequests = []*cosiproto.DriverGenerateBucketAccessIdRequest{}
+			grantRequests = []*cosiproto.DriverGrantBucketAccessRequest{}
+			revokeRequests = []*cosiproto.DriverRevokeBucketAccessRequest{}
+		}
+
+		fakeServer := cositest.FakeProvisionerServer{
+			GenerateBucketAccessIdFunc: func(ctx context.Context, dgbair *cosiproto.DriverGenerateBucketAccessIdRequest) (*cosiproto.DriverGenerateBucketAccessIdResponse, error) {
+				generateRequests = append(generateRequests, dgbair)
+				if generateErr != nil {
+					return nil, generateErr
+				}
+				return &cosiproto.DriverGenerateBucketAccessIdResponse{AccountId: generatedId}, nil
+			},
+			GrantBucketAccessFunc: func(ctx context.Context, dgbar *cosiproto.DriverGrantBucketAccessRequest) (*cosiproto.DriverGrantBucketAccessResponse, error) {
+				grantRequests = append(grantRequests, dgbar)
+				if grantErr != nil {
+					return nil, grantErr
+				}
+				return newBaseGrantResponse(), nil
+			},
+			RevokeBucketAccessFunc: func(ctx context.Context, drbar *cosiproto.DriverRevokeBucketAccessRequest) (*cosiproto.DriverRevokeBucketAccessResponse, error) {
+				revokeRequests = append(revokeRequests, drbar)
+				return &cosiproto.DriverRevokeBucketAccessResponse{}, nil
+			},
+		}
+
+		cleanup, serve, tmpSock, err := cositest.RpcServer(nil, &fakeServer)
+		defer cleanup()
+		require.NoError(t, err)
+		go serve()
+
+		conn, err := cositest.RpcClientConn(tmpSock)
+		require.NoError(t, err)
+		rpcClient := cosiproto.NewProvisionerClient(conn)
+
+		t.Run("account ID persisted before access granted", func(t *testing.T) {
+			// Setup: Grant fails after the ID is recorded, exposing what COSI recorded first.
+			generatedId = "cosi-ba-zxcvbn"
+			generateErr = nil
+			grantErr = grpcstatus.Error(codes.Unavailable, grantFailedErrMsg)
+			resetSeenRequests()
+
+			bootstrapped := cositest.MustBootstrap(t,
+				baseAccess.DeepCopy(),
+				baseClass.DeepCopy(),
+				baseReadWriteClaim.DeepCopy(),
+				baseReadOnlyClaim.DeepCopy(),
+				cositest.OpinionatedS3BucketClass(),
+			)
+			ctx := bootstrapped.ContextWithLogger
+			reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+			r := newReconciler(bootstrapped.Client, rpcClient)
+
+			// Act: reconcile, which records the account ID and then fails to grant access.
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.ErrorContains(t, err, grantFailedErrMsg)
+			assert.Empty(t, res)
+
+			// Validate: Grant was asked for the ID that was just recorded.
+			require.Len(t, generateRequests, 1)
+			assert.Equal(t, "ba-zxcvbn", generateRequests[0].AccountName)
+			require.Len(t, grantRequests, 1)
+			assert.Equal(t, "cosi-ba-zxcvbn", grantRequests[0].AccountId)
+			assert.Len(t, revokeRequests, 0)
+
+			// Validate: the ID outlives the failed grant, so a partly created backend access stays reachable.
+			access, _, _, _, _ := getAllResources(bootstrapped)
+			assert.Equal(t, "cosi-ba-zxcvbn", access.Status.AccountID)
+			require.NotNil(t, access.Status.ReadyToUse)
+			assert.False(t, *access.Status.ReadyToUse)
+			require.NotNil(t, access.Status.Error)
+			require.NotNil(t, access.Status.Error.Message)
+			assert.Contains(t, *access.Status.Error.Message, grantFailedErrMsg)
+
+			t.Run("subsequent deletion", func(t *testing.T) {
+				// The backend access may exist even though Grant failed.
+				resetSeenRequests()
+				bootstrapped := bootstrapped.MustCopy() // keep the parent state for the next subtest
+				r := newReconciler(bootstrapped.Client, rpcClient)
+
+				testDeletionReleasesSecretsAndStatus(t, bootstrapped, &r)
+
+				assert.Len(t, generateRequests, 0)
+				assert.Len(t, grantRequests, 0)
+				require.Len(t, revokeRequests, 1)
+				assert.Equal(t, "cosi-ba-zxcvbn", revokeRequests[0].AccountId)
+			})
+
+			t.Run("successful grant after", func(t *testing.T) {
+				// Setup: same BucketAccess, now with Grant succeeding.
+				grantErr = nil
+				resetSeenRequests()
+
+				// Act: reconcile again, resuming from the recorded ID.
+				res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+				assert.NoError(t, err)
+				assert.Empty(t, res)
+
+				// Validate: Generate never ran again, and Grant reused the recorded ID.
+				assert.Len(t, generateRequests, 0)
+				require.Len(t, grantRequests, 1)
+				assert.Equal(t, "cosi-ba-zxcvbn", grantRequests[0].AccountId)
+				assert.Len(t, revokeRequests, 0)
+
+				access, _, _, _, _ := getAllResources(bootstrapped)
+				assert.Equal(t, "cosi-ba-zxcvbn", access.Status.AccountID)
+				require.NotNil(t, access.Status.ReadyToUse)
+				assert.True(t, *access.Status.ReadyToUse)
+				assert.Nil(t, access.Status.Error) // the earlier grant failure is cleared
+			})
+		})
+
+		t.Run("access not granted if ID not persisted", func(t *testing.T) {
+			// Setup: the status write recording the ID fails, so Grant must never run.
+			generatedId = "cosi-ba-zxcvbn"
+			generateErr = nil
+			grantErr = nil
+			resetSeenRequests()
+
+			bootstrapped := cositest.MustBootstrap(t,
+				baseAccess.DeepCopy(),
+				baseClass.DeepCopy(),
+				baseReadWriteClaim.DeepCopy(),
+				baseReadOnlyClaim.DeepCopy(),
+				cositest.OpinionatedS3BucketClass(),
+			)
+			ctx := bootstrapped.ContextWithLogger
+			reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+
+			withWatch, ok := bootstrapped.Client.(client.WithWatch)
+			require.True(t, ok)
+			interceptedClient := interceptor.NewClient(withWatch, interceptor.Funcs{
+				SubResourceUpdate: func(
+					ctx context.Context, c client.Client, subResourceName string, obj client.Object,
+					opts ...client.SubResourceUpdateOption,
+				) error {
+					return kerrors.NewConflict(
+						schema.GroupResource{Group: cosiapi.GroupVersion.Group, Resource: "bucketaccesses"},
+						obj.GetName(),
+						fmt.Errorf("the object has been modified; please apply your changes to the latest version"),
+					)
+				},
+			})
+			r := newReconciler(interceptedClient, rpcClient)
+
+			// Act: reconcile, which generates an ID and then fails to record it.
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.ErrorContains(t, err, "the object has been modified")
+			assert.Empty(t, res)
+
+			// Validate: no access was granted for an ID Kubernetes does not hold.
+			assert.Len(t, generateRequests, 1)
+			assert.Len(t, grantRequests, 0)
+			assert.Len(t, revokeRequests, 0)
+
+			access, _, _, _, _ := getAllResources(bootstrapped)
+			assert.Empty(t, access.Status.AccountID)
+
+			// No deletion test: every status write fails. Generation-failure cases cover this state.
+		})
+
+		t.Run("readyToUse=true with no account ID refused", func(t *testing.T) {
+			// The sidecar never writes readyToUse=true without an account ID, so it must refuse it.
+			generatedId = "cosi-ba-zxcvbn"
+			generateErr = nil
+			grantErr = nil
+			resetSeenRequests()
+
+			bootstrapped := cositest.MustBootstrap(t,
+				baseAccess.DeepCopy(),
+				baseClass.DeepCopy(),
+				baseReadWriteClaim.DeepCopy(),
+				baseReadOnlyClaim.DeepCopy(),
+				cositest.OpinionatedS3BucketClass(),
+			)
+			ctx := bootstrapped.ContextWithLogger
+			reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+			r := newReconciler(bootstrapped.Client, rpcClient)
+
+			initAccess, _, _, _, _ := getAllResources(bootstrapped)
+			initAccess.Status.ReadyToUse = ptr.To(true)
+			require.NoError(t, bootstrapped.Client.Status().Update(ctx, initAccess))
+
+			// Act: reconcile the inconsistent BucketAccess.
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+
+			// Terminal: no retry can fix a status this sidecar cannot have written.
+			require.Error(t, err)
+			assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+			assert.ErrorContains(t, err, "readyToUse is true but no account ID is assigned")
+			assert.Empty(t, res)
+
+			// Validate: the refusal happened before any driver call, and is visible in status.
+			assert.Len(t, generateRequests, 0)
+			assert.Len(t, grantRequests, 0)
+			assert.Len(t, revokeRequests, 0)
+
+			access, _, _, _, _ := getAllResources(bootstrapped)
+			assert.Empty(t, access.Status.AccountID)
+			require.NotNil(t, access.Status.Error)
+			require.NotNil(t, access.Status.Error.Message)
+			assert.Contains(t, *access.Status.Error.Message, "readyToUse is true but no account ID is assigned")
+
+			t.Run("subsequent deletion", func(t *testing.T) {
+				// No recorded ID means no backend access, so no Revoke.
+				resetSeenRequests()
+
+				require.NoError(t, bootstrapped.Client.Delete(ctx, access.DeepCopy()))
+				res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+				assert.NoError(t, err)
+				assert.Empty(t, res)
+
+				assert.Len(t, generateRequests, 0)
+				assert.Len(t, grantRequests, 0)
+				assert.Len(t, revokeRequests, 0)
+				bootstrapped.AssertResourceDoesNotExist(t, cositest.SecretNsName(&baseAccess, 0), &corev1.Secret{})
+				bootstrapped.AssertResourceDoesNotExist(t, cositest.SecretNsName(&baseAccess, 1), &corev1.Secret{})
+			})
+		})
+
+		t.Run("account ID generation fails", func(t *testing.T) {
+			tests := []struct {
+				name         string
+				generatedId  string
+				generateErr  error
+				wantTerminal bool
+				wantErrMsg   string
+			}{
+				// The next three rows model a non-conforming driver: account_id is REQUIRED and
+				// limited to 2048 characters of [a-zA-Z0-9/._-]. The sidecar must refuse such an ID
+				// before recording it, because status.accountID is immutable once set.
+				{
+					name:         "driver returns no ID",
+					generatedId:  "",
+					generateErr:  nil,
+					wantTerminal: true,
+					wantErrMsg:   "generated account ID missing",
+				},
+				{
+					name:         "driver returns an ID outside the allowed characters",
+					generatedId:  "has space!",
+					generateErr:  nil,
+					wantTerminal: true,
+					wantErrMsg:   "must match pattern",
+				},
+				{
+					name:         "driver returns an ID one character over the length limit",
+					generatedId:  strings.Repeat("a", 2049),
+					generateErr:  nil,
+					wantTerminal: true,
+					wantErrMsg:   "must be no more than 2048 characters",
+				},
+				{
+					name:         "retryable RPC error",
+					generatedId:  "",
+					generateErr:  grpcstatus.Error(codes.Unavailable, "fake generate unavailable"),
+					wantTerminal: false,
+					wantErrMsg:   "fake generate unavailable",
+				},
+				{
+					name:         "non-retryable RPC error",
+					generatedId:  "",
+					generateErr:  grpcstatus.Error(codes.InvalidArgument, "fake generate invalid"),
+					wantTerminal: true,
+					wantErrMsg:   "fake generate invalid",
+				},
+				{
+					name:         "driver does not support multi-bucket access",
+					generatedId:  "",
+					generateErr:  grpcstatus.Error(codes.OutOfRange, "fake one bucket only"),
+					wantTerminal: true,
+					wantErrMsg:   "driver does not support multi-bucket access",
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					generatedId = tt.generatedId
+					generateErr = tt.generateErr
+					grantErr = nil
+					resetSeenRequests()
+
+					bootstrapped := cositest.MustBootstrap(t,
+						baseAccess.DeepCopy(),
+						baseClass.DeepCopy(),
+						baseReadWriteClaim.DeepCopy(),
+						baseReadOnlyClaim.DeepCopy(),
+						cositest.OpinionatedS3BucketClass(),
+					)
+					ctx := bootstrapped.ContextWithLogger
+					reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+					r := newReconciler(bootstrapped.Client, rpcClient)
+
+					// Act: reconcile; ID generation must fail before Grant ever runs.
+					res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+					require.Error(t, err)
+					if tt.wantTerminal {
+						assert.ErrorIs(t, err, reconcile.TerminalError(nil))
+					} else {
+						assert.NotErrorIs(t, err, reconcile.TerminalError(nil))
+					}
+					assert.ErrorContains(t, err, tt.wantErrMsg)
+					assert.Empty(t, res)
+
+					// Validate: no ID was recorded, no access was granted, and the error is in status.
+					assert.Len(t, generateRequests, 1)
+					assert.Len(t, grantRequests, 0)
+					assert.Len(t, revokeRequests, 0)
+
+					access, _, _, _, _ := getAllResources(bootstrapped)
+					assert.Empty(t, access.Status.AccountID)
+					require.NotNil(t, access.Status.ReadyToUse)
+					assert.False(t, *access.Status.ReadyToUse)
+					require.NotNil(t, access.Status.Error)
+					require.NotNil(t, access.Status.Error.Message)
+					assert.Contains(t, *access.Status.Error.Message, tt.wantErrMsg)
+
+					t.Run("subsequent deletion", func(t *testing.T) {
+						// No recorded ID means no backend access, so no Revoke.
+						resetSeenRequests()
+
+						testDeletionReleasesSecretsAndStatus(t, bootstrapped, &r)
+
+						assert.Len(t, generateRequests, 0)
+						assert.Len(t, grantRequests, 0)
+						assert.Len(t, revokeRequests, 0)
+					})
+				})
+			}
+		})
+
+		t.Run("Generate and Grant requests agree", func(t *testing.T) {
+			// Generate receives the inputs Grant will, so a driver may derive the ID from any of them.
+			generatedId = "cosi-ba-zxcvbn"
+			generateErr = nil
+			grantErr = nil
+			resetSeenRequests()
+
+			bootstrapped := cositest.MustBootstrap(t,
+				baseAccess.DeepCopy(),
+				baseClass.DeepCopy(),
+				baseReadWriteClaim.DeepCopy(),
+				baseReadOnlyClaim.DeepCopy(),
+				cositest.OpinionatedS3BucketClass(),
+			)
+			ctx := bootstrapped.ContextWithLogger
+			reconcileBucketClaimsAndAccessInitialization(t, bootstrapped)
+			r := newReconciler(bootstrapped.Client, rpcClient)
+
+			// Act: one reconcile that generates, records, and grants.
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: cositest.NsName(&baseAccess)})
+			assert.NoError(t, err)
+			assert.Empty(t, res)
+
+			// Validate: one call each, and Grant used the ID Generate returned.
+			require.Len(t, generateRequests, 1)
+			require.Len(t, grantRequests, 1)
+			assert.Len(t, revokeRequests, 0)
+			gen, grant := generateRequests[0], grantRequests[0]
+
+			access, _, _, _, _ := getAllResources(bootstrapped)
+			assert.Equal(t, "cosi-ba-zxcvbn", access.Status.AccountID)
+			require.NotNil(t, access.Status.ReadyToUse)
+			assert.True(t, *access.Status.ReadyToUse)
+			assert.Nil(t, access.Status.Error)
+
+			assert.Equal(t, "ba-zxcvbn", gen.AccountName)
+			assert.Equal(t, "cosi-ba-zxcvbn", grant.AccountId)
+
+			// Validate: every input Generate saw is the one Grant later received.
+			assert.Equal(t, gen.Protocol.Type, grant.Protocol.Type)
+			assert.Equal(t, gen.AuthenticationType.Type, grant.AuthenticationType.Type)
+			assert.Equal(t, gen.ServiceAccountName, grant.ServiceAccountName)
+			assert.Equal(t, map[string]string{"maxSize": "100Gi", "maxIops": "10"}, gen.Parameters)
+			assert.Equal(t, gen.Parameters, grant.Parameters)
+			require.Len(t, gen.Buckets, 2)
+			require.Len(t, grant.Buckets, 2)
+			for _, b := range gen.Buckets {
+				assert.True(t, accessedBucketRequestExists(grant.Buckets, b), "bucket %q missing from Grant", b.BucketId)
+			}
 		})
 	})
 }
