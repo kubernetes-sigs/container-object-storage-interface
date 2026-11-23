@@ -1,16 +1,5 @@
-// Copyright 2015 go-swagger maintainers
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//    http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-FileCopyrightText: Copyright 2015-2025 go-swagger maintainers
+// SPDX-License-Identifier: Apache-2.0
 
 package json
 
@@ -25,15 +14,19 @@ type jwriter struct {
 	err error
 }
 
-func newJWriter() *jwriter {
-	buf := make([]byte, 0, sensibleBufferSize)
-
-	return &jwriter{buf: bytes.NewBuffer(buf)}
+func (w *jwriter) Reset() {
+	if w.buf != nil {
+		w.buf.Reset()
+	}
+	w.err = nil
 }
 
-func (w *jwriter) Reset() {
-	w.buf.Reset()
-	w.err = nil
+// SetErr records the first error encountered while building the JSON output.
+func (w *jwriter) SetErr(err error) {
+	if w.err != nil {
+		return
+	}
+	w.err = err
 }
 
 func (w *jwriter) RawString(s string) {
@@ -83,4 +76,13 @@ func (w *jwriter) BuildBytes() ([]byte, error) {
 	}
 
 	return bytes.Clone(w.buf.Bytes()), nil
+}
+
+func (w *jwriter) setBuf() {
+	if w.buf != nil {
+		return
+	}
+
+	buf := make([]byte, 0, sensibleBufferSize)
+	w.buf = bytes.NewBuffer(buf)
 }
