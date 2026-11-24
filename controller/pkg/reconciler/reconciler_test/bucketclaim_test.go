@@ -193,6 +193,24 @@ func dynamicInitializationTest(t *testing.T) (
 	assert.Equal(t, false, *status.ReadyToUse)
 	assert.Empty(t, status.Protocols)
 	assert.Nil(t, status.Error)
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ProvisionedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, claim.Status.Conditions)
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ProvisionFailedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, claim.Status.Conditions)
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ResourcesValidatedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, claim.Status.Conditions)
 
 	// intermediate bucket generation is already thoroughly tested elsewhere
 	// just test a couple basic fields to ensure it's integrated
@@ -235,6 +253,24 @@ func staticInitializationTest(
 	assert.Equal(t, false, *claim.Status.ReadyToUse)
 	assert.Empty(t, claim.Status.Protocols)
 	assert.Nil(t, claim.Status.Error)
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ProvisionedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, claim.Status.Conditions)
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ProvisionFailedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, claim.Status.Conditions)
+	cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+		Type:    cosiapi.ResourcesValidatedConditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  "Reconciling",
+		Message: "Reconciling",
+	}, claim.Status.Conditions)
 
 	// Bucket claim ref UID must match claim UID
 	// set either by controller or by admin
@@ -745,7 +781,7 @@ func TestBucketClaimReconcile(t *testing.T) {
 			assert.Contains(t, claim.GetFinalizers(), cosiapi.ProtectionFinalizer)
 			assert.Equal(t, baseStaticClaim.Spec, claim.Spec)
 			assert.Nil(t, claim.Status.Error)
-			assert.Nil(t, claim.Status.ReadyToUse)
+			assert.False(t, *claim.Status.ReadyToUse)
 			assert.Empty(t, claim.Status.BoundBucketName)
 			assert.Empty(t, claim.Status.Protocols)
 

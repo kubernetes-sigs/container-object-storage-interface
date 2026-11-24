@@ -339,6 +339,24 @@ func TestBucketAccessReconciler_Reconcile(t *testing.T) {
 			assert.Equal(t, initAccess.Status.AuthenticationType, access.Status.AuthenticationType)
 			assert.Equal(t, initAccess.Status.DriverName, access.Status.DriverName)
 			assert.Equal(t, initAccess.Status.Parameters, access.Status.Parameters)
+			cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+				Type:    cosiapi.ProvisionedConditionType,
+				Status:  metav1.ConditionUnknown,
+				Reason:  "Reconciling",
+				Message: "Reconciling",
+			}, access.Status.Conditions)
+			cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+				Type:    cosiapi.ProvisionFailedConditionType,
+				Status:  metav1.ConditionUnknown,
+				Reason:  "Reconciling",
+				Message: "Reconciling",
+			}, access.Status.Conditions)
+			cositest.AssertConditionExistsAndMatches(t, metav1.Condition{
+				Type:    cosiapi.ResourcesValidatedConditionType,
+				Status:  metav1.ConditionUnknown,
+				Reason:  "Reconciling",
+				Message: "Reconciling",
+			}, access.Status.Conditions)
 
 			for _, s := range []*corev1.Secret{rwSec, roSec} {
 				assert.Contains(t, s.GetFinalizers(), cosiapi.ProtectionFinalizer)
